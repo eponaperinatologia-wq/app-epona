@@ -93,17 +93,17 @@ function AppEpona() {
             const [cavalosData, propsData, insumosData, servicosData, funcData,
               registrosData, partosData, eventosData, movsData, procsData, ffData, configResult,
             ] = await Promise.all([
-              fetchAll('cavalos').then(fromDbCavalo),
-              fetchAll('proprietarios').then(fromDbProprietario),
-              fetchAll('insumos').then(fromDbInsumo),
-              fetchAll('servicos').then(fromDbServico),
-              fetchAll('funcionarios').then(fromDbFuncionario),
-              fetchAll('registros').then(fromDbRegistro),
-              fetchAll('partos').then(fromDbParto),
-              fetchAll('eventos').then(fromDbEvento),
-              fetchAll('movimentacoes').then(fromDbMovimentacao),
-              fetchAll('procedimentos').then(fromDbProcedimento),
-              fetchAll('faturas_fechadas').then(fromDbFaturaFechada),
+              fetchAll('cavalos', fromDbCavalo),
+fetchAll('proprietarios', fromDbProprietario),
+fetchAll('insumos', fromDbInsumo),
+fetchAll('servicos', fromDbServico),
+fetchAll('funcionarios', fromDbFuncionario),
+fetchAll('registros', fromDbRegistro),
+fetchAll('partos', fromDbParto),
+fetchAll('eventos', fromDbEvento),
+fetchAll('movimentacoes', fromDbMovimentacao),
+fetchAll('procedimentos', fromDbProcedimento),
+fetchAll('faturas_fechadas', fromDbFaturaFechada),
               supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
             ]);
             setCavalos(cavalosData || []);
