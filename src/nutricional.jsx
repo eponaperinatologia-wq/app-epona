@@ -17,6 +17,23 @@ const getTratoAtual = () => {
   return minutos <= 720 ? 'manha' : 'tarde';
 };
 
+const getDiaSemana = () => new Date().getDay();
+
+const isSemanaPar = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+  const semana = Math.ceil((((d - new Date(d.getFullYear(), 0, 4)) / 86400000) + 1) / 7);
+  return semana % 2 === 0;
+};
+
+const isPeriodicoHoje = (p) => {
+  if (p.diaSemana !== getDiaSemana()) return false;
+  if (p.frequencia === 'semanal') return true;
+  if (p.frequencia === 'quinzenal') return isSemanaPar();
+  return false;
+};
+
 // ─────────────────────────────────────────────────────────────
 // Chip colorido inline
 // ─────────────────────────────────────────────────────────────
@@ -55,6 +72,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
 
   const semDieta = !racao && oleo === 0 && sups.length === 0;
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
+  const periodicosHoje = (n.periodicos || []).filter(isPeriodicoHoje);
 
   return (
     <div style={{
@@ -132,6 +150,18 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               {s.ins.nome} {fmtKg(s.qtdTrato)}x
             </Chip>
           ))}
+          {periodicosHoje.map(p => {
+            const ins = insumos.find(i => i.id === p.insumoId);
+            const hoje = new Date();
+            const turnoAgora = getTratoAtual();
+            const mostraAgora = p.turno === 'ambos' || p.turno === turnoAgora;
+            if (!mostraAgora) return null;
+            return (
+              <Chip key={p.insumoId} cor="#9333ea">
+                📅 {ins?.nome || p.insumoId} {p.qtd} {ins?.unidade || 'un'}
+              </Chip>
+            );
+          })}
         </div>
       )}
     </div>

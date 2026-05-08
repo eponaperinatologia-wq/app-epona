@@ -443,6 +443,18 @@ const consumoDiarioCavalo = (cavaloId) => {
       valorDia: ins.valorVenda * s.qtdDia,
     });
   }
+  for (const p of (cav.nutricao.periodicos || [])) {
+    const ins = getInsumo(p.insumoId);
+    if (!ins) continue;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : 7;
+    const qtdDia = p.qtd / freqDias;
+    linhas.push({
+      insumoId: ins.id, nome: ins.nome + ' (periódico)',
+      qtdDia, unidade: ins.unidade,
+      valorUnit: ins.valorVenda,
+      valorDia: ins.valorVenda * qtdDia,
+    });
+  }
   return linhas;
 };
 

@@ -176,6 +176,12 @@ const loadAllData = async () => {
     } catch (e) {}
   }, [screen, tab, fluxo, selected, currentUser]);
 
+  // ── Avisos periódicos ────────────────────────────────────
+  useEffect(() => {
+    if (currentUser && cavalos.length > 0) gerarAvisosPeriodicos();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser]);
+
   // ── Auth ──────────────────────────────────────────────────────
       const handleLogin = async (user) => {
     setCurrentUser(user);
@@ -307,6 +313,41 @@ const loadAllData = async () => {
   const removeAviso = (id) => {
     setAvisos(prev => prev.filter(a => a.id !== id));
     dbDelete('avisos', id);
+  };
+
+  const getDiaSemana = () => new Date().getDay();
+  const isSemanaPar = () => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
+    const semana = Math.ceil((((d - new Date(d.getFullYear(), 0, 4)) / 86400000) + 1) / 7);
+    return semana % 2 === 0;
+  };
+  const gerarAvisosPeriodicos = () => {
+    const hoje = new Date().toISOString().split('T')[0];
+    const diaSemana = getDiaSemana();
+    const semanaPar = isSemanaPar();
+    for (const c of cavalos) {
+      if (!c.nutricao?.periodicos) continue;
+      for (const p of c.nutricao.periodicos) {
+        if (p.diaSemana !== diaSemana) continue;
+        if (p.frequencia === 'quinzenal' && !semanaPar) continue;
+        const ins = insumos.find(i => i.id === p.insumoId);
+        const texto = `📅 ${ins?.nome || p.insumoId} para ${c.nome} (${p.qtd} ${ins?.unidade || 'un'})`;
+        const jaExiste = avisos.some(a => a.texto === texto && a.data_entrada === hoje);
+        if (!jaExiste) {
+          const novoAviso = {
+            id: 'av_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            autor: 'Sistema', avatar: '⚙️', tempo: '', texto,
+            urgente: false, resolvido: false, resolvidoPor: '',
+            tipo: 'periodico', cavaloId: c.id,
+            data_entrada: hoje, respostas: [],
+          };
+          setAvisos(prev => [novoAviso, ...prev]);
+          dbInsert('avisos', toDbAviso(novoAviso));
+        }
+      }
+    }
   };
   const resolverAviso = (id) => {
     const nome = currentUser?.nome || 'Usuário';

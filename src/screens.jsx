@@ -84,6 +84,13 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
     if (!ins) continue;
     linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * dias });
   }
+  for (const p of (cav.nutricao.periodicos || [])) {
+    const ins = findIns(p.insumoId);
+    if (!ins) continue;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : 7;
+    const qtdDia = p.qtd / freqDias;
+    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * dias });
+  }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
 
@@ -1264,9 +1271,26 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [racaoKgTarde, setRacaoKgTarde] = useState(String(c.nutricao?.racaoKgTarde ?? fallbackMeio));
   const [comeAlmoco, setComeAlmoco] = useState(c.nutricao?.comeAlmoco || false);
   const [racaoKgAlmoco, setRacaoKgAlmoco] = useState(String(c.nutricao?.racaoKgAlmoco ?? 0));
-  const [oleoMlManha, setOleoMlManha] = useState(String(c.nutricao?.oleoMlManha ?? c.nutricao?.oleoMlDia ? (c.nutricao.oleoMlDia / 2) : 0));
-  const [oleoMlTarde, setOleoMlTarde] = useState(String(c.nutricao?.oleoMlTarde ?? c.nutricao?.oleoMlDia ? (c.nutricao.oleoMlDia / 2) : 0));
+  const [oleoMlManha, setOleoMlManha] = useState(String(c.nutricao?.oleoMlManha ?? (c.nutricao?.oleoMlDia ? c.nutricao.oleoMlDia / 2 : 0)));
+  const [oleoMlTarde, setOleoMlTarde] = useState(String(c.nutricao?.oleoMlTarde ?? (c.nutricao?.oleoMlDia ? c.nutricao.oleoMlDia / 2 : 0)));
   const [suplementos, setSuplementos] = useState(c.nutricao?.suplementos || []);
+  const [periodicos, setPeriodicos] = useState(c.nutricao?.periodicos || []);
+  const [novoPerInsumoId, setNovoPerInsumoId] = useState('');
+  const [novoPerQtd, setNovoPerQtd] = useState('');
+  const [novoPerFreq, setNovoPerFreq] = useState('semanal');
+  const [novoPerDia, setNovoPerDia] = useState(1);
+  const [novoPerTurno, setNovoPerTurno] = useState('manha');
+  const [showPerForm, setShowPerForm] = useState(false);
+  const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const FREQ_OPTIONS = [
+    { value: 'semanal', label: 'Semanal' },
+    { value: 'quinzenal', label: 'Quinzenal' },
+  ];
+  const TURNO_OPTIONS = [
+    { value: 'manha', label: '🌅 Manhã' },
+    { value: 'tarde', label: '🌇 Tarde' },
+    { value: 'ambos', label: 'Ambos' },
+  ];
 
   const handleAddSuplemento = (insumoId) => {
     if (!suplementos.find(s => s.insumoId === insumoId))
@@ -1277,6 +1301,21 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtd) || 1 } : s));
   const handleToggleSupTurno = (insumoId, turno) =>
     setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
+
+  const handleAddPeriodico = () => {
+    if (!novoPerInsumoId || !novoPerQtd) return;
+    setPeriodicos(prev => [...prev, {
+      insumoId: novoPerInsumoId,
+      qtd: parseFloat(novoPerQtd) || 0,
+      frequencia: novoPerFreq,
+      diaSemana: novoPerDia,
+      turno: novoPerTurno,
+    }]);
+    setNovoPerInsumoId('');
+    setNovoPerQtd('');
+    setShowPerForm(false);
+  };
+  const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
 
   const handleSave = () => {
     const manha = parseFloat(racaoKgManha) || 0;
@@ -1291,6 +1330,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       oleoMlTarde: parseFloat(oleoMlTarde) || 0,
       oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
       suplementos,
+      periodicos,
     };
     const nutricaoChanged = JSON.stringify(c.nutricao || {}) !== JSON.stringify(newNutricao);
 
@@ -1363,21 +1403,88 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
                   fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
                 }}
               />
-            </FormField>
-          </div>
-          <div style={{ borderTop: '1px solid var(--line)' }}>
-            <FormField label="Piquete (número ou nome)">
-              <input
-                value={piquete}
-                onChange={e => setPiquete(e.target.value)}
-                placeholder="Ex: 1, 2, Potrilheiro, Estábulo…"
-                style={{
-                  width: '100%', border: 'none', outline: 'none', background: 'transparent',
-                  fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
-                }}
-              />
-            </FormField>
-          </div>
+          </FormField>
+        </div>
+        </div>
+
+        {/* Insumos Periódicos */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="Insumos periódicos">
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.4 }}>
+              Suplementos/rações administrados semanal ou quinzenalmente. O valor é rateado no faturamento.
+            </div>
+            {periodicos.length > 0 && (
+              <div style={{ marginBottom: 8 }}>
+                {periodicos.map((p, idx) => {
+                  const ins = INSUMOS.find(i => i.id === p.insumoId);
+                  return (
+                    <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
+                      <span style={{ flex: 1, color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
+                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label} · {DIAS_SEMANA[p.diaSemana]} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
+                      <button onClick={() => handleRemovePeriodico(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, padding: 0 }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {!showPerForm ? (
+              <button onClick={() => setShowPerForm(true)} style={{
+                width: '100%', background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px dashed var(--accent)',
+                borderRadius: 8, padding: '8px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>
+                + Adicionar insumo periódico
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <select value={novoPerInsumoId} onChange={e => setNovoPerInsumoId(e.target.value)} style={{
+                  width: '100%', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
+                  fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
+                }}>
+                  <option value="">Selecionar insumo…</option>
+                  {INSUMOS.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
+                    <option key={i.id} value={i.id}>{i.nome}</option>
+                  ))}
+                </select>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input type="number" step="0.1" value={novoPerQtd} onChange={e => setNovoPerQtd(e.target.value)}
+                    placeholder="Dose"
+                    style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                  <select value={novoPerFreq} onChange={e => setNovoPerFreq(e.target.value)} style={{
+                    border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
+                    fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
+                  }}>
+                    {FREQ_OPTIONS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <select value={novoPerDia} onChange={e => setNovoPerDia(Number(e.target.value))} style={{
+                    flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
+                    fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
+                  }}>
+                    {DIAS_SEMANA.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                  <select value={novoPerTurno} onChange={e => setNovoPerTurno(e.target.value)} style={{
+                    flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
+                    fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
+                  }}>
+                    {TURNO_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={handleAddPeriodico} disabled={!novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0} style={{
+                    flex: 1, background: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'var(--ink-1)' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
+                    padding: '8px', fontSize: 13, fontWeight: 600, cursor: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'not-allowed' : 'pointer', fontFamily: 'var(--sans)',
+                  }}>Adicionar</button>
+                  <button onClick={() => setShowPerForm(false)} style={{
+                    background: 'none', border: '1px solid var(--line)', borderRadius: 8,
+                    padding: '8px 16px', fontSize: 13, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>Cancelar</button>
+                </div>
+              </div>
+            )}
+          </FormField>
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <div style={{ borderTop: '1px solid var(--line)' }}>
             <FormField label="Mensalidade (R$)">
               <input
@@ -1766,6 +1873,23 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [oleoMlManha, setOleoMlManha] = useState('25');
   const [oleoMlTarde, setOleoMlTarde] = useState('25');
   const [suplementos, setSuplementos] = useState([]);
+  const [periodicos, setPeriodicos] = useState([]);
+  const [novoPerInsumoId, setNovoPerInsumoId] = useState('');
+  const [novoPerQtd, setNovoPerQtd] = useState('');
+  const [novoPerFreq, setNovoPerFreq] = useState('semanal');
+  const [novoPerDia, setNovoPerDia] = useState(1);
+  const [novoPerTurno, setNovoPerTurno] = useState('manha');
+  const [showPerForm, setShowPerForm] = useState(false);
+  const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const FREQ_OPTIONS = [
+    { value: 'semanal', label: 'Semanal' },
+    { value: 'quinzenal', label: 'Quinzenal' },
+  ];
+  const TURNO_OPTIONS = [
+    { value: 'manha', label: '🌅 Manhã' },
+    { value: 'tarde', label: '🌇 Tarde' },
+    { value: 'ambos', label: 'Ambos' },
+  ];
   const [mae, setMae] = useState('');
   const [pai, setPai] = useState('');
 
@@ -1811,6 +1935,16 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const handleToggleSupTurno = (insumoId, turno) =>
     setSuplementos(suplementos.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
 
+  const handleAddPeriodico = () => {
+    if (!novoPerInsumoId || !novoPerQtd) return;
+    setPeriodicos(prev => [...prev, {
+      insumoId: novoPerInsumoId, qtd: parseFloat(novoPerQtd) || 0,
+      frequencia: novoPerFreq, diaSemana: novoPerDia, turno: novoPerTurno,
+    }]);
+    setNovoPerInsumoId(''); setNovoPerQtd(''); setShowPerForm(false);
+  };
+  const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
+
   const handleSave = () => {
     if (!nome.trim()) { setErro('Nome do cavalo é obrigatório'); return; }
     if (selectedProprietarios.length === 0) { setErro('Selecione pelo menos um proprietário'); return; }
@@ -1846,7 +1980,8 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         oleoMlManha: parseFloat(oleoMlManha) || 0,
         oleoMlTarde: parseFloat(oleoMlTarde) || 0,
         oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
-        suplementos: suplementos.filter(s => s.qtdDia > 0)
+        suplementos: suplementos.filter(s => s.qtdDia > 0),
+        periodicos,
       }
     };
 
