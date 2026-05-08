@@ -131,7 +131,7 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
   };
 
   return (
-    <div style={{ paddingBottom: 24 }}>
+    <div style={{ paddingBottom: 90 }}>
       <TopBar title={title} onBack={onBack} />
 
       <div style={{ padding: '16px 20px 0' }}>

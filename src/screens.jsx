@@ -1025,8 +1025,10 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
 // ─────────────────────────────────────────────────────────────
 const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, updateInsumo }) => {
   const [filtro, setFiltro] = useState('all');
+  const [busca, setBusca] = useState('');
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
-  const filtered = filtro === 'all' ? insumos : insumos.filter(i => i.categoria === filtro);
+  const filtered = (filtro === 'all' ? insumos : insumos.filter(i => i.categoria === filtro))
+    .filter(i => !busca.trim() || i.nome.toLowerCase().includes(busca.trim().toLowerCase()));
 
   return (
     <div style={{ paddingBottom: 90 }}>
@@ -1053,7 +1055,27 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
           }}>{c.nome}</button>
         ))}
       </div>
-      <div style={{ padding: '8px 20px 0' }}>
+      <div style={{ padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+        margin: '4px 20px 8px',
+      }}>
+        <Icon name="search" size={16} color="var(--ink-3)" />
+        <input
+          value={busca}
+          onChange={e => setBusca(e.target.value)}
+          placeholder="Buscar insumo…"
+          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent',
+            fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: '9px 0',
+          }}
+        />
+        {busca && (
+          <button onClick={() => setBusca('')} style={{
+            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+            color: 'var(--ink-3)', fontSize: 16, lineHeight: 1,
+          }}>×</button>
+        )}
+      </div>
+      <div style={{ padding: '0 20px' }}>
         {filtered.map(i => {
           const cat = getCategoria(i.categoria);
           const temDescartaveis = i.descartaveis?.length > 0;
