@@ -268,13 +268,14 @@ const getDataFmt = () => {
   return `${DIAS_SEMANA[d.getDay()]} · ${d.getDate()} de ${MESES_HOME[d.getMonth()]}`;
 };
 
-const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, currentUser, onSeed }) => {
-  const totalHoje = atividades.filter(a => a.data === '2026-05-04').length;
-  const totalCavalos = CAVALOS.length;
+const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], currentUser, onSeed }) => {
+  const hojeStr = new Date().toISOString().split('T')[0];
+  const totalHoje = atividades.filter(a => a.data === hojeStr).length;
+  const totalCavalos = cavalos.length;
   const totalAvisos = avisos.length;
   const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
 
-  const hojeAt = atividades.filter(a => a.data === '2026-05-04')
+  const hojeAt = atividades.filter(a => a.data === hojeStr)
     .sort((a, b) => b.hora.localeCompare(a.hora));
   const recentes = hojeAt.slice(0, density === 'compact' ? 6 : 4);
   const ultimosAvisos = [...avisos]
@@ -828,13 +829,13 @@ const NutritionRow = ({ icon, color, nome, qtd, valor, first }) => (
 // ─────────────────────────────────────────────────────────────
 // CADASTROS hub
 // ─────────────────────────────────────────────────────────────
-const CadastrosScreen = ({ setScreen, currentUser, servicosCount = 0 }) => {
+const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietariosCount = 0, insumosCount = 0, servicosCount = 0 }) => {
   const items = [
-    { id: 'cadProprietarios', label: 'Proprietários', count: PROPRIETARIOS.length, icon: 'users' },
-    { id: 'cadCavalos', label: 'Cavalos', count: CAVALOS.length, icon: 'horse' },
-    { id: 'cadInsumos', label: 'Insumos', count: INSUMOS.length, icon: 'package' },
+    { id: 'cadProprietarios', label: 'Proprietários', count: proprietariosCount, icon: 'users' },
+    { id: 'cadCavalos', label: 'Cavalos', count: cavalosCount, icon: 'horse' },
+    { id: 'cadInsumos', label: 'Insumos', count: insumosCount, icon: 'package' },
     { id: 'cadServicos', label: 'Serviços', count: servicosCount, icon: 'stethoscope' },
-    { id: 'cadMensalidades', label: 'Mensalidades', count: CAVALOS.length, icon: 'calendar' },
+    { id: 'cadMensalidades', label: 'Mensalidades', count: cavalosCount, icon: 'calendar' },
     { id: 'cadEmpresa', label: 'Dados da empresa', count: null, icon: 'building', sub: 'Endereço, pagamento e fatura' },
     ...(currentUser?.role === 'admin' ? [{ id: 'funcionarios', label: 'Funcionários', count: null, icon: 'user' }] : []),
   ];
