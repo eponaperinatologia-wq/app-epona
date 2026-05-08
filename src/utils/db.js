@@ -65,6 +65,11 @@ export const fromDbEvento = r => ({
   id: r.id, tipo: r.tipo || '', data: r.data || '', hora: r.hora || '',
   descricao: r.descricao || '', cavaloId: r.cavalo_id, funcionarioId: r.funcionario_id,
 });
+export const fromDbAviso = r => ({
+  id: r.id, mensagem: r.mensagem || '', tipo: r.tipo || 'info',
+  data: r.data || new Date().toISOString(), usuario: r.usuario || '',
+  lido: !!r.lido, cavaloId: r.cavalo_id || null,
+});
 
 export const fromDbFaturaFechada = r => ({
   id: r.id, proprietarioId: r.proprietario_id,
@@ -152,6 +157,12 @@ export const toDbEvento = e => ({
   id: e.id, tipo: e.tipo || '', data: e.data || '', hora: e.hora || '',
   descricao: e.descricao || '', cavalo_id: e.cavaloId || null,
   funcionario_id: e.funcionarioId || null,
+});
+
+export const toDbAviso = a => ({
+  id: a.id, mensagem: a.mensagem || '', tipo: a.tipo || 'info',
+  data: a.data || new Date().toISOString(), usuario: a.usuario || '',
+  lido: !!a.lido, cavalo_id: a.cavaloId || null,
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
