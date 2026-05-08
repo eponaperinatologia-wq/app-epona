@@ -144,7 +144,6 @@ const TabBar = ({ tab, setTab, role = 'admin' }) => {
     { id: 'partos', label: 'Gestação', icon: 'heart' },
     { id: 'cadastros', label: 'Cadastros', icon: 'package' },
     { id: 'nutricional', label: 'Nutrição', icon: 'wheat' },
-    { id: 'compras', label: 'Compras', icon: 'cart' },
     { id: 'faturas', label: 'Faturas', icon: 'doc' },
     { id: 'equipe', label: 'Equipe', icon: 'users' },
   ];
@@ -271,12 +270,13 @@ const getDataFmt = () => {
   return `${DIAS_SEMANA[d.getDay()]} · ${d.getDate()} de ${MESES_HOME[d.getMonth()]}`;
 };
 
-const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], currentUser, onSeed }) => {
+const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed }) => {
   const hojeStr = new Date().toISOString().split('T')[0];
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.length;
   const totalAvisos = avisos.length;
   const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
+  const comprasPendentes = compras.filter(c => !c.comprado);
 
   const hojeAt = atividades.filter(a => a.data === hojeStr)
     .sort((a, b) => b.hora.localeCompare(a.hora));
@@ -456,6 +456,48 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
               </div>
             ))}
           </div>
+        </div>
+      )}
+      {currentUser?.role === 'admin' && (
+        <div style={{ padding: '20px 20px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Lista de Compras</h2>
+            <button onClick={() => setScreen('compras')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Ver tudo</button>
+          </div>
+          {comprasPendentes.length === 0 ? (
+            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '20px', textAlign: 'center', fontSize: 13, color: 'var(--ink-3)' }}>
+              Nenhum item pendente.
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+              {comprasPendentes.slice(0, 5).map((c, i) => (
+                <div key={c.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                }}>
+                  <div style={{
+                    width: 28, height: 28, borderRadius: 8, border: '1.5px solid var(--line-2)',
+                    display: 'grid', placeItems: 'center', flexShrink: 0,
+                  }}>
+                    <Icon name="cart" size={14} color="var(--ink-3)" />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)' }}>{c.nome}</div>
+                    {c.quantidade && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{c.quantidade}</div>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {comprasPendentes.length > 5 && (
+                <div style={{ padding: '10px 14px', textAlign: 'center', borderTop: '1px solid var(--line)' }}>
+                  <button onClick={() => setScreen('compras')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>
+                    +{comprasPendentes.length - 5} itens pendentes
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
       <div style={{ padding: '24px 20px 0' }}>

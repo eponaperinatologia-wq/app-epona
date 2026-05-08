@@ -126,7 +126,7 @@ const loadAllData = async () => {
           setCurrentUser(parsedUser);
           const targetScreen = parsedUser.role === 'admin' ? 'home' : 'avisos';
           setScreen(targetScreen);
-          setTab(0);
+          setTab('home');
         } else {
           setScreen('login');
         }
@@ -370,7 +370,7 @@ const loadAllData = async () => {
     if (tab === 'equipe')    setScreen('planner');
     if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
     if (tab === 'compras') setScreen('compras');
-  }, [tab, screen]);
+  }, [tab]);
 
   // ── Fluxo de registro ─────────────────────────────────────────
   useEffect(() => {
@@ -405,7 +405,7 @@ const loadAllData = async () => {
     );
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
-  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} currentUser={currentUser} onSeed={handleSeed} />;
+  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} currentUser={currentUser} onSeed={handleSeed} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
