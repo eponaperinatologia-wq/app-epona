@@ -52,7 +52,7 @@ const Chip = ({ children, cor = '#3d6043' }) => (
 // ─────────────────────────────────────────────────────────────
 // Row compacta de um cavalo
 // ─────────────────────────────────────────────────────────────
-const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last }) => {
+const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last, updateCavalo }) => {
   const n = c.nutricao || {};
   const racao = n.racaoId ? insumos.find(i => i.id === n.racaoId) : null;
   const sups = (n.suplementos || []).map(s => {
@@ -70,14 +70,25 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
     ? (n.racaoKgManha ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0))
     : (n.racaoKgTarde ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0));
 
+  const block = n.racaoBlock || {};
+  const racaoBloqueada = trato === 'manha' ? block.manha : block.tarde;
+
   const semDieta = !racao && oleo === 0 && sups.length === 0;
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
   const periodicosHoje = (n.periodicos || []).filter(isPeriodicoHoje);
+  const [showBlockForm, setShowBlockForm] = useState(false);
+
+  const toggleRacaoBlock = (turno) => {
+    const novoBlock = { ...block, [turno]: !block[turno] };
+    updateCavalo(c.id, { nutricao: { ...n, racaoBlock: novoBlock } });
+  };
 
   return (
     <div style={{
       padding: '12px 16px',
       borderBottom: last ? 'none' : '1px solid var(--line)',
+      background: racaoBloqueada ? '#fef2f2' : 'transparent',
+      borderLeft: racaoBloqueada ? '4px solid #dc2626' : '4px solid transparent',
     }}>
       {/* Linha 1: nome + baia + botão editar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
@@ -91,6 +102,16 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               {c.nome}
             </span>
             <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{c.baia}</span>
+            {racaoBloqueada && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 4,
+                background: '#dc2626', borderRadius: 6, padding: '2px 8px',
+                fontSize: 11, fontWeight: 800, color: '#fff',
+                whiteSpace: 'nowrap',
+              }}>
+                🚫 RAÇÃO BLOQUEADA {trato === 'manha' ? '🌅' : '🌇'}
+              </span>
+            )}
             {n.comeAlmoco && trato === 'manha' && (
               <span style={{
                 display: 'inline-flex', alignItems: 'center', gap: 3,
@@ -112,29 +133,66 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
             </div>
           )}
         </div>
-        {podeEditar && setSelected && (
-          <button
-            onClick={() => { setSelected(c.id); setScreen('editarCavalo'); }}
-            style={{
-              background: 'none', border: '1px solid var(--line)',
-              borderRadius: 6, padding: '3px 8px',
-              fontSize: 11, color: 'var(--accent)', fontWeight: 600,
-              cursor: 'pointer', fontFamily: 'var(--sans)', flexShrink: 0,
-            }}
-          >
-            Editar
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          {podeEditar && (
+            <button
+              onClick={() => setShowBlockForm(!showBlockForm)}
+              style={{
+                background: racaoBloqueada ? '#dc2626' : 'none',
+                border: racaoBloqueada ? 'none' : '1px solid var(--line)',
+                borderRadius: 6, padding: '3px 8px',
+                fontSize: 11, color: racaoBloqueada ? '#fff' : '#dc2626', fontWeight: 700,
+                cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}
+            >
+              🚫
+            </button>
+          )}
+          {podeEditar && setSelected && (
+            <button
+              onClick={() => { setSelected(c.id); setScreen('editarCavalo'); }}
+              style={{
+                background: 'none', border: '1px solid var(--line)',
+                borderRadius: 6, padding: '3px 8px',
+                fontSize: 11, color: 'var(--accent)', fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}
+            >
+              Editar
+            </button>
+          )}
+        </div>
       </div>
 
+      {showBlockForm && (
+        <div style={{ display: 'flex', gap: 8, marginBottom: 6, padding: '6px 0' }}>
+          {['manha', 'tarde'].map(t => (
+            <button
+              key={t}
+              onClick={() => toggleRacaoBlock(t)}
+              style={{
+                flex: 1, border: '1px solid', borderRadius: 8, padding: '6px 10px',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+                background: block[t] ? '#dc2626' : 'var(--card)',
+                borderColor: block[t] ? '#dc2626' : 'var(--line)',
+                color: block[t] ? '#fff' : 'var(--ink)',
+              }}
+            >
+              {t === 'manha' ? '🌅 Manhã' : '🌇 Tarde'}
+              {block[t] ? ' ⛔' : ' ✅'}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Linha 2: dieta em chips */}
-      {semDieta ? (
+      {semDieta && !racaoBloqueada ? (
         <span style={{ fontSize: 12, color: 'var(--ink-3)', fontStyle: 'italic' }}>
           Sem plano nutricional
         </span>
       ) : (
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-          {racao && (
+          {racao && !racaoBloqueada && (
             <>
               <Chip cor="#3d6043">
                 {trato === 'manha' ? '🌅' : '🌇'} {fmtKg(kgTrato)} kg
@@ -143,6 +201,11 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
                 {racao.nome}
               </Chip>
             </>
+          )}
+          {racao && racaoBloqueada && (
+            <Chip cor="#dc2626">
+              🚫 Ração bloqueada neste trato
+            </Chip>
           )}
           {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
           {sups.map(s => (
@@ -205,7 +268,7 @@ const PiqueteHeader = ({ label, count, expanded, onToggle }) => (
 // ─────────────────────────────────────────────────────────────
 // Tela principal
 // ─────────────────────────────────────────────────────────────
-export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser }) {
+export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo }) {
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
   const trato = getTratoAtual();
@@ -354,6 +417,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
                   setSelected={setSelected}
                   setScreen={setScreen}
                   last={idx === g.cavalos.length - 1}
+                  updateCavalo={updateCavalo}
                 />
               ))}
             </div>

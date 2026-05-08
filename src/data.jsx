@@ -49,7 +49,7 @@ const PROPRIETARIOS = [
   { id: 'p44', nome: 'Yasmin Omais',                        telefone: '+55 (67) 99262-5682', email: '', cavalos: ['c115'] },
 ];
 
-const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, suplementos: [] };
+const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, suplementos: [], racaoBlock: { manha: false, tarde: false } };
 
 const CAVALOS = [
   { id: 'c1',   nome: 'Wheeny Jhenny',            pelagem: '', sexo: 'F', categoria: '', nascimento: '', proprietarioIds: ['p1'],  baia: '', piquete: '', mensalidade: 1950, obs: '', nutricao: { ...NUTRICAO_VAZIO } },
