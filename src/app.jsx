@@ -1,5 +1,5 @@
 // app.jsx — Main App Epona shell
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } from './tweaks-panel';
 import { AddInsumoScreen, EditarInsumoScreen } from './insumo-form';
 import {
@@ -68,6 +68,7 @@ function AppEpona() {
   const [pendingEntradaCavalo, setPendingEntradaCavalo] = useState(false);
   const [fluxo, setFluxo] = useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
+  const skipTabSync = useRef(false);
 
  // ── Carregamento inicial ──────────────────────────────────────
 const loadAllData = async () => {
@@ -108,6 +109,14 @@ const loadAllData = async () => {
     console.error('Erro ao carregar dados:', err);
   }
 };
+  const validateScreen = (s, user) => {
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    if (user.role === 'operacional') return ['avisos', 'nutricional', 'compras', 'planner', 'funcionarioDetalhe', 'minhaConta'].includes(s);
+    if (user.role === 'vet') return !['faturas', 'faturaDetalhe', 'cadMensalidades'].includes(s);
+    return true;
+  };
+
    useEffect(() => {
     const initializeApp = async () => {
       try {
@@ -124,10 +133,26 @@ const loadAllData = async () => {
         await loadAllData();
         if (parsedUser) {
           setCurrentUser(parsedUser);
-          const targetScreen = parsedUser.role === 'admin' ? 'home' : 'avisos';
-          setScreen(targetScreen);
-          setTab('home');
+          const savedSession = sessionStorage.getItem('epona_session');
+          if (savedSession) {
+            try {
+              const { screen: savedScreen, tab: savedTab, fluxo: savedFluxo, selected: savedSelected } = JSON.parse(savedSession);
+              if (savedTab && ['home','cavalos','cadastros','faturas','nutricional','avisos','equipe','partos','compras'].includes(savedTab)) setTab(savedTab);
+              if (savedFluxo) setFluxo(savedFluxo);
+              if (savedSelected) setSelected(savedSelected);
+              if (savedScreen && validateScreen(savedScreen, parsedUser)) setScreen(savedScreen);
+              else setScreen(parsedUser.role === 'operacional' ? 'avisos' : 'home');
+              skipTabSync.current = true;
+            } catch (e) {
+              const target = parsedUser.role === 'operacional' ? 'avisos' : 'home';
+              setScreen(target); setTab('home');
+            }
+          } else {
+            const target = parsedUser.role === 'operacional' ? 'avisos' : 'home';
+            setScreen(target); setTab('home');
+          }
         } else {
+          sessionStorage.removeItem('epona_session');
           setScreen('login');
         }
       } catch (error) {
@@ -140,6 +165,13 @@ const loadAllData = async () => {
     initializeApp();
   }, []);
 
+  // ── Session persistence ──────────────────────────────────
+  useEffect(() => {
+    if (!currentUser) return;
+    try {
+      sessionStorage.setItem('epona_session', JSON.stringify({ screen, tab, fluxo, selected }));
+    } catch (e) {}
+  }, [screen, tab, fluxo, selected, currentUser]);
 
   // ── Auth ──────────────────────────────────────────────────────
       const handleLogin = async (user) => {
@@ -154,8 +186,9 @@ const loadAllData = async () => {
   };
   const handleLogout = () => {
   setCurrentUser(null);
-  localStorage.removeItem('epona_user'); // ← ADICIONE ESTA LINHA
-  setScreen('home');
+  localStorage.removeItem('epona_user');
+  sessionStorage.removeItem('epona_session');
+  setScreen('login');
   setTab('home');
 };
 
@@ -361,6 +394,7 @@ const loadAllData = async () => {
 
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
+    if (skipTabSync.current) { skipTabSync.current = false; return; }
     if (tab === 'home')      setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
