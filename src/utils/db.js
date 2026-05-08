@@ -5,7 +5,9 @@ import { supabase } from './supabase';
 export const fromDbCavalo = r => ({
   id: r.id, nome: r.nome, pelagem: r.pelagem || '', sexo: r.sexo || '',
   categoria: r.categoria || '', categorias: r.categorias || [],
-  nascimento: r.nascimento || '', proprietarioId: r.proprietario_id || null,
+  nascimento: r.nascimento || '',
+  proprietarioId: r.proprietario_id || null,
+  proprietarioIds: r.proprietario_ids || (r.proprietario_id ? [r.proprietario_id] : []),
   baia: r.baia || '', piquete: r.piquete || '', mensalidade: r.mensalidade || 0,
   obs: r.obs || '', nutricao: r.nutricao || {},
   gestacao: r.gestacao || null, historicoGestacional: r.historico_gestacional || [],
@@ -101,7 +103,9 @@ export const toDbFaturaFechada = f => ({
 export const toDbCavalo = c => ({
   id: c.id, nome: c.nome, pelagem: c.pelagem || '', sexo: c.sexo || '',
   categoria: c.categoria || '', categorias: c.categorias || [],
-  nascimento: c.nascimento || '', proprietario_id: c.proprietarioId || null,
+  nascimento: c.nascimento || '',
+  proprietario_id: c.proprietarioIds?.[0] || c.proprietarioId || null,
+  proprietario_ids: c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []),
   baia: c.baia || '', piquete: c.piquete || '', mensalidade: c.mensalidade || 0,
   obs: c.obs || '', nutricao: c.nutricao || {},
   gestacao: c.gestacao || null, historico_gestacional: c.historicoGestacional || [],

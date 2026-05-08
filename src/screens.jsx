@@ -621,7 +621,7 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
 const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
-  const prop = getProprietarioLocal(c.proprietarioId) || { nome: 'Sem proprietário' };
+  const props = (c.proprietarioIds || [c.proprietarioId]).map(id => getProprietarioLocal(id) || { nome: 'Sem proprietário' });
   const meusRegistros = registros.filter(r => r.cavaloId === id);
   const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
   const consumoDia = consumoDiarioCavalo(c.id);
@@ -675,7 +675,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
 
       <div style={{ padding: '12px 20px 0' }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-          <DetailRow label="Proprietário" value={prop.nome} />
+          <DetailRow label="Proprietário(s)" value={props.map(p => p.nome).join(', ')} />
           <DetailRow label="Mensalidade" value={formatBRL(c.mensalidade)} />
           <DetailRow label="Sexo" value={c.sexo === 'M' ? 'Macho' : 'Fêmea'} />
           <DetailRow label="Idade" value={c.idade || idade(c.nascimento)} />
@@ -872,7 +872,7 @@ const CadastrosScreen = ({ setScreen, currentUser, servicosCount = 0 }) => {
 // CADASTRO · Proprietários
 // ─────────────────────────────────────────────────────────────
 const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRIETARIOS, cavalos = CAVALOS, addProprietario }) => {
-  const getCavalosDoProprietario = (propId) => cavalos.filter(c => c.proprietarioId === propId);
+  const getCavalosDoProprietario = (propId) => cavalos.filter(c => (c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId);
 
   const handleCreateProprietario = () => {
     if (!addProprietario) return;
@@ -1151,6 +1151,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [piquete, setPiquete] = useState(c.piquete || '');
   const [mensalidade, setMensalidade] = useState(c.mensalidade);
   const [obs, setObs] = useState(c.obs || '');
+  const [sexo, setSexo] = useState(c.sexo || '');
+  const [pelagem, setPelagem] = useState(c.pelagem || 'Tordilho');
+  const pelagenOptions = ['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha'];
+  const [dataEntrada, setDataEntrada] = useState(c.dataEntrada || '');
+  const [selectedProprietarios, setSelectedProprietarios] = useState(c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []));
+  const [showPropSelector, setShowPropSelector] = useState(false);
   const [categorias, setCategorias] = useState(new Set(c.categorias || (c.categoria ? [c.categoria] : [])));
   const [dataCobricao, setDataCobricao] = useState(c.gestacao?.dataCobricao || c.dataCobertura || '');
   const [pai, setPai] = useState(c.gestacao?.pai || '');
@@ -1198,7 +1204,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
     const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
     const categoriasArr = Array.from(categorias);
-    updateCavalo(id, { nome, baia, piquete, mensalidade: parseInt(mensalidade), obs, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAviso) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -1304,6 +1310,97 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
               />
             </FormField>
           </div>
+        </div>
+      </div>
+
+      {/* Proprietários */}
+      <div style={{ padding: '0 20px', marginTop: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 10 }}>
+          Proprietário(s)
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="Proprietário(s)">
+            {!showPropSelector ? (
+              <button onClick={() => setShowPropSelector(true)} style={{
+                width: '100%', background: 'transparent', border: 'none', cursor: 'pointer',
+                textAlign: 'left', color: selectedProprietarios.length === 0 ? 'var(--ink-3)' : 'var(--ink)',
+                fontSize: 15, padding: 0,
+              }}>
+                {selectedProprietarios.length === 0 
+                  ? 'Toque para selecionar...' 
+                  : proprietarios.filter(p => selectedProprietarios.includes(p.id)).map(p => p.nome).join(', ')}
+              </button>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {proprietarios.map(p => (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: 'var(--ink)' }}>
+                    <input
+                      type="checkbox"
+                      checked={selectedProprietarios.includes(p.id)}
+                      onChange={() => {
+                        const next = selectedProprietarios.includes(p.id)
+                          ? selectedProprietarios.filter(x => x !== p.id)
+                          : [...selectedProprietarios, p.id];
+                        setSelectedProprietarios(next);
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    />
+                    {p.nome}
+                  </label>
+                ))}
+                <button onClick={() => setShowPropSelector(false)} style={{
+                  background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '8px', fontSize: 13, fontWeight: 600, marginTop: 4, cursor: 'pointer',
+                }}>
+                  Pronto
+                </button>
+              </div>
+            )}
+          </FormField>
+        </div>
+      </div>
+
+      {/* Sexo */}
+      <div style={{ padding: '0 20px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="Sexo">
+            <div style={{ display: 'flex', gap: 12 }}>
+              {['M', 'F'].map(s => (
+                <label key={s} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--ink)' }}>
+                  <input type="radio" name="sexoEdit" checked={sexo === s} onChange={() => setSexo(s)} style={{ cursor: 'pointer' }} />
+                  {s === 'M' ? 'Macho' : 'Fêmea'}
+                </label>
+              ))}
+            </div>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Pelagem */}
+      <div style={{ padding: '0 20px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="Pelagem">
+            <select value={pelagem} onChange={e => setPelagem(e.target.value)} style={{
+              width: '100%', border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+            }}>
+              {pelagenOptions.map(p => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          </FormField>
+        </div>
+      </div>
+
+      {/* Data de entrada */}
+      <div style={{ padding: '0 20px' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="Data de entrada no haras">
+            <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} style={{
+              width: '100%', border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+            }} />
+          </FormField>
         </div>
       </div>
 
@@ -1594,6 +1691,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       categoria,
       categorias: categoriasArr,
       proprietarioId: selectedProprietarios[0],
+      proprietarioIds: selectedProprietarios,
       baia: baia.trim() || 'A-00',
       mensalidade: parseInt(mensalidade) || 1950,
       obs: obs.trim(),
@@ -2033,7 +2131,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
 // ─────────────────────────────────────────────────────────────
 const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, updateProprietario }) => {
   const p = proprietarios.find(prop => prop.id === id);
-  const ownedCavalos = p ? cavalos.filter(c => c.proprietarioId === id) : [];
+  const ownedCavalos = p ? cavalos.filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id) : [];
 
   const [nome, setNome] = useState(p?.nome || '');
   const [telefone, setTelefone] = useState(p?.telefone || '');
@@ -2149,12 +2247,13 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
 
   const getFaturaFechada = (propId) => faturasFechadas.find(f => f.proprietarioId === propId && f.ano === ref.ano && f.mes === ref.mes);
 
+  const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
   const faturas = proprietarios.map(p => {
     const ff = getFaturaFechada(p.id);
-    const cavalosObj = cavalos.filter(c => c.proprietarioId === p.id);
+    const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
     if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
-    const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor, 0);
-    const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total, 0);
+    const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
+    const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
     const cavIds = new Set(cavalosObj.map(c => c.id));
     const myReg = registros.filter(r => {
       if (!cavIds.has(r.cavaloId)) return false;
@@ -2164,7 +2263,8 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
     });
     const insumosTotal = myReg.reduce((s, r) => {
       const i = findInsumo(r.insumoId);
-      return s + (i?.valorVenda ?? 0) * r.qtd;
+      const cav = cavalos.find(c => c.id === r.cavaloId);
+      return s + ((i?.valorVenda ?? 0) * r.qtd) / shareCount(cav || {});
     }, 0);
     return { ...p, total: mensalidades + perfilTotal + insumosTotal, mensalidades, perfil: perfilTotal, insumos: insumosTotal, cavalosObj, fechada: false };
   });
@@ -2342,9 +2442,10 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
 
   const hoje = new Date();
   const ref = faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
+  const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
   const faturaExistente = faturasFechadas.find(f => f.proprietarioId === id && f.ano === ref.ano && f.mes === ref.mes);
 
-  const cavalosObj = cavalos.filter(c => c.proprietarioId === id);
+  const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id);
   const cavIds = new Set(cavalosObj.map(c => c.id));
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
@@ -2353,15 +2454,16 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   });
 
-  const propMens = cavalosObj.map(c => ({ cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes) }));
-  const mensTotal = propMens.reduce((s, m) => s + m.valor, 0);
-  const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos) })).filter(pp => pp.linhas.length > 0);
-  const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total, 0);
+  const propMens = cavalosObj.map(c => ({ cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) }));
+  const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
+  const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: shareCount(c) })).filter(pp => pp.linhas.length > 0);
+  const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
   const insumosLinhas = myReg.map(r => {
     const ins = findInsumo(r.insumoId);
     const cav = cavalos.find(c => c.id === r.cavaloId);
+    const share = shareCount(cav || {});
     const subtotal = (ins?.valorVenda ?? 0) * r.qtd;
-    return { reg: r, ins, cav, subtotal, total: subtotal };
+    return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
   });
   const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
   const total = mensTotal + perfilTotal + insumosTotal;
@@ -2374,8 +2476,11 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
   const handleFecharFatura = () => {
     if (faturaExistente || !addFaturaFechada) return;
     const linhas = [
-      ...propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor, valorBase: m.valorBase })),
-      ...propPerfil.flatMap(pp => pp.linhas.map(l => ({ tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l }))),
+      ...propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase })),
+      ...propPerfil.flatMap(pp => pp.linhas.map(l => {
+        const shareValor = (l.valorMes || l.valor || 0) / pp.share;
+        return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor };
+      })),
       ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total })),
     ];
     addFaturaFechada({
@@ -2393,7 +2498,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     `*Fatura ${mesNome} ${ref.ano} — ${p.nome}*`,
     `Haras Epona`,
     ``,
-    ...propMens.map(m => `• ${m.cav.nome}: ${BRL(m.valor)}${m.parcial ? ` (${m.dias}/${m.total} dias)` : ''}`),
+    ...propMens.map(m => `• ${m.cav.nome}: ${BRL(m.valor / m.share)}${m.parcial ? ` (${m.dias}/${m.total} dias)` : ''}${m.share > 1 ? ` (${m.share} proprietários)` : ''}`),
     ``,
     `Mensalidades: ${BRL(mensTotal)}`,
     perfilTotal > 0 ? `Óleo & suplementos: ${BRL(perfilTotal)}` : null,
@@ -2455,8 +2560,8 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             <TableRow
               key={m.cav.id}
               left={m.cav.nome}
-              sub={`${m.cav.categoria} · ${m.cav.baia}${m.parcial ? ` · ${m.dias}/${m.total} dias` : ''}`}
-              right={formatBRL(m.valor)}
+              sub={`${m.cav.categoria} · ${m.cav.baia}${m.parcial ? ` · ${m.dias}/${m.total} dias` : ''}${m.share > 1 ? ` · ${m.share} proprietários` : ''}`}
+              right={formatBRL(m.valor / m.share)}
             />
           ))}
 
@@ -2465,8 +2570,8 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             <TableRow
               key={pp.cav.id + l.insumoId}
               left={`${l.nome} · ${pp.cav.nome}`}
-              sub={`${l.qtdDia} ${l.unidade}/dia × ${l.dias} dias`}
-              right={formatBRL(l.valorMes)}
+              sub={`${l.qtdDia} ${l.unidade}/dia × ${l.dias} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
+              right={formatBRL((l.valorMes || 0) / pp.share)}
             />
           )))}
 

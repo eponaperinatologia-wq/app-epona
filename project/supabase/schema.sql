@@ -8,6 +8,7 @@ ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido BOOLEAN DEFAULT FALSE;
 ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido_por TEXT DEFAULT '';
 ALTER TABLE avisos ADD COLUMN IF NOT EXISTS respostas JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS data_entrada TEXT DEFAULT '';
+ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS proprietario_ids JSONB DEFAULT '[]'::jsonb;
 
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
 DROP TABLE IF EXISTS eventos         CASCADE;
@@ -42,6 +43,7 @@ CREATE TABLE cavalos (
   categorias              JSONB DEFAULT '[]'::jsonb,
   nascimento              TEXT DEFAULT '',
   proprietario_id         TEXT REFERENCES proprietarios(id) ON DELETE SET NULL,
+  proprietario_ids        JSONB DEFAULT '[]'::jsonb,
   baia                    TEXT DEFAULT '',
   piquete                 TEXT DEFAULT '',
   mensalidade             INTEGER DEFAULT 0,
