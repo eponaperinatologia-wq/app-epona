@@ -324,7 +324,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
       {/* Stats */}
       <div style={{ padding: '12px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {[
-          { label: 'Registros hoje', value: totalHoje, onClick: () => setScreen('registrar') },
+          { label: 'Registros hoje', value: totalHoje, onClick: () => setScreen('historico') },
           { label: 'Cavalos no haras', value: totalCavalos, onClick: () => setScreen('cavalos') },
           { label: 'Avisos', value: totalAvisos, onClick: () => setScreen('avisos') },
         ].map(s => (
@@ -1239,6 +1239,11 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [dataEntrada, setDataEntrada] = useState(c.dataEntrada || '');
   const [selectedProprietarios, setSelectedProprietarios] = useState(c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []));
   const [showPropSelector, setShowPropSelector] = useState(false);
+  const [propSearch, setPropSearch] = useState('');
+  const sortedProprietarios = [...proprietarios].sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const filteredProprietarios = propSearch.trim()
+    ? sortedProprietarios.filter(p => p.nome.toLowerCase().includes(propSearch.toLowerCase()))
+    : sortedProprietarios;
   const [categorias, setCategorias] = useState(new Set(c.categorias || (c.categoria ? [c.categoria] : [])));
   const [dataCobricao, setDataCobricao] = useState(c.gestacao?.dataCobricao || c.dataCobertura || '');
   const [pai, setPai] = useState(c.gestacao?.pai || '');
@@ -1412,11 +1417,23 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
               }}>
                 {selectedProprietarios.length === 0 
                   ? 'Toque para selecionar...' 
-                  : proprietarios.filter(p => selectedProprietarios.includes(p.id)).map(p => p.nome).join(', ')}
+                  : sortedProprietarios.filter(p => selectedProprietarios.includes(p.id)).map(p => p.nome).join(', ')}
               </button>
             ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {proprietarios.map(p => (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                <input
+                  type="text"
+                  placeholder="Buscar proprietário..."
+                  value={propSearch}
+                  onChange={e => setPropSearch(e.target.value)}
+                  style={{
+                    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                    fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)',
+                    padding: '8px 0', borderBottom: '1px solid var(--line)', marginBottom: 8,
+                  }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+                {filteredProprietarios.map(p => (
                   <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: 'var(--ink)' }}>
                     <input
                       type="checkbox"
@@ -1432,7 +1449,8 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
                     {p.nome}
                   </label>
                 ))}
-                <button onClick={() => setShowPropSelector(false)} style={{
+                </div>
+                <button onClick={() => { setShowPropSelector(false); setPropSearch(''); }} style={{
                   background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10,
                   padding: '8px', fontSize: 13, fontWeight: 600, marginTop: 4, cursor: 'pointer',
                 }}>
