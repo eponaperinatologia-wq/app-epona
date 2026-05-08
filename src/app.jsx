@@ -67,6 +67,13 @@ function AppEpona() {
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
 
   // ── Carregamento inicial ──────────────────────────────────────
+  const loadAllData = async () => {
+ await loadAllData();
+    
+  } catch (dataError) {
+    console.error('Erro ao carregar dados:', dataError);
+  }
+};
   useEffect(() => {
     const initializeApp = async () => {
       try {
@@ -143,7 +150,8 @@ fetchAll('avisos', fromDbAviso),
   const handleLogin = (user) => {
   setCurrentUser(user);
   localStorage.setItem('epona_user', JSON.stringify(user)); // ← ADICIONE ESTA LINHA
-  if (user.role === 'operacional') {
+ await loadAllData();
+    if (user.role === 'operacional') {
     setScreen('avisos'); setTab('avisos');
   } else {
     setScreen('home'); setTab('home');
