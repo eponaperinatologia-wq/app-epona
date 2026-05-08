@@ -109,7 +109,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
                 fontSize: 11, fontWeight: 800, color: '#fff',
                 whiteSpace: 'nowrap',
               }}>
-                🚫 RAÇÃO BLOQUEADA {trato === 'manha' ? '🌅' : '🌇'}
+                🚫 ESSE CAVALO NÃO DEVE COMER RAÇÃO AGORA
               </span>
             )}
             {n.comeAlmoco && trato === 'manha' && (
@@ -204,7 +204,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           )}
           {racao && racaoBloqueada && (
             <Chip cor="#dc2626">
-              🚫 Ração bloqueada neste trato
+              🚫 NÃO COMER RAÇÃO AGORA
             </Chip>
           )}
           {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
