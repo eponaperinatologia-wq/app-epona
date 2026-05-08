@@ -135,41 +135,6 @@ const loadAllData = async () => {
     initializeApp();
   }, []);
 
-        // 1. Restaurar usuário do localStorage
-        const savedUserStr = localStorage.getItem('epona_user');
-        let parsedUser = null;
-        if (savedUserStr) {
-          try {
-            parsedUser = JSON.parse(savedUserStr);
-          } catch (e) {
-            localStorage.removeItem('epona_user');
-          }
-        }
-
-        if (parsedUser) {
-          setCurrentUser(parsedUser);
-          const targetScreen = parsedUser.role === 'admin' ? 'home' : 'avisos';
-          setScreen(targetScreen);
-          setTab(0);
-
-          // 2. Tenta carregar dados — SE FALHAR, não vai pro login
-          await loadAllData();
-            console.error('Erro ao carregar dados (mas mantendo login):', dataError);
-            // Não faz nada — o usuário continua logado mesmo sem os dados
-          }
-        } else {
-          setScreen('login');
-        }
-      } catch (error) {
-        console.error('Erro grave:', error);
-        setScreen('login');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    initializeApp();
-  }, []);
 
   // ── Auth ──────────────────────────────────────────────────────
       const handleLogin = async (user) => {
