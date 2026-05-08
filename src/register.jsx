@@ -93,14 +93,26 @@ const Toast = ({ msg }) => msg ? (
 // FLUXO A — POR CAVALO
 // 1) escolhe cavalo  2) escolhe insumo  3) confirma qtd
 // ─────────────────────────────────────────────────────────────
+const REG_CAVALO_KEY = 'epona_reg_cavalo';
+
 const RegistrarPorCavalo = ({ setScreen, addRegistro, prefilledCavaloId, insumos = INSUMOS }) => {
-  const [step, setStep] = useStateR(prefilledCavaloId ? 'insumo' : 'cavalo');
-  const [cavaloId, setCavaloId] = useStateR(prefilledCavaloId || null);
-  const [insumoId, setInsumoId] = useStateR(null);
-  const [qtd, setQtd] = useStateR(1);
-  const [search, setSearch] = useStateR('');
-  const [catFilter, setCatFilter] = useStateR('all');
+  const savedCavalo = React.useMemo(() => {
+    try { return JSON.parse(sessionStorage.getItem(REG_CAVALO_KEY)); }
+    catch (e) { return null; }
+  }, []);
+  const [step, setStep] = useStateR(savedCavalo?.step || (prefilledCavaloId ? 'insumo' : 'cavalo'));
+  const [cavaloId, setCavaloId] = useStateR(savedCavalo?.cavaloId || prefilledCavaloId || null);
+  const [insumoId, setInsumoId] = useStateR(savedCavalo?.insumoId || null);
+  const [qtd, setQtd] = useStateR(savedCavalo?.qtd || 1);
+  const [search, setSearch] = useStateR(savedCavalo?.search || '');
+  const [catFilter, setCatFilter] = useStateR(savedCavalo?.catFilter || 'all');
   const [toast, setToast] = useStateR(null);
+  React.useEffect(() => {
+    try {
+      sessionStorage.setItem(REG_CAVALO_KEY, JSON.stringify({ step, cavaloId, insumoId, qtd, search, catFilter }));
+    } catch (e) {}
+  }, [step, cavaloId, insumoId, qtd, search, catFilter]);
+  const clearRegCavalo = () => sessionStorage.removeItem(REG_CAVALO_KEY);
 
   const cav = cavaloId && getCavalo(cavaloId);
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
@@ -130,7 +142,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, prefilledCavaloId, insumos
   if (step === 'cavalo') {
     return (
       <div style={{ paddingBottom: 90 }}>
-        <TopBar title="Qual cavalo?" subtitle="Passo 1 de 3" onBack={() => setScreen('home')} />
+        <TopBar title="Qual cavalo?" subtitle="Passo 1 de 3" onBack={() => { clearRegCavalo(); setScreen('home'); }} />
         <div style={{ padding: '12px 20px 0' }}>
           <div style={{
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
@@ -297,7 +309,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, prefilledCavaloId, insumos
       </div>
 
       <div style={{ position: 'absolute', bottom: 24, left: 20, right: 20, display: 'flex', gap: 8 }}>
-        <button onClick={() => setScreen('home')} style={{
+        <button onClick={() => { clearRegCavalo(); setScreen('home'); }} style={{
           flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
         }}>Cancelar</button>
