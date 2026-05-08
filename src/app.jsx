@@ -341,14 +341,14 @@ const loadAllData = async () => {
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
     if (tab === 'home')      setScreen('home');
-    if (tab === 'cavalos')   setScreen('cavalos');
-    if (tab === 'cadastros') setScreen('cadastros');
-    if (tab === 'faturas')   setScreen('faturas');
+    if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
+    if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
+    if (tab === 'faturas' && !['faturaDetalhe'].includes(screen)) setScreen('faturas');
     if (tab === 'nutricional') setScreen('nutricional');
     if (tab === 'avisos')    setScreen('avisos');
     if (tab === 'equipe')    setScreen('planner');
-    if (tab === 'partos')    setScreen('partos');
-  }, [tab]);
+    if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
+  }, [tab, screen]);
 
   // ── Fluxo de registro ─────────────────────────────────────────
   useEffect(() => {
