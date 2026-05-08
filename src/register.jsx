@@ -41,9 +41,15 @@ const QtyStepper = ({ value, onChange, unit }) => (
       <Icon name="minus" size={18} />
     </button>
     <div style={{ flex: 1, textAlign: 'center', padding: '0 12px' }}>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', letterSpacing: '-0.01em', lineHeight: 1 }}>
-        {value % 1 === 0 ? value : value.toFixed(1)}
-      </div>
+      <input type="number" value={value} min="0.5" step="0.5"
+        onChange={e => onChange(Math.max(0.5, parseFloat(e.target.value) || 0.5))}
+        style={{
+          width: '100%', border: 'none', outline: 'none', background: 'transparent',
+          fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)',
+          letterSpacing: '-0.01em', lineHeight: 1, textAlign: 'center', padding: 0,
+          MozAppearance: 'textfield',
+        }}
+      />
       <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>{unit}</div>
     </div>
     <button onClick={() => onChange(value + 0.5)} style={{
@@ -130,7 +136,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, prefilledCavaloId, insumos
         </div>
         <div style={{ padding: '12px 20px 0' }}>
           {cavalosFiltrados.map(c => (
-            <button key={c.id} onClick={() => { setCavaloId(c.id); setStep('insumo'); }} style={{
+            <button key={c.id} onClick={() => { setCavaloId(c.id); setSearch(''); setStep('insumo'); }} style={{
               width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
               borderRadius: 14, padding: '12px', marginBottom: 6,
               display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',

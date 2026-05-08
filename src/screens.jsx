@@ -712,7 +712,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
             <NutritionRow
               icon="package" color="#b45309"
               nome="Óleo de soja" qtd={`${c.nutricao.oleoMlDia} ml`}
-              valor={formatBRL(c.nutricao.oleoMlDia * getInsumo('i_oleo').valor) + ' / dia'}
+              valor={formatBRL(c.nutricao.oleoMlDia * getInsumo('i_oleo').valorVenda) + ' / dia'}
             />
           )}
           {(c.nutricao?.suplementos || []).map(s => {
@@ -721,7 +721,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
               <NutritionRow key={s.insumoId}
                 icon="suplemento" color="#7c2d12"
                 nome={ins.nome} qtd={`${s.qtdDia} ${ins.unidade}`}
-                valor={formatBRL(s.qtdDia * ins.valor) + ' / dia'}
+                valor={formatBRL(s.qtdDia * ins.valorVenda) + ' / dia'}
               />
             );
           })}
@@ -772,7 +772,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
                   <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{r.hora} · {r.qtd} {ins.unidade}</div>
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
-                  {formatBRL(ins.valor * r.qtd)}
+                  {formatBRL((ins.valorVenda ?? 0) * r.qtd)}
                 </div>
               </div>
             );
