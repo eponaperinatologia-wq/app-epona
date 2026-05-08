@@ -77,7 +77,7 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, configResult, atividadesData
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, configResult
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
