@@ -176,7 +176,7 @@ export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP };
 export async function fetchAll(table, mapper) {
   const { data, error } = await supabase.from(table).select('*');
   if (error) { console.error(`fetchAll ${table}:`, error.message); return []; }
-  return (data || []).map(mapper);
+  return mapper ? (data || []).map(mapper) : (data || []);
 }
 
 export const dbInsert = (table, row) =>
