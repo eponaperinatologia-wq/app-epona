@@ -1307,7 +1307,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       addAtividade({
         id: 'at_' + Date.now(), tipo: 'nutricao',
         cavaloId: c.id, usuario: autor,
-        texto: `Plano nutricional de ${c.nome} atualizado: ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlDia) > 0 ? `, óleo ${parseFloat(oleoMlDia)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
+        texto: `Plano nutricional de ${c.nome} atualizado: ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlManha) > 0 || parseFloat(oleoMlTarde) > 0 ? `, óleo ${(parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
         data, hora: new Date().toTimeString().slice(0, 5), mes,
       });
     }
