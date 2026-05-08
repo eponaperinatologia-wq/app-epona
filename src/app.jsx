@@ -66,7 +66,7 @@ function AppEpona() {
   const [fluxo, setFluxo] = useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
 
-  // ── Carregamento inicial ──────────────────────────────────────
+ // ── Carregamento inicial ──────────────────────────────────────
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
@@ -103,10 +103,37 @@ const loadAllData = async () => {
     console.error('Erro ao carregar dados:', err);
   }
 };
-  useEffect(() => {
+   useEffect(() => {
     const initializeApp = async () => {
       try {
         setLoading(true);
+        const savedUserStr = localStorage.getItem('epona_user');
+        let parsedUser = null;
+        if (savedUserStr) {
+          try {
+            parsedUser = JSON.parse(savedUserStr);
+          } catch (e) {
+            localStorage.removeItem('epona_user');
+          }
+        }
+        if (parsedUser) {
+          setCurrentUser(parsedUser);
+          const targetScreen = parsedUser.role === 'admin' ? 'home' : 'avisos';
+          setScreen(targetScreen);
+          setTab(0);
+          await loadAllData();
+        } else {
+          setScreen('login');
+        }
+      } catch (error) {
+        console.error('Erro grave:', error);
+        setScreen('login');
+      } finally {
+        setLoading(false);
+      }
+    };
+    initializeApp();
+  }, []);
 
         // 1. Restaurar usuário do localStorage
         const savedUserStr = localStorage.getItem('epona_user');
@@ -145,7 +172,7 @@ const loadAllData = async () => {
   }, []);
 
   // ── Auth ──────────────────────────────────────────────────────
-    const handleLogin = async (user) => {
+      const handleLogin = async (user) => {
     setCurrentUser(user);
     localStorage.setItem('epona_user', JSON.stringify(user));
     await loadAllData();
