@@ -24,6 +24,7 @@ import {
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
+  fromDbAviso, toDbAviso,
   fromDbConfiguracao, toDbConfiguracao,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
@@ -90,9 +91,9 @@ function AppEpona() {
 
           // 2. Tenta carregar dados — SE FALHAR, não vai pro login
           try {
-            const [cavalosData, propsData, insumosData, servicosData, funcData,
-              registrosData, partosData, eventosData, movsData, procsData, ffData, configResult,
-            ] = await Promise.all([
+          const [cavalosData, propsData, insumosData, servicosData, funcData,
+  registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, configResult,
+] = await Promise.all([
               fetchAll('cavalos', fromDbCavalo),
 fetchAll('proprietarios', fromDbProprietario),
 fetchAll('insumos', fromDbInsumo),
@@ -104,6 +105,7 @@ fetchAll('eventos', fromDbEvento),
 fetchAll('movimentacoes', fromDbMovimentacao),
 fetchAll('procedimentos', fromDbProcedimento),
 fetchAll('faturas_fechadas', fromDbFaturaFechada),
+fetchAll('avisos', fromDbAviso),
               supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
             ]);
             setCavalos(cavalosData || []);
@@ -117,6 +119,7 @@ fetchAll('faturas_fechadas', fromDbFaturaFechada),
             setMovimentacoes(movsData || []);
             setProcedimentos(procsData || []);
             setFaturasFechadas(ffData || []);
+            setAvisos(avisosData || []);
             setEmpresaInfo(configResult?.data || {});
           } catch (dataError) {
             console.error('Erro ao carregar dados (mas mantendo login):', dataError);
@@ -258,8 +261,15 @@ fetchAll('faturas_fechadas', fromDbFaturaFechada),
   };
 
   // ── Avisos (in-memory) ────────────────────────────────────────
-  const addAviso = (a) => setAvisos(prev => [a, ...prev]);
-  const removeAviso = (id) => setAvisos(prev => prev.filter(a => a.id !== id));
+  const addAviso = (a) => {
+    const novoAviso = { id: 'av_' + Date.now(), ...a };
+    setAvisos(prev => [novoAviso, ...prev]);
+    dbInsert('avisos', toDbAviso(novoAviso));
+  };
+  const removeAviso = (id) => {
+    setAvisos(prev => prev.filter(a => a.id !== id));
+    dbDelete('avisos', id);
+  };
 
   // ── Movimentações ─────────────────────────────────────────────
   const addMovimentacao = (m) => {
