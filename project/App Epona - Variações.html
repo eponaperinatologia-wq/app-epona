@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>App Epona · Variações</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #f5f1ea;
+    --soft: #ebe5da;
+    --card: #fffbf3;
+    --line: #e3dccd;
+    --line-2: #c9bfaa;
+    --ink: #2a2820;
+    --ink-2: #5a554a;
+    --ink-3: #8d8675;
+    --accent: #3d6043;
+    --accent-soft: #d8e0d2;
+    --accent-ink: #fff;
+    --serif: 'DM Serif Display', Georgia, serif;
+    --sans: 'Inter', -apple-system, system-ui, sans-serif;
+    --mono: 'JetBrains Mono', monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+  button { font-family: var(--sans); cursor: pointer; }
+  button:active { transform: scale(0.98); }
+  ::-webkit-scrollbar { display: none; }
+  @keyframes toastIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+</style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+  <script type="text/babel" src="ios-frame.jsx"></script>
+  <script type="text/babel" src="design-canvas.jsx"></script>
+  <script type="text/babel" src="data.jsx"></script>
+  <script type="text/babel" src="icons.jsx"></script>
+  <script type="text/babel" src="screens.jsx"></script>
+  <script type="text/babel" src="register.jsx"></script>
+  <script type="text/babel" src="variants.jsx"></script>
+
+  <script type="text/babel">
+    const { useState } = React;
+
+    function PhoneFrame({ children, label }) {
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <IOSDevice color="space-black" hasDynamicIsland={false} time="06:42">
+            <div style={{
+              position: 'absolute', inset: 0, background: 'var(--bg)', overflow: 'hidden',
+              fontFamily: 'var(--sans)', display: 'flex', flexDirection: 'column',
+            }}>
+              <IOSStatusBar dark={false} time="06:42" />
+              <div style={{ flex: 1, overflowY: 'auto' }}>{children}</div>
+            </div>
+          </IOSDevice>
+        </div>
+      );
+    }
+
+    // Variant A é a versão principal (HomeScreen original)
+    function VariantA() {
+      const [registros] = useState(REGISTROS_HOJE);
+      return (
+        <PhoneFrame>
+          <HomeScreen registros={registros} setScreen={()=>{}} density="comfortable" />
+          <TabBar tab="home" setTab={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+    function VariantB() {
+      const [registros] = useState(REGISTROS_HOJE);
+      return (
+        <PhoneFrame>
+          <HomeScreenB registros={registros} />
+          <TabBar tab="home" setTab={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+    function VariantC() {
+      const [registros] = useState(REGISTROS_HOJE);
+      return (
+        <PhoneFrame>
+          <HomeScreenC registros={registros} />
+        </PhoneFrame>
+      );
+    }
+
+    function FluxoCavalo() {
+      return (
+        <PhoneFrame>
+          <RegistrarPorCavalo setScreen={()=>{}} addRegistro={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+    function FluxoInsumo() {
+      return (
+        <PhoneFrame>
+          <RegistrarPorInsumo setScreen={()=>{}} addRegistro={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+    function FluxoSetor() {
+      return (
+        <PhoneFrame>
+          <RegistrarPorSetor setScreen={()=>{}} addRegistro={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+
+    function FaturaPreview() {
+      return (
+        <PhoneFrame>
+          <FaturaDetalheScreen id="p2" setScreen={()=>{}} registros={REGISTROS_HOJE} />
+        </PhoneFrame>
+      );
+    }
+
+    function CavalosList() {
+      return (
+        <PhoneFrame>
+          <CavalosScreen setScreen={()=>{}} setSelected={()=>{}} density="comfortable" />
+          <TabBar tab="cavalos" setTab={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+
+    function CadastrosHub() {
+      return (
+        <PhoneFrame>
+          <CadastrosScreen setScreen={()=>{}} />
+          <TabBar tab="cadastros" setTab={()=>{}} />
+        </PhoneFrame>
+      );
+    }
+
+    function App() {
+      return (
+        <DesignCanvas
+          title="App Epona · Direções de Design"
+          subtitle="3 variações de Home + telas-chave do app · toque para focar"
+        >
+          <DCSection id="home" title="Home · 3 direções visuais" subtitle="Mesma informação, três tons">
+            <DCArtboard id="A" label="A · Cartão acolhedor (principal)" width={400} height={780}><VariantA /></DCArtboard>
+            <DCArtboard id="B" label="B · Tabela densa, profissional" width={400} height={780}><VariantB /></DCArtboard>
+            <DCArtboard id="C" label="C · Editorial minimal" width={400} height={780}><VariantC /></DCArtboard>
+          </DCSection>
+
+          <DCSection id="fluxo" title="Registro de insumo · 3 fluxos" subtitle="Configurável via Tweaks no app principal">
+            <DCArtboard id="f1" label="Por cavalo (1 → vários insumos)" width={400} height={780}><FluxoCavalo /></DCArtboard>
+            <DCArtboard id="f2" label="Por insumo (1 → vários cavalos)" width={400} height={780}><FluxoInsumo /></DCArtboard>
+            <DCArtboard id="f3" label="Por setor (lote rápido, 1 toque)" width={400} height={780}><FluxoSetor /></DCArtboard>
+          </DCSection>
+
+          <DCSection id="resto" title="Outras telas">
+            <DCArtboard id="cavs" label="Lista de cavalos" width={400} height={780}><CavalosList /></DCArtboard>
+            <DCArtboard id="cads" label="Hub de cadastros" width={400} height={780}><CadastrosHub /></DCArtboard>
+            <DCArtboard id="fat" label="Fatura mensal · pré-PDF" width={400} height={780}><FaturaPreview /></DCArtboard>
+          </DCSection>
+        </DesignCanvas>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+  </script>
+</body>
+</html>

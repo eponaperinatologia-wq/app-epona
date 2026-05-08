@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm start *)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(npx react-scripts *)",
+      "Bash(kill %1)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000)",
+      "Bash(npm run *)",
+      "Bash(cp /Users/carolinabatata/Downloads/logo-epona.png /Users/carolinabatata/Downloads/app-epona/src/assets/logo-epona.png)",
+      "Bash(cp /Users/carolinabatata/Downloads/logo-epona.png /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png)",
+      "Bash(npm install *)",
+      "Bash(pkill -f \"react-scripts\")",
+      "Bash(pkill -f \"node.*3000\")",
+      "Bash(xxd /Users/carolinabatata/Downloads/app-epona/.env.local)",
+      "Bash(identify /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png)",
+      "Bash(sips -g pixelWidth -g pixelHeight /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png)",
+      "Bash(sips -z 192 192 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/icon-192.png)",
+      "Bash(sips -z 512 512 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/icon-512.png)",
+      "Bash(sips -z 180 180 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/apple-touch-icon.png)",
+      "Bash(npx vercel *)"
+    ]
+  }
+}
