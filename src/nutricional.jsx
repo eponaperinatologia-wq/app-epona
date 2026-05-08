@@ -52,7 +52,7 @@ const Chip = ({ children, cor = '#3d6043' }) => (
 // ─────────────────────────────────────────────────────────────
 // Row compacta de um cavalo
 // ─────────────────────────────────────────────────────────────
-const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last, updateCavalo }) => {
+const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last, updateCavalo, addAviso, removeAviso }) => {
   const n = c.nutricao || {};
   const racao = n.racaoId ? insumos.find(i => i.id === n.racaoId) : null;
   const sups = (n.suplementos || []).map(s => {
@@ -81,6 +81,21 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
   const toggleRacaoBlock = (turno) => {
     const novoBlock = { ...block, [turno]: !block[turno] };
     updateCavalo(c.id, { nutricao: { ...n, racaoBlock: novoBlock } });
+    const hoje = new Date().toISOString().split('T')[0];
+    if (novoBlock[turno]) {
+      addAviso({
+        id: 'racaoBlock_' + c.id + '_' + turno,
+        autor: 'Sistema',
+        avatar: '⚠️',
+        texto: `🚫 ${c.nome} não deve comer ração no trato da ${turno === 'manha' ? 'manhã' : 'tarde'} (${hoje})`,
+        urgente: true,
+        tipo: 'racaoBlock',
+        cavaloId: c.id,
+        data_entrada: hoje,
+      });
+    } else {
+      removeAviso('racaoBlock_' + c.id + '_' + turno);
+    }
   };
 
   return (
@@ -268,7 +283,7 @@ const PiqueteHeader = ({ label, count, expanded, onToggle }) => (
 // ─────────────────────────────────────────────────────────────
 // Tela principal
 // ─────────────────────────────────────────────────────────────
-export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo }) {
+export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso }) {
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
   const trato = getTratoAtual();
@@ -418,6 +433,8 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
                   setScreen={setScreen}
                   last={idx === g.cavalos.length - 1}
                   updateCavalo={updateCavalo}
+                  addAviso={addAviso}
+                  removeAviso={removeAviso}
                 />
               ))}
             </div>
