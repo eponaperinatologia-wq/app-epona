@@ -144,6 +144,7 @@ const TabBar = ({ tab, setTab, role = 'admin' }) => {
     { id: 'partos', label: 'Gestação', icon: 'heart' },
     { id: 'cadastros', label: 'Cadastros', icon: 'package' },
     { id: 'nutricional', label: 'Nutrição', icon: 'wheat' },
+    { id: 'compras', label: 'Compras', icon: 'cart' },
     { id: 'faturas', label: 'Faturas', icon: 'doc' },
     { id: 'equipe', label: 'Equipe', icon: 'users' },
   ];
@@ -153,6 +154,7 @@ const TabBar = ({ tab, setTab, role = 'admin' }) => {
     { id: 'partos', label: 'Gestação', icon: 'heart' },
     { id: 'cadastros', label: 'Cadastros', icon: 'package' },
     { id: 'nutricional', label: 'Nutrição', icon: 'wheat' },
+    { id: 'compras', label: 'Compras', icon: 'cart' },
     { id: 'equipe', label: 'Equipe', icon: 'users' },
   ];
   const tabs = role === 'vet' ? vetTabs : adminTabs;
@@ -163,6 +165,7 @@ const OperacionalTabBar = ({ tab, setTab }) => {
   const tabs = [
     { id: 'avisos', label: 'Avisos', icon: 'bell' },
     { id: 'nutricional', label: 'Nutrição', icon: 'leaf' },
+    { id: 'compras', label: 'Compras', icon: 'cart' },
     { id: 'equipe', label: 'Equipe', icon: 'users' },
   ];
   return <TabBarBase tabs={tabs} tab={tab} setTab={setTab} />;

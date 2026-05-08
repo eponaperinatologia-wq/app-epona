@@ -10,6 +10,7 @@ import {
   TabBar, OperacionalTabBar,
 } from './screens';
 import { AvisosScreen, MovimentacaoScreen } from './extra-screens';
+import { ListaComprasScreen } from './compras';
 import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor } from './register';
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
@@ -25,6 +26,7 @@ import {
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbAviso, toDbAviso,
+  fromDbListaCompra, toDbListaCompra,
   fromDbConfiguracao, toDbConfiguracao,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
@@ -48,6 +50,7 @@ function AppEpona() {
   const [proprietarios, setProprietarios] = useState([]);
   const [registros, setRegistros] = useState([]);
   const [avisos, setAvisos] = useState([]);
+  const [compras, setCompras] = useState([]);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [insumos, setInsumos] = useState([]);
   const [funcionarios, setFuncionarios] = useState([]);
@@ -70,7 +73,7 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, configResult,
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, configResult,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -84,6 +87,7 @@ const loadAllData = async () => {
       fetchAll('procedimentos', fromDbProcedimento),
       fetchAll('faturas_fechadas', fromDbFaturaFechada),
       fetchAll('avisos', fromDbAviso),
+      fetchAll('lista_compras', fromDbListaCompra),
       supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
     ]);
     setCavalos(cavalosData || []);
@@ -98,6 +102,7 @@ const loadAllData = async () => {
     setProcedimentos(procsData || []);
     setFaturasFechadas(ffData || []);
     setAvisos(avisosData || []);
+    setCompras(comprasData || []);
     setEmpresaInfo(configResult?.data || {});
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
@@ -289,6 +294,22 @@ const loadAllData = async () => {
     dbDelete('faturas_fechadas', id);
   };
 
+  // ── Lista de Compras ──────────────────────────────────────────
+  const addCompra = (c) => {
+    const nova = { ...c, id: c.id || 'c_' + Date.now() };
+    setCompras(prev => [nova, ...prev]);
+    dbInsert('lista_compras', toDbListaCompra(nova));
+  };
+  const deleteCompra = (id) => {
+    setCompras(prev => prev.filter(c => c.id !== id));
+    dbDelete('lista_compras', id);
+  };
+  const toggleCompra = (id) => {
+    setCompras(prev => prev.map(c => c.id === id ? { ...c, comprado: !c.comprado } : c));
+    const item = compras.find(c => c.id === id);
+    if (item) dbUpdate('lista_compras', id, { comprado: !item.comprado });
+  };
+
   // ── Movimentações ─────────────────────────────────────────────
   const addMovimentacao = (m) => {
     setMovimentacoes(prev => [...prev, m]);
@@ -348,6 +369,7 @@ const loadAllData = async () => {
     if (tab === 'avisos')    setScreen('avisos');
     if (tab === 'equipe')    setScreen('planner');
     if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
+    if (tab === 'compras') setScreen('compras');
   }, [tab, screen]);
 
   // ── Fluxo de registro ─────────────────────────────────────────
@@ -357,7 +379,7 @@ const loadAllData = async () => {
   }, [screen]);
 
   const goScreen = (s) => {
-    if (currentUser?.role === 'operacional' && !['avisos', 'nutricional', 'planner', 'minhaConta'].includes(s)) return;
+    if (currentUser?.role === 'operacional' && !['avisos', 'nutricional', 'compras', 'planner', 'minhaConta'].includes(s)) return;
     if (currentUser?.role === 'vet' && ['faturas', 'faturaDetalhe', 'cadMensalidades'].includes(s)) return;
     if (currentUser?.role === 'operacional' && ['partos', 'registrarParto', 'partoDetalhe'].includes(s)) return;
     setScreen(s);
@@ -367,6 +389,7 @@ const loadAllData = async () => {
     if (s === 'faturas' || s === 'faturaDetalhe') setTab('faturas');
     if (s === 'avisos') setTab('avisos');
     if (s === 'nutricional') setTab('nutricional');
+    if (s === 'compras') setTab('compras');
     if (s === 'planner' || s === 'funcionarios' || s === 'funcionarioDetalhe') setTab('equipe');
     if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe') setTab('partos');
   };
@@ -385,6 +408,7 @@ const loadAllData = async () => {
   } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} currentUser={currentUser} onSeed={handleSeed} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} />;
+  else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAtividade={addAviso} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
   else if (screen === 'addCavalo') content = <AddCavaloScreen setScreen={goScreen} addCavalo={addCavalo} cavalos={cavalos} setNovoCavaloPendente={setNovoCavaloPendente} pendingEntradaCavalo={pendingEntradaCavalo} setPendingEntradaCavalo={setPendingEntradaCavalo} proprietarios={proprietarios} addProprietario={addProprietario} />;
@@ -419,8 +443,8 @@ const loadAllData = async () => {
   }
 
   const isOperacional = currentUser?.role === 'operacional';
-  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento'].includes(screen);
-  const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','planner','funcionarioDetalhe','minhaConta'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento'].includes(screen);
+  const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta'].includes(screen);
 
   return (
     <>

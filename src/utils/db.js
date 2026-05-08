@@ -179,6 +179,18 @@ export const toDbAviso = a => ({
   respostas: a.respostas || [],
 });
 
+export const fromDbListaCompra = r => ({
+  id: r.id, nome: r.nome, quantidade: r.quantidade || '',
+  comprado: !!r.comprado, mes: r.mes,
+  criadoPor: r.criado_por || '',
+});
+
+export const toDbListaCompra = c => ({
+  id: c.id, nome: c.nome, quantidade: c.quantidade || '',
+  comprado: !!c.comprado, mes: c.mes,
+  criado_por: c.criadoPor || '',
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', historicoGestacional: 'historico_gestacional' };

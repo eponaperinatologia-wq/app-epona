@@ -78,6 +78,10 @@ const Icon = ({ name, size = 24, color = 'currentColor', style = {} }) => {
       return <svg {...props}><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 7l10 7 10-7"/></svg>;
     case 'building':
       return <svg {...props}><rect x="3" y="3" width="18" height="18" rx="1"/><path d="M7 8h2M7 12h2M7 16h2M13 8h2M13 12h2M13 16h2M10 21V3"/></svg>;
+    case 'cart':
+      return <svg {...props}><circle cx="9" cy="20" r="1.5"/><circle cx="19" cy="20" r="1.5"/><path d="M3 4h2l2 11h12l2-9H6"/></svg>;
+    case 'trash':
+      return <svg {...props}><path d="M4 7h16M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M10 11v6M14 11v6M5 7l1 12a2 2 0 002 2h8a2 2 0 002-2l1-12"/></svg>;
     default:
       return <svg {...props}><circle cx="12" cy="12" r="9"/></svg>;
   }

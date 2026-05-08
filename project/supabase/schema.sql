@@ -10,6 +10,20 @@ ALTER TABLE avisos ADD COLUMN IF NOT EXISTS respostas JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS data_entrada TEXT DEFAULT '';
 ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS proprietario_ids JSONB DEFAULT '[]'::jsonb;
 
+-- ── LISTA DE COMPRAS ───────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS lista_compras (
+  id          TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  quantidade  TEXT DEFAULT '',
+  comprado    BOOLEAN DEFAULT FALSE,
+  mes         TEXT NOT NULL,
+  criado_por  TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE lista_compras ENABLE ROW LEVEL SECURITY;
+CREATE POLICY allow_all ON lista_compras FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
 DROP TABLE IF EXISTS eventos         CASCADE;
 DROP TABLE IF EXISTS avisos          CASCADE;
