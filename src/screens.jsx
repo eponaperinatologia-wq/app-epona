@@ -1220,7 +1220,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     }
 
     setSavedMessage(true);
-    setTimeout(() => setSavedMessage(false), 2000);
+    setTimeout(() => { setSavedMessage(false); setScreen('cavaloDetalhe'); }, 1200);
   };
 
   const handleDelete = () => {

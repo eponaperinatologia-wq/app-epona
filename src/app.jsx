@@ -116,12 +116,12 @@ const loadAllData = async () => {
             localStorage.removeItem('epona_user');
           }
         }
+        await loadAllData();
         if (parsedUser) {
           setCurrentUser(parsedUser);
           const targetScreen = parsedUser.role === 'admin' ? 'home' : 'avisos';
           setScreen(targetScreen);
           setTab(0);
-          await loadAllData();
         } else {
           setScreen('login');
         }
