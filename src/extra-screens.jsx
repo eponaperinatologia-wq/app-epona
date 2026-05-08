@@ -8,7 +8,7 @@ const { useState: useStateE } = React;
 // ─────────────────────────────────────────────────────────────
 // AVISOS · Mural compartilhado
 // ─────────────────────────────────────────────────────────────
-const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, resolverAviso, currentUser }) => {
+const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, resolverAviso, addResposta, currentUser }) => {
   const [novo, setNovo] = useStateE('');
   const [urgente, setUrgente] = useStateE(false);
 
@@ -159,6 +159,47 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                   )}
                 </div>
               </div>
+              {/* Replies */}
+              {a.respostas && a.respostas.length > 0 && (
+                <div style={{ marginTop: 10, borderTop: '1px solid var(--line)', paddingTop: 8 }}>
+                  {a.respostas.map((r, i) => (
+                    <div key={i} style={{ display: 'flex', gap: 8, marginTop: i > 0 ? 6 : 0 }}>
+                      <div style={{
+                        width: 24, height: 24, borderRadius: 24, flexShrink: 0,
+                        background: 'var(--soft)', color: 'var(--ink-2)',
+                        display: 'grid', placeItems: 'center',
+                        fontSize: 9, fontWeight: 700,
+                      }}>{r.avatar}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'baseline' }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)' }}>{r.autor}</span>
+                          <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>· {r.tempo}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.4 }}>{r.texto}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {/* Reply input */}
+              {addResposta && (
+                <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
+                  <input
+                    placeholder="Responder…"
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        addResposta(a.id, e.target.value);
+                        e.target.value = '';
+                      }
+                    }}
+                    style={{
+                      flex: 1, border: '1px solid var(--line)', borderRadius: 8,
+                      padding: '6px 10px', fontSize: 12, outline: 'none',
+                      background: 'var(--bg)', color: 'var(--ink)', fontFamily: 'var(--sans)',
+                    }}
+                  />
+                </div>
+              )}
             </div>
           );
         })}

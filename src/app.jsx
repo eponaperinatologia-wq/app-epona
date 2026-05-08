@@ -259,7 +259,7 @@ const loadAllData = async () => {
 
   // ── Avisos ────────────────────────────────────────────────────
   const addAviso = (a) => {
-    const novoAviso = { id: 'av_' + Date.now(), resolvido: false, ...a };
+    const novoAviso = { id: 'av_' + Date.now(), resolvido: false, respostas: [], ...a };
     setAvisos(prev => [novoAviso, ...prev]);
     dbInsert('avisos', toDbAviso(novoAviso));
   };
@@ -271,6 +271,22 @@ const loadAllData = async () => {
     const nome = currentUser?.nome || 'Usuário';
     setAvisos(prev => prev.map(a => a.id === id ? { ...a, urgente: false, resolvido: true, resolvidoPor: nome } : a));
     dbUpdate('avisos', id, { urgente: false, resolvido: true, resolvido_por: nome });
+  };
+  const addResposta = (avisoId, texto) => {
+    if (!texto.trim()) return;
+    const autor = currentUser?.nome || 'Usuário';
+    const avatar = currentUser?.iniciais || 'US';
+    const reply = { autor, avatar, texto: texto.trim(), tempo: 'agora' };
+    setAvisos(prev => prev.map(a => a.id === avisoId ? { ...a, respostas: [...(a.respostas || []), reply] } : a));
+    const aviso = avisos.find(a => a.id === avisoId);
+    if (aviso) {
+      const novasRespostas = [...(aviso.respostas || []), reply];
+      dbUpdate('avisos', avisoId, { respostas: novasRespostas });
+    }
+  };
+  const removeFaturaFechada = (id) => {
+    setFaturasFechadas(prev => prev.filter(f => f.id !== id));
+    dbDelete('faturas_fechadas', id);
   };
 
   // ── Movimentações ─────────────────────────────────────────────
@@ -367,7 +383,7 @@ const loadAllData = async () => {
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
   } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} currentUser={currentUser} onSeed={handleSeed} />;
-  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} currentUser={currentUser} />;
+  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAtividade={addAviso} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
@@ -386,7 +402,7 @@ const loadAllData = async () => {
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
   else if (screen === 'faturas') content = <FaturasScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} />;
-  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} />;
+  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;

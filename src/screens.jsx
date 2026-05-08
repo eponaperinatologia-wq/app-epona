@@ -12,7 +12,8 @@ import {
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
-const calcDias = (cavaloId, ref, movimentacoes) => {
+const calcDias = (cavalo, ref, movimentacoes) => {
+  const cavaloId = cavalo.id;
   const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
   const fimMes = new Date(ref.ano, ref.mes, 0);
   const diasTotais = fimMes.getDate();
@@ -27,12 +28,25 @@ const calcDias = (cavaloId, ref, movimentacoes) => {
 
   const antes = cavMovs.filter(m => m.d < inicioMes);
   const dentroMes = cavMovs.filter(m => m.d >= inicioMes && m.d <= fimMes);
-  let presente = antes.length > 0 ? antes[antes.length - 1].tipo === 'entrada' : true;
+
+  // Se tem dataEntrada, usa como referência de presença inicial
+  let presente;
+  if (cavalo.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < inicioMes)) {
+    const dataEntradaDate = new Date(cavalo.dataEntrada + 'T00:00:00');
+    presente = dataEntradaDate < inicioMes;
+  } else {
+    presente = antes.length > 0 ? antes[antes.length - 1].tipo === 'entrada' : true;
+  }
 
   if (dentroMes.length === 0) {
     if (!presente) return { dias: 0, total: diasTotais, parcial: true };
-    const diasEfetivos = Math.floor((fimEfetivo - inicioMes) / (1000 * 60 * 60 * 24)) + 1;
-    return { dias: Math.min(diasEfetivos, diasTotais), total: diasTotais, parcial: isCurrentMonth };
+    let dataInicio = new Date(inicioMes);
+    if (cavalo.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < inicioMes)) {
+      const dataEntradaDate = new Date(cavalo.dataEntrada + 'T00:00:00');
+      if (dataEntradaDate > inicioMes) dataInicio = dataEntradaDate;
+    }
+    const diasEfetivos = Math.floor((fimEfetivo - dataInicio) / (1000 * 60 * 60 * 24)) + 1;
+    return { dias: Math.min(Math.max(diasEfetivos, 0), diasTotais), total: diasTotais, parcial: true };
   }
 
   let dias = 0;
@@ -51,13 +65,13 @@ const calcDias = (cavaloId, ref, movimentacoes) => {
 };
 
 const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
-  const { dias, total, parcial } = calcDias(cav.id, ref, movimentacoes);
+  const { dias, total, parcial } = calcDias(cav, ref, movimentacoes);
   const valorBase = cav.mensalidade || 0;
   return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
 const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
-  const { dias } = calcDias(cav.id, ref, movimentacoes);
+  const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
   const findIns = (id) => (insumos || []).find(i => i.id === id);
   const linhas = [];
@@ -1506,6 +1520,9 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [pelagem, setPelagem] = useState('Tordilho');
   const [baia, setBaia] = useState('');
   const [mensalidade, setMensalidade] = useState('1950');
+  const hoje = new Date().toISOString().split('T')[0];
+  const primeiroDiaMes = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-01';
+  const [dataEntrada, setDataEntrada] = useState(pendingEntradaCavalo ? hoje : '');
   const [obs, setObs] = useState('');
   const [erro, setErro] = useState('');
 
@@ -1569,6 +1586,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
     const categoriasArr = Array.from(categorias);
     const categoria = categoriasArr[0];
 
+    const dataEntradaFinal = dataEntrada || primeiroDiaMes;
     const novoCavaloData = {
       nome: nome.trim(),
       pelagem,
@@ -1579,6 +1597,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       baia: baia.trim() || 'A-00',
       mensalidade: parseInt(mensalidade) || 1950,
       obs: obs.trim(),
+      dataEntrada: dataEntradaFinal,
       nascimento: new Date().toISOString().split('T')[0],
       ...(isGestante ? { gestacao: { dataCobricao: dataCobertura, pai, ...(isReceptora ? { mae } : {}) } } : {}),
       nutricao: {
@@ -1697,6 +1716,26 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 }}>
                   Pronto
                 </button>
+              </div>
+            )}
+          </FormField>
+        </div>
+
+        {/* Data de entrada */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label={pendingEntradaCavalo ? 'Data de entrada *' : 'Data de entrada (opcional)'}>
+            <input
+              type="date"
+              value={dataEntrada}
+              onChange={e => setDataEntrada(e.target.value)}
+              style={{
+                width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+              }}
+            />
+            {!pendingEntradaCavalo && (
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6 }}>
+                Se não preenchida, considera entrada no 1º dia do mês vigente
               </div>
             )}
           </FormField>
@@ -2293,7 +2332,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, currentUser }) => {
+const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const empresa = getEmpresa();
 
@@ -2493,10 +2532,21 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
           <Icon name="share" size={16} /> Compartilhar
         </button>
         {faturaExistente ? (
-          <button style={{
-            background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 12,
-            padding: '12px', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 600,
-          }}>Fatura fechada ✓</button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button style={{
+              flex: 1, background: 'var(--accent-soft)', color: 'var(--accent)', border: '1px solid var(--accent)', borderRadius: 12,
+              padding: '12px', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 600,
+            }}>Fatura fechada ✓</button>
+            {removeFaturaFechada && (
+              <button onClick={() => { if (window.confirm('Desfazer fechamento da fatura? A cobrança voltará a ser calculada normalmente.')) removeFaturaFechada(faturaExistente.id); }} style={{
+                background: '#fee2e2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 12,
+                padding: '12px', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 600,
+                whiteSpace: 'nowrap',
+              }}>
+                <Icon name="x" size={16} /> Desfazer
+              </button>
+            )}
+          </div>
         ) : (
           <button onClick={handleFecharFatura} style={{
             background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 12,

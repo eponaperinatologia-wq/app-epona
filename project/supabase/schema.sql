@@ -3,9 +3,11 @@
 -- Cole no SQL Editor do Supabase e execute (Run)
 -- ================================================================
 
--- ── Migração: adicionar colunas resolvido e resolvido_por em avisos ──
+-- ── Migração: novas colunas ──
 ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido BOOLEAN DEFAULT FALSE;
 ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido_por TEXT DEFAULT '';
+ALTER TABLE avisos ADD COLUMN IF NOT EXISTS respostas JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS data_entrada TEXT DEFAULT '';
 
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
 DROP TABLE IF EXISTS eventos         CASCADE;
@@ -47,6 +49,7 @@ CREATE TABLE cavalos (
   nutricao                JSONB DEFAULT '{}'::jsonb,
   gestacao                JSONB,
   historico_gestacional   JSONB DEFAULT '[]'::jsonb,
+  data_entrada            TEXT DEFAULT '',
   created_at              TIMESTAMPTZ DEFAULT NOW(),
   updated_at              TIMESTAMPTZ DEFAULT NOW()
 );
@@ -164,6 +167,7 @@ CREATE TABLE avisos (
   tipo         TEXT DEFAULT '',
   cavalo_id    TEXT REFERENCES cavalos(id) ON DELETE CASCADE,
   data_entrada TEXT DEFAULT '',
+  respostas   JSONB DEFAULT '[]'::jsonb,
   created_at   TIMESTAMPTZ DEFAULT NOW()
 );
 

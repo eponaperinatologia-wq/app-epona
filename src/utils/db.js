@@ -9,6 +9,7 @@ export const fromDbCavalo = r => ({
   baia: r.baia || '', piquete: r.piquete || '', mensalidade: r.mensalidade || 0,
   obs: r.obs || '', nutricao: r.nutricao || {},
   gestacao: r.gestacao || null, historicoGestacional: r.historico_gestacional || [],
+  dataEntrada: r.data_entrada || '',
 });
 
 export const fromDbProprietario = r => ({
@@ -72,6 +73,7 @@ export const fromDbAviso = r => ({
   resolvidoPor: r.resolvido_por || '',
   tipo: r.tipo || '', cavaloId: r.cavalo_id || null,
   data_entrada: r.data_entrada || '',
+  respostas: r.respostas || [],
 });
 
 export const fromDbFaturaFechada = r => ({
@@ -103,6 +105,7 @@ export const toDbCavalo = c => ({
   baia: c.baia || '', piquete: c.piquete || '', mensalidade: c.mensalidade || 0,
   obs: c.obs || '', nutricao: c.nutricao || {},
   gestacao: c.gestacao || null, historico_gestacional: c.historicoGestacional || [],
+  data_entrada: c.dataEntrada || '',
 });
 
 export const toDbProprietario = p => ({
@@ -169,6 +172,7 @@ export const toDbAviso = a => ({
   resolvido_por: a.resolvidoPor || '',
   tipo: a.tipo || '', cavalo_id: a.cavaloId || null,
   data_entrada: a.data_entrada || '',
+  respostas: a.respostas || [],
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
