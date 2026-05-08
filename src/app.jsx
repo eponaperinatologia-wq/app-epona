@@ -1,5 +1,5 @@
 // app.jsx — Main App Epona shell
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } from './tweaks-panel';
 import { AddInsumoScreen, EditarInsumoScreen } from './insumo-form';
 import {
@@ -71,7 +71,6 @@ function AppEpona() {
   const [pendingEntradaCavalo, setPendingEntradaCavalo] = useState(false);
   const [fluxo, setFluxo] = useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
-  const skipTabSync = useRef(false);
 
  // ── Carregamento inicial ──────────────────────────────────────
 const loadAllData = async () => {
@@ -147,7 +146,6 @@ const loadAllData = async () => {
               if (savedSelected) setSelected(savedSelected);
               if (savedScreen && validateScreen(savedScreen, parsedUser)) setScreen(savedScreen);
               else setScreen(parsedUser.role === 'operacional' ? 'avisos' : 'home');
-              skipTabSync.current = true;
             } catch (e) {
               const target = parsedUser.role === 'operacional' ? 'avisos' : 'home';
               setScreen(target); setTab('home');
@@ -409,7 +407,7 @@ const loadAllData = async () => {
 
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
-    if (skipTabSync.current) { skipTabSync.current = false; return; }
+    if (!currentUser) return;
     if (tab === 'home' && !['historico'].includes(screen)) setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
@@ -419,7 +417,7 @@ const loadAllData = async () => {
     if (tab === 'equipe')    setScreen('planner');
     if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
     if (tab === 'compras') setScreen('compras');
-  }, [tab]);
+  }, [tab, currentUser]);
 
   // ── Fluxo de registro ─────────────────────────────────────────
   useEffect(() => {

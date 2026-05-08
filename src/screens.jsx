@@ -324,14 +324,13 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
       {/* Stats */}
       <div style={{ padding: '12px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {[
-          { label: 'Registros hoje', value: totalHoje },
-          { label: 'Cavalos no haras', value: totalCavalos },
+          { label: 'Registros hoje', value: totalHoje, onClick: () => setScreen('registrar') },
+          { label: 'Cavalos no haras', value: totalCavalos, onClick: () => setScreen('cavalos') },
           { label: 'Avisos', value: totalAvisos, onClick: () => setScreen('avisos') },
         ].map(s => (
-          <button key={s.label} onClick={s.onClick} disabled={!s.onClick} style={{
+          <button key={s.label} onClick={s.onClick} style={{
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-            padding: '12px 12px', textAlign: 'left', color: 'var(--ink)',
-            cursor: s.onClick ? 'pointer' : 'default',
+            padding: '12px 12px', textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
           }}>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{s.value}</div>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{s.label}</div>
