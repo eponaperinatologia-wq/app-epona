@@ -211,7 +211,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
 // ─────────────────────────────────────────────────────────────
 // MOVIMENTAÇÃO · Entrada/Saída de animais
 // ─────────────────────────────────────────────────────────────
-const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento }) => {
+const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento, updateCavalo, insumos = [], addRegistro }) => {
   const [tipo, setTipo] = useStateE('saida');
   const [cavaloId, setCavaloId] = useStateE(null);
   const [data, setData] = useStateE('2026-05-04');
@@ -221,6 +221,8 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
   const [toast, setToast] = useStateE(null);
   const [gtaConfirmada, setGtaConfirmada] = useStateE(false);
   const [cobrarGTA, setCobrarGTA] = useStateE(false);
+  const [insumosAdicionais, setInsumosAdicionais] = useStateE([]);
+  const [insumosAdicionaisOpen, setInsumosAdicionaisOpen] = useStateE(false);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id) || { nome: 'Sem proprietário' };
   // Se acabamos de cadastrar um cavalo novo, pula para detalhes da entrada
   React.useEffect(() => {
@@ -234,7 +236,10 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
   }, [novoCavaloPendente]);
 
   const cav = cavaloId && cavalos.find(c => c.id === cavaloId);
-  const cavalosFiltrados = cavalos.filter(c =>
+  const cavalosVisiveis = tipo === 'saida'
+    ? cavalos.filter(c => c.presente)
+    : cavalos;
+  const cavalosFiltrados = cavalosVisiveis.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     c.baia.toLowerCase().includes(search.toLowerCase())
   );
@@ -283,6 +288,22 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
           nota: 'GTA de saída — ' + cav.nome,
         });
       }
+    }
+
+    // Atualiza presente/dataSaida no cavalo
+    if (tipo === 'saida' && updateCavalo) {
+      updateCavalo(cavaloId, { presente: false, dataSaida: data });
+    }
+    if (tipo === 'entrada' && updateCavalo) {
+      updateCavalo(cavaloId, { presente: true, dataSaida: '' });
+    }
+
+    // Insumos adicionais na saída
+    if (tipo === 'saida' && insumosAdicionais.length > 0 && addRegistro) {
+      const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      insumosAdicionais.forEach(item => {
+        addRegistro({ id: 'r' + Date.now() + '_' + item.insumoId, cavaloId, insumoId: item.insumoId, qtd: item.qtd, hora, usuario: 'João T.', data });
+      });
     }
 
     const mes = data.slice(0, 7);
@@ -523,6 +544,59 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
               </div>
             </div>
           </button>
+        )}
+
+        {/* Insumos adicionais na saída */}
+        {tipo === 'saida' && (
+          <div style={{
+            marginTop: 10, background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 14, overflow: 'hidden',
+          }}>
+            <button onClick={() => setInsumosAdicionaisOpen(function(v){return !v})} style={{
+              width: '100%', background: 'transparent', border: 'none', padding: '14px',
+              display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', color: 'var(--ink)',
+            }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: 8, border: '1.5px solid var(--line-2)',
+                display: 'grid', placeItems: 'center', flexShrink: 0,
+              }}>
+                <Icon name="plus" size={14} color="var(--ink-3)" />
+              </div>
+              <div style={{ flex: 1, textAlign: 'left' }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Insumos avulsos na saída</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                  {insumosAdicionais.length > 0 ? insumosAdicionais.length + ' insumo(s) adicionado(s)' : 'Ração, suplementos extras para cobrar na saída'}
+                </div>
+              </div>
+              <Icon name={insumosAdicionaisOpen ? 'chevron-up' : 'chevron-down'} size={16} color="var(--ink-3)" />
+            </button>
+            {insumosAdicionaisOpen && (
+              <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px' }}>
+                {insumos.filter(function(i){ return i.categoria === 'racao' || i.categoria === 'suplemento' || i.categoria === 'oleo' }).map(function(i) {
+                  const item = insumosAdicionais.find(function(a){ return a.insumoId === i.id });
+                  return (
+                    <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0' }}>
+                      <input type="checkbox" checked={!!item}
+                        onChange={function() {
+                          if (item) setInsumosAdicionais(function(prev){ return prev.filter(function(a){ return a.insumoId !== i.id })});
+                          else setInsumosAdicionais(function(prev){ return [...prev, { insumoId: i.id, qtd: 1 }]});
+                        }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{i.nome}</span>
+                      {item && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <button onClick={function(){ setInsumosAdicionais(function(prev){ return prev.map(function(a){ return a.insumoId === i.id ? { ...a, qtd: Math.max(0.5, a.qtd - 0.5) } : a })})}} style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>-</button>
+                          <span style={{ fontSize: 12, fontVariantNumeric: 'tabular-nums', minWidth: 24, textAlign: 'center' }}>{item.qtd}</span>
+                          <button onClick={function(){ setInsumosAdicionais(function(prev){ return prev.map(function(a){ return a.insumoId === i.id ? { ...a, qtd: a.qtd + 0.5 } : a })})}} style={{ width: 24, height: 24, borderRadius: 6, border: '1px solid var(--line)', background: 'transparent', display: 'grid', placeItems: 'center', cursor: 'pointer' }}>+</button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         )}
 
         {/* Cálculo proporcional */}

@@ -95,7 +95,7 @@ const Toast = ({ msg }) => msg ? (
 // ─────────────────────────────────────────────────────────────
 const REG_CAVALO_KEY = 'epona_reg_cavalo';
 
-const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCavaloId, insumos = INSUMOS }) => {
+const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCavaloId, insumos = INSUMOS, cavalos }) => {
   const savedCavalo = React.useMemo(() => {
     try { return JSON.parse(sessionStorage.getItem(REG_CAVALO_KEY)); }
     catch (e) { return null; }
@@ -117,7 +117,8 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   const cav = cavaloId && getCavalo(cavaloId);
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
 
-  const cavalosFiltrados = CAVALOS.filter(c =>
+  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
+  const cavalosFiltrados = cavalosDisponiveis.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     c.baia.toLowerCase().includes(search.toLowerCase())
   );
@@ -340,7 +341,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
 // FLUXO B — POR INSUMO
 // 1) escolhe insumo  2) marca cavalos (multi)  3) confirma
 // ─────────────────────────────────────────────────────────────
-const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS }) => {
+const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos }) => {
   const [step, setStep] = useStateR('insumo');
   const [insumoId, setInsumoId] = useStateR(null);
   const [selectedCavalos, setSelectedCavalos] = useStateR(new Set());
@@ -349,6 +350,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
   const [search, setSearch] = useStateR('');
   const [toast, setToast] = useStateR(null);
 
+  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
@@ -457,8 +459,8 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
 
       <div style={{ padding: '12px 20px 0' }}>
         <button onClick={() => {
-          if (selectedCavalos.size === CAVALOS.length) setSelectedCavalos(new Set());
-          else setSelectedCavalos(new Set(CAVALOS.map(c => c.id)));
+          if (selectedCavalos.size === cavalosDisponiveis.length) setSelectedCavalos(new Set());
+          else setSelectedCavalos(new Set(cavalosDisponiveis.map(c => c.id)));
         }} style={{
           fontSize: 12, color: 'var(--accent)', background: 'transparent',
           border: 'none', fontWeight: 600, padding: '4px 0',
@@ -468,7 +470,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
       </div>
 
       <div style={{ padding: '4px 20px 0' }}>
-        {CAVALOS.map(c => {
+        {cavalosDisponiveis.map(c => {
           const sel = selectedCavalos.has(c.id);
           return (
             <button key={c.id} onClick={() => toggleCav(c.id)} style={{
@@ -523,7 +525,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
 // FLUXO C — POR SETOR (lote)
 // Lista de setores → grid de cavalos com ações rápidas inline
 // ─────────────────────────────────────────────────────────────
-const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS }) => {
+const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos }) => {
   const [setor, setSetor] = useStateR(null);
   const [insumoQuick, setInsumoQuick] = useStateR(INSUMOS[1].id);
   const [confirmados, setConfirmados] = useStateR(new Set());

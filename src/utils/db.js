@@ -12,6 +12,8 @@ export const fromDbCavalo = r => ({
   obs: r.obs || '', nutricao: r.nutricao || {},
   gestacao: r.gestacao || null, historicoGestacional: r.historico_gestacional || [],
   dataEntrada: r.data_entrada || '',
+  presente: r.presente !== false,
+  dataSaida: r.data_saida || '',
 });
 
 export const fromDbProprietario = r => ({
@@ -110,6 +112,8 @@ export const toDbCavalo = c => ({
   obs: c.obs || '', nutricao: c.nutricao || {},
   gestacao: c.gestacao || null, historico_gestacional: c.historicoGestacional || [],
   data_entrada: c.dataEntrada || '',
+  presente: c.presente !== false,
+  data_saida: c.dataSaida || '',
 });
 
 export const toDbProprietario = p => ({

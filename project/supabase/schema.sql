@@ -9,6 +9,8 @@ ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido_por TEXT DEFAULT '';
 ALTER TABLE avisos ADD COLUMN IF NOT EXISTS respostas JSONB DEFAULT '[]'::jsonb;
 ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS data_entrada TEXT DEFAULT '';
 ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS proprietario_ids JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS presente BOOLEAN DEFAULT TRUE;
+ALTER TABLE cavalos ADD COLUMN IF NOT EXISTS data_saida TEXT DEFAULT '';
 
 -- ── LISTA DE COMPRAS ───────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS lista_compras (
@@ -249,6 +251,38 @@ BEGIN
     EXECUTE format('CREATE POLICY allow_all ON %I FOR ALL TO anon, authenticated USING (true) WITH CHECK (true)', t);
   END LOOP;
 END $$;
+
+-- ── Trigger: update presente based on last movimentação ─────────
+CREATE OR REPLACE FUNCTION update_cavalo_presente()
+RETURNS TRIGGER AS $$
+DECLARE
+  last_mov RECORD;
+BEGIN
+  SELECT tipo, data INTO last_mov
+  FROM movimentacoes
+  WHERE cavalo_id = NEW.cavalo_id
+  ORDER BY data DESC, created_at DESC
+  LIMIT 1;
+
+  IF FOUND THEN
+    IF last_mov.tipo = 'entrada' THEN
+      UPDATE cavalos SET presente = TRUE, data_saida = '' WHERE id = NEW.cavalo_id;
+    ELSIF last_mov.tipo = 'saida' THEN
+      UPDATE cavalos SET presente = FALSE, data_saida = last_mov.data WHERE id = NEW.cavalo_id;
+    END IF;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_update_cavalo_presente ON movimentacoes;
+CREATE TRIGGER trg_update_cavalo_presente
+AFTER INSERT ON movimentacoes
+FOR EACH ROW EXECUTE FUNCTION update_cavalo_presente();
+
+-- ── Indexes ────────────────────────────────────────────────────
+CREATE INDEX IF NOT EXISTS idx_cavalos_presente ON cavalos(presente);
+CREATE INDEX IF NOT EXISTS idx_movimentacoes_cavalo_data ON movimentacoes(cavalo_id, data DESC);
 
 -- ================================================================
 -- TRIGGER: updated_at automático

@@ -273,7 +273,7 @@ const getDataFmt = () => {
 const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed }) => {
   const hojeStr = new Date().toISOString().split('T')[0];
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
-  const totalCavalos = cavalos.length;
+  const totalCavalos = cavalos.filter(c => c.presente).length;
   const totalAvisos = avisos.length;
   const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
   const comprasPendentes = compras.filter(c => !c.comprado);
@@ -595,14 +595,51 @@ const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES }) => {
 const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, setCavalos, proprietarios = PROPRIETARIOS }) => {
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const [search, setSearch] = useState('');
-  const filtered = cavalos.filter(c =>
+
+  const presentes = cavalos.filter(c => c.presente);
+  const ausentes = cavalos.filter(c => !c.presente);
+
+  const filteredPresentes = presentes.filter(c =>
+    c.nome.toLowerCase().includes(search.toLowerCase()) ||
+    c.baia.toLowerCase().includes(search.toLowerCase())
+  );
+  const filteredAusentes = ausentes.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     c.baia.toLowerCase().includes(search.toLowerCase())
   );
 
+  const renderCavalo = (c) => {
+    const prop = getProprietarioLocal(c.proprietarioId);
+    return (
+      <button key={c.id} onClick={() => { setSelected(c.id); setScreen('cavaloDetalhe'); }} style={{
+        width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
+        borderRadius: 14, padding: density === 'compact' ? '10px 12px' : '14px 14px',
+        marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12,
+        textAlign: 'left', color: 'var(--ink)',
+      }}>
+        <HorseAvatar cavalo={c} size={density === 'compact' ? 38 : 46} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+            <span style={{ fontFamily: 'var(--serif)', fontSize: density === 'compact' ? 15 : 17, color: 'var(--ink)' }}>{c.nome}</span>
+            <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.04em' }}>{c.baia}</span>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+            {c.pelagem} · {c.categoria} · {c.idade || idade(c.nascimento)}
+          </div>
+          {density !== 'compact' && (
+            <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 4 }}>
+              {prop?.nome || 'Sem proprietário'}
+            </div>
+          )}
+        </div>
+        <Icon name="chevron-right" size={16} color="var(--ink-3)" />
+      </button>
+    );
+  };
+
   return (
     <div style={{ paddingBottom: 90 }}>
-      <TopBar title="Cavalos" subtitle={`${cavalos.length} no haras`} action={
+      <TopBar title="Cavalos" subtitle={`${presentes.length} no haras`} action={
         <button onClick={() => setScreen('addCavalo')} style={{
           width: 36, height: 36, borderRadius: 12, border: '1px solid var(--line)',
           background: 'var(--card)', display: 'grid', placeItems: 'center', color: 'var(--ink-2)',
@@ -629,34 +666,21 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
       </div>
 
       <div style={{ padding: '12px 20px 0' }}>
-        {filtered.map(c => {
-          const prop = getProprietarioLocal(c.proprietarioId);
-          return (
-            <button key={c.id} onClick={() => { setSelected(c.id); setScreen('cavaloDetalhe'); }} style={{
-              width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
-              borderRadius: 14, padding: density === 'compact' ? '10px 12px' : '14px 14px',
-              marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12,
-              textAlign: 'left', color: 'var(--ink)',
-            }}>
-              <HorseAvatar cavalo={c} size={density === 'compact' ? 38 : 46} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ fontFamily: 'var(--serif)', fontSize: density === 'compact' ? 15 : 17, color: 'var(--ink)' }}>{c.nome}</span>
-                  <span style={{ fontSize: 11, color: 'var(--ink-3)', fontFamily: 'var(--mono)', letterSpacing: '0.04em' }}>{c.baia}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-                  {c.pelagem} · {c.categoria} · {c.idade || idade(c.nascimento)}
-                </div>
-                {density !== 'compact' && (
-                  <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 4 }}>
-                    {prop?.nome || 'Sem proprietário'}
-                  </div>
-                )}
-              </div>
-              <Icon name="chevron-right" size={16} color="var(--ink-3)" />
-            </button>
-          );
-        })}
+        {filteredPresentes.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, padding: '4px 4px 8px' }}>
+            No haras · {filteredPresentes.length}
+          </div>
+        )}
+        {filteredPresentes.map(renderCavalo)}
+        {filteredAusentes.length > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, padding: '16px 4px 8px', borderTop: '1px solid var(--line)', marginTop: 8 }}>
+            Fora do haras · {filteredAusentes.length}
+          </div>
+        )}
+        {filteredAusentes.map(renderCavalo)}
+        {filteredPresentes.length === 0 && filteredAusentes.length === 0 && (
+          <div style={{ padding: 30, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>Nenhum cavalo encontrado.</div>
+        )}
       </div>
     </div>
   );
@@ -1128,6 +1152,49 @@ const CadMensalidadesScreen = ({ setScreen }) => (
 // ─────────────────────────────────────────────────────────────
 const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCavalo, proprietarios = PROPRIETARIOS }) => {
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
+  const presentes = cavalos.filter(c => c.presente);
+  const ausentes = cavalos.filter(c => !c.presente);
+  const renderCavalo = (c) => {
+    const prop = getProprietarioLocal(c.proprietarioId);
+    return (
+      <div key={c.id} style={{
+        background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+        padding: '12px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12,
+        textAlign: 'left', color: 'var(--ink)',
+      }}>
+        <button onClick={() => { setSelected(c.id); setScreen('cavaloDetalhe'); }} style={{
+          flex: 1, background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: 12,
+          textAlign: 'left', color: 'var(--ink)', cursor: 'pointer', padding: 0,
+        }}>
+          <HorseAvatar cavalo={c} size={40} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <span style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{c.nome}</span>
+              <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--ink-3)' }}>{c.baia}</span>
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{prop.nome} · {c.categoria}</div>
+          </div>
+          <Icon name="chevron-right" size={16} color="var(--ink-3)" />
+        </button>
+        {deleteCavalo && (
+          <button 
+            onClick={() => { 
+              if (window.confirm(`Deseja excluir ${c.nome}?`)) {
+                deleteCavalo(c.id);
+              }
+            }}
+            style={{
+              width: 36, height: 36, borderRadius: 10, border: '1px solid var(--line)',
+              background: '#fee2e2', display: 'grid', placeItems: 'center', color: '#dc2626',
+              cursor: 'pointer',
+            }}
+          >
+            <Icon name="trash" size={16} />
+          </button>
+        )}
+      </div>
+    );
+  };
   return (
     <div style={{ paddingBottom: 90 }}>
     <TopBar title="Cadastro de cavalos" onBack={() => setScreen('cadastros')} action={
@@ -1138,48 +1205,17 @@ const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCav
         <Icon name="plus" size={18} color="#fff" />
       </button>
     } />
-    <div style={{ padding: '14px 20px 0' }}>
-      {cavalos.map(c => {
-        const prop = getProprietarioLocal(c.proprietarioId);
-        return (
-          <div key={c.id} style={{
-            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-            padding: '12px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12,
-            textAlign: 'left', color: 'var(--ink)',
-          }}>
-            <button onClick={() => { setSelected(c.id); setScreen('cavaloDetalhe'); }} style={{
-              flex: 1, background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: 12,
-              textAlign: 'left', color: 'var(--ink)', cursor: 'pointer', padding: 0,
-            }}>
-              <HorseAvatar cavalo={c} size={40} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-                  <span style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{c.nome}</span>
-                  <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--ink-3)' }}>{c.baia}</span>
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{prop.nome} · {c.categoria}</div>
-              </div>
-              <Icon name="chevron-right" size={16} color="var(--ink-3)" />
-            </button>
-            {deleteCavalo && (
-              <button 
-                onClick={() => { 
-                  if (window.confirm(`Deseja excluir ${c.nome}?`)) {
-                    deleteCavalo(c.id);
-                  }
-                }}
-                style={{
-                  width: 36, height: 36, borderRadius: 10, border: '1px solid var(--line)',
-                  background: '#fee2e2', display: 'grid', placeItems: 'center', color: '#dc2626',
-                  cursor: 'pointer',
-                }}
-              >
-                <Icon name="trash" size={16} />
-              </button>
-            )}
-          </div>
-        );
-      })}
+    <div style={{ padding: '14px 20px 0'}}>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, padding: '4px 4px 8px' }}>
+        No haras · {presentes.length}
+      </div>
+      {presentes.map(renderCavalo)}
+      {ausentes.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, padding: '16px 4px 8px', borderTop: '1px solid var(--line)', marginTop: 8 }}>
+          Fora do haras · {ausentes.length}
+        </div>
+      )}
+      {ausentes.map(renderCavalo)}
     </div>
   </div>
   );

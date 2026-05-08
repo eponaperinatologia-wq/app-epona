@@ -184,14 +184,15 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
 
   // Filtrar + agrupar por piquete
   const groups = useMemo(() => {
+    const presentes = cavalos.filter(c => c.presente);
     const q = busca.trim().toLowerCase();
     const filtered = q
-      ? cavalos.filter(c =>
+      ? presentes.filter(c =>
           c.nome.toLowerCase().includes(q) ||
           (c.baia || '').toLowerCase().includes(q) ||
           (c.piquete ? String(c.piquete).toLowerCase().includes(q) : false)
         )
-      : cavalos;
+      : presentes;
 
     const map = {};
     filtered.forEach(c => {
