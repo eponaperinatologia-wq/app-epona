@@ -25,6 +25,27 @@ ALTER TABLE lista_compras ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS allow_all ON lista_compras;
 CREATE POLICY allow_all ON lista_compras FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
+-- ── ATIVIDADES (feed da Home) ──────────────────────────────────
+CREATE TABLE IF NOT EXISTS atividades (
+  id          TEXT PRIMARY KEY,
+  tipo        TEXT NOT NULL,
+  cavalo_id   TEXT,
+  insumo_id   TEXT,
+  qtd         NUMERIC(10,3),
+  motivo      TEXT DEFAULT '',
+  usuario     TEXT DEFAULT '',
+  autor       TEXT DEFAULT '',
+  texto       TEXT DEFAULT '',
+  mes         TEXT NOT NULL,
+  data        TEXT NOT NULL,
+  hora        TEXT DEFAULT '',
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE atividades ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS allow_all ON atividades;
+CREATE POLICY allow_all ON atividades FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
+
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
 DROP TABLE IF EXISTS eventos         CASCADE;
 DROP TABLE IF EXISTS avisos          CASCADE;
@@ -222,7 +243,7 @@ BEGIN
   FOREACH t IN ARRAY ARRAY[
     'proprietarios','cavalos','insumos','servicos','funcionarios',
     'registros','procedimentos','partos','movimentacoes','avisos','eventos',
-    'lista_compras'
+    'lista_compras','atividades'
   ]   LOOP
     EXECUTE format('DROP POLICY IF EXISTS allow_all ON %I', t);
     EXECUTE format('CREATE POLICY allow_all ON %I FOR ALL TO anon, authenticated USING (true) WITH CHECK (true)', t);

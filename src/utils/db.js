@@ -191,6 +191,22 @@ export const toDbListaCompra = c => ({
   criado_por: c.criadoPor || '',
 });
 
+export const fromDbAtividade = r => ({
+  id: r.id, tipo: r.tipo,
+  cavaloId: r.cavalo_id, insumoId: r.insumo_id,
+  qtd: r.qtd, motivo: r.motivo || '', usuario: r.usuario || '',
+  autor: r.autor || '', texto: r.texto || '',
+  mes: r.mes, data: r.data, hora: r.hora || '',
+});
+
+export const toDbAtividade = a => ({
+  id: a.id, tipo: a.tipo,
+  cavalo_id: a.cavaloId, insumo_id: a.insumoId,
+  qtd: a.qtd, motivo: a.motivo || '', usuario: a.usuario || '',
+  autor: a.autor || '', texto: a.texto || '',
+  mes: a.mes, data: a.data, hora: a.hora || '',
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', historicoGestacional: 'historico_gestacional' };

@@ -7,6 +7,7 @@ import {
   ProprietarioScreen,
   CadastrosScreen, CadProprietariosScreen, CadInsumosScreen, CadMensalidadesScreen, CadCavalosScreen, CadEmpresaScreen,
   FaturasScreen, FaturaDetalheScreen,
+  HistoricoScreen,
   TabBar, OperacionalTabBar,
 } from './screens';
 import { AvisosScreen, MovimentacaoScreen } from './extra-screens';
@@ -27,6 +28,7 @@ import {
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbAviso, toDbAviso,
   fromDbListaCompra, toDbListaCompra,
+  fromDbAtividade, toDbAtividade,
   fromDbConfiguracao, toDbConfiguracao,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
@@ -51,6 +53,7 @@ function AppEpona() {
   const [registros, setRegistros] = useState([]);
   const [avisos, setAvisos] = useState([]);
   const [compras, setCompras] = useState([]);
+  const [atividades, setAtividades] = useState([]);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [insumos, setInsumos] = useState([]);
   const [funcionarios, setFuncionarios] = useState([]);
@@ -74,7 +77,7 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, configResult,
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, configResult, atividadesData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -89,6 +92,7 @@ const loadAllData = async () => {
       fetchAll('faturas_fechadas', fromDbFaturaFechada),
       fetchAll('avisos', fromDbAviso),
       fetchAll('lista_compras', fromDbListaCompra),
+      fetchAll('atividades', fromDbAtividade),
       supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
     ]);
     setCavalos(cavalosData || []);
@@ -104,6 +108,7 @@ const loadAllData = async () => {
     setFaturasFechadas(ffData || []);
     setAvisos(avisosData || []);
     setCompras(comprasData || []);
+    setAtividades(atividadesData || []);
     setEmpresaInfo(configResult?.data || {});
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
@@ -346,6 +351,13 @@ const loadAllData = async () => {
     if (toggled) dbUpdate('lista_compras', id, { comprado: !toggled.comprado });
   };
 
+  // ── Atividades (feed da Home) ──────────────────────────────
+  const addAtividade = (a) => {
+    const nova = { id: a.id || 'at_' + Date.now(), ...a };
+    setAtividades(prev => [nova, ...prev]);
+    dbInsert('atividades', toDbAtividade(nova));
+  };
+
   // ── Movimentações ─────────────────────────────────────────────
   const addMovimentacao = (m) => {
     setMovimentacoes(prev => [...prev, m]);
@@ -398,7 +410,7 @@ const loadAllData = async () => {
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
     if (skipTabSync.current) { skipTabSync.current = false; return; }
-    if (tab === 'home')      setScreen('home');
+    if (tab === 'home' && !['historico'].includes(screen)) setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
     if (tab === 'faturas' && !['faturaDetalhe'].includes(screen)) setScreen('faturas');
@@ -442,15 +454,15 @@ const loadAllData = async () => {
     );
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
-  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} currentUser={currentUser} onSeed={handleSeed} />;
+  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
-  else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAtividade={addAviso} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} />;
+  else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
   else if (screen === 'addCavalo') content = <AddCavaloScreen setScreen={goScreen} addCavalo={addCavalo} cavalos={cavalos} setNovoCavaloPendente={setNovoCavaloPendente} pendingEntradaCavalo={pendingEntradaCavalo} setPendingEntradaCavalo={setPendingEntradaCavalo} proprietarios={proprietarios} addProprietario={addProprietario} />;
   else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registros} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} />;
-  else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} addAviso={addAviso} currentUser={currentUser} />;
+  else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
   else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietarios} cavalos={cavalos} updateProprietario={updateProprietario} />;
   else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;
   else if (screen === 'cadProprietarios') content = <CadProprietariosScreen setScreen={goScreen} setSelected={setSelected} proprietarios={proprietarios} cavalos={cavalos} addProprietario={addProprietario} />;
@@ -472,16 +484,17 @@ const loadAllData = async () => {
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} />;
+  else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;
-    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} insumos={insumos} />;
-    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} insumos={insumos} />;
-    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} insumos={insumos} />;
+    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} />;
+    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} />;
+    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} />;
   }
 
   const isOperacional = currentUser?.role === 'operacional';
-  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento'].includes(screen);
-  const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico'].includes(screen);
+  const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (
     <>

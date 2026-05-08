@@ -278,9 +278,9 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
   const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
   const comprasPendentes = compras.filter(c => !c.comprado);
 
-  const hojeAt = atividades.filter(a => a.data === hojeStr)
-    .sort((a, b) => b.hora.localeCompare(a.hora));
-  const recentes = hojeAt.slice(0, density === 'compact' ? 6 : 4);
+  const recentes = [...atividades]
+    .sort((a, b) => (b.data + 'T' + b.hora).localeCompare(a.data + 'T' + a.hora))
+    .slice(0, density === 'compact' ? 6 : 5);
   const ultimosAvisos = [...avisos]
     .sort((a, b) => {
       const aUrg = a.urgente && !a.resolvido ? 1 : 0;
@@ -547,10 +547,11 @@ const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES }) => {
   }
   const formatDia = (d) => {
     const dt = new Date(d + 'T00:00:00');
-    const hoje = new Date('2026-05-04');
-    const ontem = new Date('2026-05-03');
-    if (d === '2026-05-04') return 'Hoje';
-    if (d === '2026-05-03') return 'Ontem';
+    const hoje = new Date(); hoje.setHours(0,0,0,0);
+    const ontem = new Date(hoje); ontem.setDate(ontem.getDate() - 1);
+    const dia = new Date(d + 'T00:00:00');
+    if (dia.getTime() === hoje.getTime()) return 'Hoje';
+    if (dia.getTime() === ontem.getTime()) return 'Ontem';
     return dt.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: 'long' });
   };
 
@@ -1187,7 +1188,7 @@ const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCav
 // ─────────────────────────────────────────────────────────────
 // EDITAR CAVALO
 // ─────────────────────────────────────────────────────────────
-const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, currentUser }) => {
+const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, addAtividade, currentUser }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (pid) => proprietarios.find(p => p.id === pid);
   const prop = getProprietarioLocal(c.proprietarioId);
@@ -1252,15 +1253,17 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     const categoriasArr = Array.from(categorias);
     updateCavalo(id, { nome, baia, piquete, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
-    if (nutricaoChanged && addAviso) {
+    if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
       const autor = currentUser?.nome || 'Sistema';
-      const avatar = currentUser?.iniciais || 'SYS';
       const supNomes = suplementos.map(s => INSUMOS.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
-      addAviso({
-        id: 'a' + Date.now(),
-        autor, avatar, tempo: 'agora', nutricional: true, cavaloId: c.id,
-        texto: `Plano nutricional de ${c.nome} atualizado por ${autor}: ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlDia) > 0 ? `, óleo ${parseFloat(oleoMlDia)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
+      const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
+      const data = hoje.toISOString().split('T')[0];
+      addAtividade({
+        id: 'at_' + Date.now(), tipo: 'nutricao',
+        cavaloId: c.id, usuario: autor,
+        texto: `Plano nutricional de ${c.nome} atualizado: ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlDia) > 0 ? `, óleo ${parseFloat(oleoMlDia)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
+        data, hora: new Date().toTimeString().slice(0, 5), mes,
       });
     }
 

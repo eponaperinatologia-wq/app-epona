@@ -211,7 +211,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
 // ─────────────────────────────────────────────────────────────
 // MOVIMENTAÇÃO · Entrada/Saída de animais
 // ─────────────────────────────────────────────────────────────
-const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento }) => {
+const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento }) => {
   const [tipo, setTipo] = useStateE('saida');
   const [cavaloId, setCavaloId] = useStateE(null);
   const [data, setData] = useStateE('2026-05-04');
@@ -255,7 +255,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAtividade, cavalos,
       const filtered = pending.filter(e => e.cavaloId !== cavaloId);
       filtered.push({ cavaloId, dataEntrada: data, mvId });
       localStorage.setItem('epona_gta_pending', JSON.stringify(filtered));
-      addAtividade && addAtividade({
+      addAviso && addAviso({
         id: 'gta_' + cavaloId,
         tipo: 'gta_pendente',
         autor: 'Sistema', avatar: 'GTA',
@@ -285,11 +285,12 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAtividade, cavalos,
       }
     }
 
+    const mes = data.slice(0, 7);
     addAtividade && addAtividade({
-      id: 'at' + Date.now(), tipo,
+      id: 'at_' + Date.now(), tipo,
       data, hora: new Date().toTimeString().slice(0, 5),
       cavaloId, motivo: motivo.trim() || (tipo === 'entrada' ? 'Início de hospedagem' : 'Saída'),
-      usuario: 'João T.',
+      usuario: 'João T.', mes,
     });
     setToast(`${tipo === 'entrada' ? 'Entrada' : 'Saída'} de ${cav.nome} registrada`);
     setTimeout(() => setScreen('home'), 1400);
