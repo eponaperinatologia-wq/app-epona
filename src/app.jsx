@@ -338,9 +338,12 @@ const loadAllData = async () => {
     dbDelete('lista_compras', id);
   };
   const toggleCompra = (id) => {
-    setCompras(prev => prev.map(c => c.id === id ? { ...c, comprado: !c.comprado } : c));
-    const item = compras.find(c => c.id === id);
-    if (item) dbUpdate('lista_compras', id, { comprado: !item.comprado });
+    let toggled;
+    setCompras(prev => {
+      toggled = prev.find(c => c.id === id);
+      return prev.map(c => c.id === id ? { ...c, comprado: !c.comprado } : c);
+    });
+    if (toggled) dbUpdate('lista_compras', id, { comprado: !toggled.comprado });
   };
 
   // ── Movimentações ─────────────────────────────────────────────

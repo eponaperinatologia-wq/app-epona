@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS lista_compras (
 );
 
 ALTER TABLE lista_compras ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS allow_all ON lista_compras;
 CREATE POLICY allow_all ON lista_compras FOR ALL TO anon, authenticated USING (true) WITH CHECK (true);
 
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
@@ -220,11 +221,11 @@ DECLARE t TEXT;
 BEGIN
   FOREACH t IN ARRAY ARRAY[
     'proprietarios','cavalos','insumos','servicos','funcionarios',
-    'registros','procedimentos','partos','movimentacoes','avisos','eventos'
-  ] LOOP
-    EXECUTE format(
-      'CREATE POLICY allow_all ON %I FOR ALL TO anon, authenticated USING (true) WITH CHECK (true)', t
-    );
+    'registros','procedimentos','partos','movimentacoes','avisos','eventos',
+    'lista_compras'
+  ]   LOOP
+    EXECUTE format('DROP POLICY IF EXISTS allow_all ON %I', t);
+    EXECUTE format('CREATE POLICY allow_all ON %I FOR ALL TO anon, authenticated USING (true) WITH CHECK (true)', t);
   END LOOP;
 END $$;
 
