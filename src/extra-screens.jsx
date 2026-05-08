@@ -149,6 +149,14 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                       Resolvido
                     </button>
                   )}
+                  {a.resolvido && a.resolvidoPor && (
+                    <div style={{
+                      marginTop: 8, fontSize: 11, color: 'var(--ink-3)',
+                      textAlign: 'right', fontStyle: 'italic',
+                    }}>
+                      {a.resolvidoPor} marcou como resolvido
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

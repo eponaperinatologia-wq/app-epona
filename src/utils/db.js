@@ -69,6 +69,7 @@ export const fromDbAviso = r => ({
   id: r.id, autor: r.autor || '', avatar: r.avatar || '',
   tempo: r.tempo || '', texto: r.texto || '',
   urgente: !!r.urgente, resolvido: !!r.resolvido,
+  resolvidoPor: r.resolvido_por || '',
   tipo: r.tipo || '', cavaloId: r.cavalo_id || null,
   data_entrada: r.data_entrada || '',
 });
@@ -165,6 +166,7 @@ export const toDbAviso = a => ({
   id: a.id, autor: a.autor || '', avatar: a.avatar || '',
   tempo: a.tempo || '', texto: a.texto || '',
   urgente: !!a.urgente, resolvido: !!a.resolvido,
+  resolvido_por: a.resolvidoPor || '',
   tipo: a.tipo || '', cavalo_id: a.cavaloId || null,
   data_entrada: a.data_entrada || '',
 });

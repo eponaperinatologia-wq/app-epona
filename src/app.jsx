@@ -268,8 +268,9 @@ const loadAllData = async () => {
     dbDelete('avisos', id);
   };
   const resolverAviso = (id) => {
-    setAvisos(prev => prev.map(a => a.id === id ? { ...a, urgente: false, resolvido: true } : a));
-    dbUpdate('avisos', id, { urgente: false, resolvido: true });
+    const nome = currentUser?.nome || 'Usuário';
+    setAvisos(prev => prev.map(a => a.id === id ? { ...a, urgente: false, resolvido: true, resolvidoPor: nome } : a));
+    dbUpdate('avisos', id, { urgente: false, resolvido: true, resolvido_por: nome });
   };
 
   // ── Movimentações ─────────────────────────────────────────────
