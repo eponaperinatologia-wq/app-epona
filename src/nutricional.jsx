@@ -38,10 +38,16 @@ const Chip = ({ children, cor = '#3d6043' }) => (
 const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last }) => {
   const n = c.nutricao || {};
   const racao = n.racaoId ? insumos.find(i => i.id === n.racaoId) : null;
-  const sups = (n.suplementos || []).map(s => ({
-    ...s, ins: insumos.find(i => i.id === s.insumoId) || { nome: s.insumoId },
-  }));
+  const sups = (n.suplementos || []).map(s => {
+    const ins = insumos.find(i => i.id === s.insumoId) || { nome: s.insumoId, unidade: 'un' };
+    const noTrato = trato === 'manha' ? (s.manha !== false) : (s.tarde !== false);
+    const qtdTrato = s.manha && s.tarde ? (s.qtdDia / 2) : (noTrato ? s.qtdDia : 0);
+    return { ...s, ins, noTrato, qtdTrato };
+  }).filter(s => s.noTrato && s.qtdTrato > 0);
   const oleo = parseFloat(n.oleoMlDia) || 0;
+  const oleoTrato = trato === 'manha'
+    ? (n.oleoMlManha ?? (oleo / 2))
+    : (n.oleoMlTarde ?? (oleo / 2));
 
   const kgTrato = trato === 'manha'
     ? (n.racaoKgManha ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0))
@@ -115,15 +121,15 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               <Chip cor="#3d6043">
                 {trato === 'manha' ? '🌅' : '🌇'} {fmtKg(kgTrato)} kg
               </Chip>
-              <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>
+              <Chip cor="#1e4a6b">
                 {racao.nome}
-              </span>
+              </Chip>
             </>
           )}
-          {oleo > 0 && <Chip cor="#b45309">Óleo {oleo} ml</Chip>}
+          {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">
-              {s.ins.nome} {s.qtdDia}x
+              {s.ins.nome} {fmtKg(s.qtdTrato)}x
             </Chip>
           ))}
         </div>

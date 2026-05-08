@@ -1264,16 +1264,19 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [racaoKgTarde, setRacaoKgTarde] = useState(String(c.nutricao?.racaoKgTarde ?? fallbackMeio));
   const [comeAlmoco, setComeAlmoco] = useState(c.nutricao?.comeAlmoco || false);
   const [racaoKgAlmoco, setRacaoKgAlmoco] = useState(String(c.nutricao?.racaoKgAlmoco ?? 0));
-  const [oleoMlDia, setOleoMlDia] = useState(String(c.nutricao?.oleoMlDia ?? 0));
+  const [oleoMlManha, setOleoMlManha] = useState(String(c.nutricao?.oleoMlManha ?? c.nutricao?.oleoMlDia ? (c.nutricao.oleoMlDia / 2) : 0));
+  const [oleoMlTarde, setOleoMlTarde] = useState(String(c.nutricao?.oleoMlTarde ?? c.nutricao?.oleoMlDia ? (c.nutricao.oleoMlDia / 2) : 0));
   const [suplementos, setSuplementos] = useState(c.nutricao?.suplementos || []);
 
   const handleAddSuplemento = (insumoId) => {
     if (!suplementos.find(s => s.insumoId === insumoId))
-      setSuplementos(prev => [...prev, { insumoId, qtdDia: 1 }]);
+      setSuplementos(prev => [...prev, { insumoId, qtdDia: 1, manha: true, tarde: false }]);
   };
   const handleRemoveSuplemento = (insumoId) => setSuplementos(prev => prev.filter(s => s.insumoId !== insumoId));
   const handleUpdateSuplementoQtd = (insumoId, qtd) =>
     setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtd) || 1 } : s));
+  const handleToggleSupTurno = (insumoId, turno) =>
+    setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
 
   const handleSave = () => {
     const manha = parseFloat(racaoKgManha) || 0;
@@ -1284,7 +1287,9 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       racaoKgManha: manha, racaoKgTarde: tarde,
       racaoKgDia: manha + tarde + almoco,
       comeAlmoco, racaoKgAlmoco: almoco,
-      oleoMlDia: parseFloat(oleoMlDia) || 0,
+      oleoMlManha: parseFloat(oleoMlManha) || 0,
+      oleoMlTarde: parseFloat(oleoMlTarde) || 0,
+      oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
       suplementos,
     };
     const nutricaoChanged = JSON.stringify(c.nutricao || {}) !== JSON.stringify(newNutricao);
@@ -1595,11 +1600,19 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
           </div>
         </div>
 
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
-          <FormField label="Óleo (ml/dia)">
-            <input type="number" step="1" value={oleoMlDia} onChange={e => setOleoMlDia(e.target.value)}
-              style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
-          </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🫒 Óleo Manhã (ml)">
+              <input type="number" step="1" value={oleoMlManha} onChange={e => setOleoMlManha(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🫒 Óleo Tarde (ml)">
+              <input type="number" step="1" value={oleoMlTarde} onChange={e => setOleoMlTarde(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
         </div>
 
         <div style={{ marginBottom: 10 }}>
@@ -1637,20 +1650,39 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
           <FormField label="Suplementos">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
-                  <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input type="checkbox" checked={!!sup}
-                      onChange={e => e.target.checked ? handleAddSuplemento(i.id) : handleRemoveSuplemento(i.id)}
-                      style={{ cursor: 'pointer' }} />
-                    <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)' }}>{i.nome}</span>
+                  <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: sup ? 4 : 0 }}>
+                      <input type="checkbox" checked={!!sup}
+                        onChange={e => e.target.checked ? handleAddSuplemento(i.id) : handleRemoveSuplemento(i.id)}
+                        style={{ cursor: 'pointer' }} />
+                      <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
+                      {sup && (
+                        <input type="number" step="0.1" value={sup.qtdDia}
+                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                          placeholder="dose/dia"
+                          style={{ width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center' }} />
+                      )}
+                    </div>
                     {sup && (
-                      <input type="number" step="0.1" value={sup.qtdDia}
-                        onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                        placeholder="dose/dia"
-                        style={{ width: 80, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 13, color: 'var(--ink)', outline: 'none' }} />
+                      <div style={{ display: 'flex', gap: 8, paddingLeft: 32, marginTop: 2 }}>
+                        <label style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!sup.manha} onChange={() => handleToggleSupTurno(i.id, 'manha')} style={{ cursor: 'pointer' }} />
+                          🌅 Manhã
+                        </label>
+                        <label style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!sup.tarde} onChange={() => handleToggleSupTurno(i.id, 'tarde')} style={{ cursor: 'pointer' }} />
+                          🌇 Tarde
+                        </label>
+                        {sup.manha && sup.tarde && (
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>
+                            ({(sup.qtdDia / 2).toFixed(1)} {i.unidade || 'un'}/trato)
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );
@@ -1731,7 +1763,8 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [racaoKgTarde, setRacaoKgTarde] = useState('2');
   const [comeAlmoco, setComeAlmoco] = useState(false);
   const [racaoKgAlmoco, setRacaoKgAlmoco] = useState('0');
-  const [oleoMlDia, setOleoMlDia] = useState('50');
+  const [oleoMlManha, setOleoMlManha] = useState('25');
+  const [oleoMlTarde, setOleoMlTarde] = useState('25');
   const [suplementos, setSuplementos] = useState([]);
   const [mae, setMae] = useState('');
   const [pai, setPai] = useState('');
@@ -1763,7 +1796,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
 
   const handleAddSuplemento = (insumoId) => {
     if (!suplementos.find(s => s.insumoId === insumoId)) {
-      setSuplementos([...suplementos, { insumoId, qtdDia: 1 }]);
+      setSuplementos([...suplementos, { insumoId, qtdDia: 1, manha: true, tarde: false }]);
     }
   };
 
@@ -1774,6 +1807,9 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const handleUpdateSuplementoQtd = (insumoId, qtdDia) => {
     setSuplementos(suplementos.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtdDia) || 0 } : s));
   };
+
+  const handleToggleSupTurno = (insumoId, turno) =>
+    setSuplementos(suplementos.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
 
   const handleSave = () => {
     if (!nome.trim()) { setErro('Nome do cavalo é obrigatório'); return; }
@@ -1807,7 +1843,9 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         racaoKgDia: (parseFloat(racaoKgManha) || 0) + (parseFloat(racaoKgTarde) || 0) + (comeAlmoco ? (parseFloat(racaoKgAlmoco) || 0) : 0),
         comeAlmoco,
         racaoKgAlmoco: comeAlmoco ? (parseFloat(racaoKgAlmoco) || 0) : 0,
-        oleoMlDia: parseFloat(oleoMlDia) || 0,
+        oleoMlManha: parseFloat(oleoMlManha) || 0,
+        oleoMlTarde: parseFloat(oleoMlTarde) || 0,
+        oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
         suplementos: suplementos.filter(s => s.qtdDia > 0)
       }
     };
@@ -2139,11 +2177,19 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
           </div>
         </div>
 
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-          <FormField label="Óleo de soja (ml/dia)">
-            <input type="number" step="1" value={oleoMlDia} onChange={e => setOleoMlDia(e.target.value)}
-              style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
-          </FormField>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🫒 Óleo Manhã (ml)">
+              <input type="number" step="1" value={oleoMlManha} onChange={e => setOleoMlManha(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🫒 Óleo Tarde (ml)">
+              <input type="number" step="1" value={oleoMlTarde} onChange={e => setOleoMlTarde(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
         </div>
 
         <div style={{ marginBottom: 12 }}>
@@ -2182,30 +2228,49 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         {/* Suplementos */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <FormField label="Suplementos">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
               {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
-                  <div key={i.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <input
-                      type="checkbox"
-                      checked={!!sup}
-                      onChange={e => e.target.checked ? handleAddSuplemento(i.id) : handleRemoveSuplemento(i.id)}
-                      style={{ cursor: 'pointer' }}
-                    />
-                    <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)' }}>{i.nome}</span>
-                    {sup && (
+                  <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: sup ? 4 : 0 }}>
                       <input
-                        type="number"
-                        step="0.1"
-                        value={sup.qtdDia}
-                        onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                        placeholder="dose/dia"
-                        style={{
-                          width: 80, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
-                          fontSize: 13, color: 'var(--ink)', outline: 'none',
-                        }}
+                        type="checkbox"
+                        checked={!!sup}
+                        onChange={e => e.target.checked ? handleAddSuplemento(i.id) : handleRemoveSuplemento(i.id)}
+                        style={{ cursor: 'pointer' }}
                       />
+                      <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
+                      {sup && (
+                        <input
+                          type="number"
+                          step="0.1"
+                          value={sup.qtdDia}
+                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                          placeholder="dose/dia"
+                          style={{
+                            width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
+                            fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center',
+                          }}
+                        />
+                      )}
+                    </div>
+                    {sup && (
+                      <div style={{ display: 'flex', gap: 8, paddingLeft: 32, marginTop: 2 }}>
+                        <label style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!sup.manha} onChange={() => handleToggleSupTurno(i.id, 'manha')} style={{ cursor: 'pointer' }} />
+                          🌅 Manhã
+                        </label>
+                        <label style={{ fontSize: 12, color: 'var(--ink-3)', display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                          <input type="checkbox" checked={!!sup.tarde} onChange={() => handleToggleSupTurno(i.id, 'tarde')} style={{ cursor: 'pointer' }} />
+                          🌇 Tarde
+                        </label>
+                        {sup.manha && sup.tarde && (
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>
+                            ({(sup.qtdDia / 2).toFixed(1)} {i.unidade || 'un'}/trato)
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
                 );

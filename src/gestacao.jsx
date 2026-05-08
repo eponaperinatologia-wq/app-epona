@@ -77,6 +77,9 @@ const SexagemBadge = ({ sexagem }) => {
 // ─────────────────────────────────────────────────────────────
 export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios }) {
   const [subTab, setSubTab] = useState('gestacoes');
+  const [busca, setBusca] = useState('');
+
+  const q = busca.trim().toLowerCase();
 
   const gestantes = useMemo(() => cavalos
     .filter(c => c.categoria === 'Gestante' || c.categorias?.includes('Gestante'))
@@ -84,25 +87,63 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
     .sort((a, b) => (a._dias ?? 9999) - (b._dias ?? 9999))
   , [cavalos]);
 
+  const gestantesFiltradas = q
+    ? gestantes.filter(c => c.nome.toLowerCase().includes(q) || proprietarios.find(p => p.id === c.proprietarioId)?.nome.toLowerCase().includes(q))
+    : gestantes;
+
   const sortedPartos = useMemo(() => [...partos].sort((a,b) => (b.data+b.hora).localeCompare(a.data+a.hora)), [partos]);
+
+  const partosFiltrados = q
+    ? sortedPartos.filter(pt => {
+        const egua = cavalos.find(c => c.id === pt.eguaId);
+        const potro = cavalos.find(c => c.id === pt.potroId);
+        return (egua?.nome || '').toLowerCase().includes(q) || (potro?.nome || '').toLowerCase().includes(q);
+      })
+    : sortedPartos;
 
   return (
     <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
       <TopBar title="Gestação e Partos" onBack={() => setScreen('home')} />
       <SubTabBar
         tabs={[
-          { id:'gestacoes', label:`Gestações (${gestantes.length})` },
-          { id:'partos', label:`Partos (${sortedPartos.length})` },
+          { id:'gestacoes', label:`Gestações (${gestantesFiltradas.length})` },
+          { id:'partos', label:`Partos (${partosFiltrados.length})` },
         ]}
         active={subTab}
         onChange={setSubTab}
       />
+      <div style={{ padding:'8px 16px', borderBottom:'1px solid var(--line)' }}>
+        <div style={{
+          display:'flex', alignItems:'center', gap:10,
+          background:'var(--card)', border:'1px solid var(--line)',
+          borderRadius:12, padding:'9px 14px',
+        }}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+          </svg>
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar égua, potro ou proprietário…"
+            style={{
+              flex:1, border:'none', outline:'none', background:'transparent',
+              fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)',
+            }}
+          />
+          {busca && (
+            <button onClick={() => setBusca('')} style={{
+              background:'none', border:'none', padding:0, cursor:'pointer',
+              color:'var(--ink-3)', fontSize:16, lineHeight:1,
+            }}>×</button>
+          )}
+        </div>
+      </div>
       <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
         {subTab === 'gestacoes' && (
-          <GestaoesTab gestantes={gestantes} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
+          <GestaoesTab gestantes={gestantesFiltradas} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
         )}
         {subTab === 'partos' && (
-          <PartosTab partos={sortedPartos} cavalos={cavalos} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
+          <PartosTab partos={partosFiltrados} cavalos={cavalos} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
         )}
       </div>
     </div>
@@ -430,6 +471,7 @@ function GestacaoTab({ c, updateCavalo, mes }) {
 function AlimentacaoTab({ c, insumos }) {
   const n = c.nutricao || {};
   const racao = insumos.find(i => i.id === n.racaoId);
+  const oleoDia = (n.oleoMlManha || 0) + (n.oleoMlTarde || 0) || n.oleoMlDia || 0;
   const suplementos = (n.suplementos || []).map(s => ({
     ...s,
     ins: insumos.find(i => i.id === s.insumoId),
@@ -450,23 +492,30 @@ function AlimentacaoTab({ c, insumos }) {
         )}
       </div>
 
-      {n.oleoMlDia > 0 && (
+      {oleoDia > 0 && (
         <div style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'0 14px', marginBottom:14 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', padding:'12px 0 8px' }}>Óleo</div>
-          <AlimentacaoRow label="Óleo de soja" value={`${n.oleoMlDia} ml/dia`} />
+          <AlimentacaoRow label="Óleo de soja" value={`${oleoDia} ml/dia`}
+            sub={`Manhã ${n.oleoMlManha || 0}ml · Tarde ${n.oleoMlTarde || 0}ml`} />
         </div>
       )}
 
       {suplementos.length > 0 && (
         <div style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'0 14px', marginBottom:14 }}>
           <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', padding:'12px 0 8px' }}>Suplementos</div>
-          {suplementos.map(s => (
-            <AlimentacaoRow key={s.insumoId} label={s.ins?.nome || s.insumoId} value={`${s.qtdDia} ${s.ins?.unidade || 'un'}/dia`} />
-          ))}
+          {suplementos.map(s => {
+            const turnos = [s.manha ? 'Manhã' : '', s.tarde ? 'Tarde' : ''].filter(Boolean).join(' + ') || 'Dia';
+            const qtdTrato = s.manha && s.tarde ? `${(s.qtdDia / 2).toFixed(1)}/trato` : `${s.qtdDia}/dia`;
+            return (
+              <AlimentacaoRow key={s.insumoId} label={s.ins?.nome || s.insumoId}
+                value={`${s.qtdDia} ${s.ins?.unidade || 'un'}/dia`}
+                sub={`${turnos} · ${qtdTrato}`} />
+            );
+          })}
         </div>
       )}
 
-      {!racao && n.oleoMlDia === 0 && suplementos.length === 0 && (
+      {!racao && oleoDia === 0 && suplementos.length === 0 && (
         <div style={{ textAlign:'center', padding:'30px 20px', color:'var(--ink-3)', fontSize:13, fontStyle:'italic' }}>
           Nenhum plano alimentar cadastrado. Edite o perfil da égua para definir a alimentação.
         </div>

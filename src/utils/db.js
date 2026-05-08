@@ -213,7 +213,7 @@ export const toDbAtividade = a => ({
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
-const CAVALO_MAP    = { proprietarioId: 'proprietario_id', historicoGestacional: 'historico_gestacional' };
+const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
