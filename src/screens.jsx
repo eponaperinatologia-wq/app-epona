@@ -258,12 +258,18 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
   const totalHoje = atividades.filter(a => a.data === '2026-05-04').length;
   const totalCavalos = CAVALOS.length;
   const totalAvisos = avisos.length;
-  const avisosUrgentes = avisos.filter(a => a.urgente).length;
+  const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
 
   const hojeAt = atividades.filter(a => a.data === '2026-05-04')
     .sort((a, b) => b.hora.localeCompare(a.hora));
   const recentes = hojeAt.slice(0, density === 'compact' ? 6 : 4);
-  const ultimosAvisos = avisos.slice(0, 2);
+  const ultimosAvisos = [...avisos]
+    .sort((a, b) => {
+      const aUrg = a.urgente && !a.resolvido ? 1 : 0;
+      const bUrg = b.urgente && !b.resolvido ? 1 : 0;
+      return bUrg - aUrg;
+    })
+    .slice(0, density === 'compact' ? 4 : 5);
 
   return (
     <div style={{ paddingBottom: 90 }}>

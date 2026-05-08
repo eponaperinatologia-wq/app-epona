@@ -3,6 +3,9 @@
 -- Cole no SQL Editor do Supabase e execute (Run)
 -- ================================================================
 
+-- ── Migração: adicionar coluna resolvido em avisos (se não existir) ──
+ALTER TABLE avisos ADD COLUMN IF NOT EXISTS resolvido BOOLEAN DEFAULT FALSE;
+
 -- ── DROP (ordem inversa das FKs) ───────────────────────────────
 DROP TABLE IF EXISTS eventos         CASCADE;
 DROP TABLE IF EXISTS avisos          CASCADE;
@@ -155,6 +158,7 @@ CREATE TABLE avisos (
   tempo        TEXT DEFAULT '',
   texto        TEXT DEFAULT '',
   urgente      BOOLEAN DEFAULT FALSE,
+  resolvido    BOOLEAN DEFAULT FALSE,
   tipo         TEXT DEFAULT '',
   cavalo_id    TEXT REFERENCES cavalos(id) ON DELETE CASCADE,
   data_entrada TEXT DEFAULT '',

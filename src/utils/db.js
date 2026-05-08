@@ -66,9 +66,11 @@ export const fromDbEvento = r => ({
   descricao: r.descricao || '', cavaloId: r.cavalo_id, funcionarioId: r.funcionario_id,
 });
 export const fromDbAviso = r => ({
-  id: r.id, mensagem: r.mensagem || '', tipo: r.tipo || 'info',
-  data: r.data || new Date().toISOString(), usuario: r.usuario || '',
-  lido: !!r.lido, cavaloId: r.cavalo_id || null,
+  id: r.id, autor: r.autor || '', avatar: r.avatar || '',
+  tempo: r.tempo || '', texto: r.texto || '',
+  urgente: !!r.urgente, resolvido: !!r.resolvido,
+  tipo: r.tipo || '', cavaloId: r.cavalo_id || null,
+  data_entrada: r.data_entrada || '',
 });
 
 export const fromDbFaturaFechada = r => ({
@@ -160,9 +162,11 @@ export const toDbEvento = e => ({
 });
 
 export const toDbAviso = a => ({
-  id: a.id, mensagem: a.mensagem || '', tipo: a.tipo || 'info',
-  data: a.data || new Date().toISOString(), usuario: a.usuario || '',
-  lido: !!a.lido, cavalo_id: a.cavaloId || null,
+  id: a.id, autor: a.autor || '', avatar: a.avatar || '',
+  tempo: a.tempo || '', texto: a.texto || '',
+  urgente: !!a.urgente, resolvido: !!a.resolvido,
+  tipo: a.tipo || '', cavalo_id: a.cavaloId || null,
+  data_entrada: a.data_entrada || '',
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────

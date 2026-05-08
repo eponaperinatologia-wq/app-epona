@@ -8,7 +8,7 @@ const { useState: useStateE } = React;
 // ─────────────────────────────────────────────────────────────
 // AVISOS · Mural compartilhado
 // ─────────────────────────────────────────────────────────────
-const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, currentUser }) => {
+const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, resolverAviso, currentUser }) => {
   const [novo, setNovo] = useStateE('');
   const [urgente, setUrgente] = useStateE(false);
 
@@ -75,7 +75,11 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
 
       {/* Lista */}
       <div style={{ padding: '14px 20px 0' }}>
-        {avisos.map(a => {
+        {[...avisos].sort((a, b) => {
+          const aUrg = a.urgente && !a.resolvido ? 1 : 0;
+          const bUrg = b.urgente && !b.resolvido ? 1 : 0;
+          return bUrg - aUrg;
+        }).map(a => {
           const cav = a.cavaloId && getCavalo(a.cavaloId);
           const isGtaPendente = a.tipo === 'gta_pendente';
 
@@ -131,6 +135,18 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                     }}>
                       <Icon name="check" size={14} color="#fff" />
                       GTA confirmada no GEDAVE
+                    </button>
+                  )}
+                  {a.urgente && !a.resolvido && resolverAviso && (
+                    <button onClick={() => resolverAviso(a.id)} style={{
+                      marginTop: 10, width: '100%',
+                      background: '#16a34a', color: '#fff', border: 'none', borderRadius: 10,
+                      padding: '9px 14px', fontSize: 13, fontWeight: 600,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+                      cursor: 'pointer',
+                    }}>
+                      <Icon name="check" size={14} color="#fff" />
+                      Resolvido
                     </button>
                   )}
                 </div>

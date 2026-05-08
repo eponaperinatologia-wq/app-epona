@@ -257,15 +257,19 @@ const loadAllData = async () => {
     dbInsert('procedimentos', toDbProcedimento(newProc));
   };
 
-  // ── Avisos (in-memory) ────────────────────────────────────────
+  // ── Avisos ────────────────────────────────────────────────────
   const addAviso = (a) => {
-    const novoAviso = { id: 'av_' + Date.now(), ...a };
+    const novoAviso = { id: 'av_' + Date.now(), resolvido: false, ...a };
     setAvisos(prev => [novoAviso, ...prev]);
     dbInsert('avisos', toDbAviso(novoAviso));
   };
   const removeAviso = (id) => {
     setAvisos(prev => prev.filter(a => a.id !== id));
     dbDelete('avisos', id);
+  };
+  const resolverAviso = (id) => {
+    setAvisos(prev => prev.map(a => a.id === id ? { ...a, urgente: false, resolvido: true } : a));
+    dbUpdate('avisos', id, { urgente: false, resolvido: true });
   };
 
   // ── Movimentações ─────────────────────────────────────────────
@@ -362,7 +366,7 @@ const loadAllData = async () => {
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
   } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} currentUser={currentUser} onSeed={handleSeed} />;
-  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} currentUser={currentUser} />;
+  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAtividade={addAviso} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
