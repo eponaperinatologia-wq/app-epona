@@ -67,11 +67,40 @@ function AppEpona() {
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
 
   // ── Carregamento inicial ──────────────────────────────────────
-  const loadAllData = async () => {
- await loadAllData();
-    
-  } catch (dataError) {
-    console.error('Erro ao carregar dados:', dataError);
+const loadAllData = async () => {
+  try {
+    const [cavalosData, propsData, insumosData, servicosData, funcData,
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, configResult,
+    ] = await Promise.all([
+      fetchAll('cavalos', fromDbCavalo),
+      fetchAll('proprietarios', fromDbProprietario),
+      fetchAll('insumos', fromDbInsumo),
+      fetchAll('servicos', fromDbServico),
+      fetchAll('funcionarios', fromDbFuncionario),
+      fetchAll('registros', fromDbRegistro),
+      fetchAll('partos', fromDbParto),
+      fetchAll('eventos', fromDbEvento),
+      fetchAll('movimentacoes', fromDbMovimentacao),
+      fetchAll('procedimentos', fromDbProcedimento),
+      fetchAll('faturas_fechadas', fromDbFaturaFechada),
+      fetchAll('avisos', fromDbAviso),
+      supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
+    ]);
+    setCavalos(cavalosData || []);
+    setProprietarios(propsData || []);
+    setInsumos(insumosData || []);
+    setServicos(servicosData || []);
+    setFuncionarios(funcData || []);
+    setRegistros(registrosData || []);
+    setPartos(partosData || []);
+    setEventos(eventosData || []);
+    setMovimentacoes(movsData || []);
+    setProcedimentos(procsData || []);
+    setFaturasFechadas(ffData || []);
+    setAvisos(avisosData || []);
+    setEmpresaInfo(configResult?.data || {});
+  } catch (err) {
+    console.error('Erro ao carregar dados:', err);
   }
 };
   useEffect(() => {
@@ -97,38 +126,7 @@ function AppEpona() {
           setTab(0);
 
           // 2. Tenta carregar dados — SE FALHAR, não vai pro login
-          try {
-          const [cavalosData, propsData, insumosData, servicosData, funcData,
-  registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, configResult,
-] = await Promise.all([
-              fetchAll('cavalos', fromDbCavalo),
-fetchAll('proprietarios', fromDbProprietario),
-fetchAll('insumos', fromDbInsumo),
-fetchAll('servicos', fromDbServico),
-fetchAll('funcionarios', fromDbFuncionario),
-fetchAll('registros', fromDbRegistro),
-fetchAll('partos', fromDbParto),
-fetchAll('eventos', fromDbEvento),
-fetchAll('movimentacoes', fromDbMovimentacao),
-fetchAll('procedimentos', fromDbProcedimento),
-fetchAll('faturas_fechadas', fromDbFaturaFechada),
-fetchAll('avisos', fromDbAviso),
-              supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
-            ]);
-            setCavalos(cavalosData || []);
-            setProprietarios(propsData || []);
-            setInsumos(insumosData || []);
-            setServicos(servicosData || []);
-            setFuncionarios(funcData || []);
-            setRegistros(registrosData || []);
-            setPartos(partosData || []);
-            setEventos(eventosData || []);
-            setMovimentacoes(movsData || []);
-            setProcedimentos(procsData || []);
-            setFaturasFechadas(ffData || []);
-            setAvisos(avisosData || []);
-            setEmpresaInfo(configResult?.data || {});
-          } catch (dataError) {
+          await loadAllData();
             console.error('Erro ao carregar dados (mas mantendo login):', dataError);
             // Não faz nada — o usuário continua logado mesmo sem os dados
           }
@@ -147,17 +145,16 @@ fetchAll('avisos', fromDbAviso),
   }, []);
 
   // ── Auth ──────────────────────────────────────────────────────
-  const handleLogin = (user) => {
-  setCurrentUser(user);
-  localStorage.setItem('epona_user', JSON.stringify(user)); // ← ADICIONE ESTA LINHA
- await loadAllData();
+    const handleLogin = async (user) => {
+    setCurrentUser(user);
+    localStorage.setItem('epona_user', JSON.stringify(user));
+    await loadAllData();
     if (user.role === 'operacional') {
-    setScreen('avisos'); setTab('avisos');
-  } else {
-    setScreen('home'); setTab('home');
-  }
-};
-
+      setScreen('avisos'); setTab('avisos');
+    } else {
+      setScreen('home'); setTab('home');
+    }
+  };
   const handleLogout = () => {
   setCurrentUser(null);
   localStorage.removeItem('epona_user'); // ← ADICIONE ESTA LINHA
