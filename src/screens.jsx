@@ -216,7 +216,7 @@ const fmtDataHora = (dataStr, horaStr) => {
   const d = dataStr.split('-');
   return `${d[2]}/${d[1]} ${t}`;
 };
-const ActivityRow = ({ a, first }) => {
+const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
   const cav = a.cavaloId && getCavalo(a.cavaloId);
   let icon, color, title, sub;
   if (a.tipo === 'insumo') {
@@ -260,15 +260,23 @@ const ActivityRow = ({ a, first }) => {
         <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
       </div>
-      <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{fmtDataHora(a.data, a.hora)}</div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2,
-          fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
-        }}>
-          <Icon name={icon} size={10} />
-          <span>{a.tipo === 'insumo' ? getCategoria(getInsumo(a.insumoId).categoria).nome : a.tipo}</span>
+      <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{fmtDataHora(a.data, a.hora)}</div>
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2,
+            fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
+          }}>
+            <Icon name={icon} size={10} />
+            <span>{a.tipo === 'insumo' ? getCategoria(getInsumo(a.insumoId).categoria).nome : a.tipo}</span>
+          </div>
         </div>
+        {currentUser?.role === 'admin' && removeAtividade && (
+          <button onClick={() => removeAtividade(a.id)} style={{
+            background: 'none', border: 'none', padding: '2px 4px', cursor: 'pointer',
+            color: '#dc2626', fontSize: 16, lineHeight: 1, flexShrink: 0,
+          }}>×</button>
+        )}
       </div>
     </div>
   );
@@ -292,7 +300,7 @@ const getDataFmt = () => {
   return `${DIAS_SEMANA[d.getDay()]} · ${d.getDate()} de ${MESES_HOME[d.getMonth()]}`;
 };
 
-const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed }) => {
+const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed, removeAviso, removeAtividade }) => {
   const hojeStr = new Date().toLocaleDateString('sv-SE');
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.filter(c => c.presente).length;
@@ -305,9 +313,10 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
     .slice(0, density === 'compact' ? 6 : 5);
   const ultimosAvisos = [...avisos]
     .sort((a, b) => {
-      const aUrg = a.urgente && !a.resolvido ? 1 : 0;
-      const bUrg = b.urgente && !b.resolvido ? 1 : 0;
-      return bUrg - aUrg;
+      const aUrg = a.urgente && !a.resolvido ? 0 : 1;
+      const bUrg = b.urgente && !b.resolvido ? 0 : 1;
+      if (aUrg !== bUrg) return aUrg - bUrg;
+      return ((b.data_entrada || '') + 'T' + (b.tempo || '')).localeCompare((a.data_entrada || '') + 'T' + (a.tempo || ''));
     })
     .slice(0, density === 'compact' ? 4 : 5);
 
@@ -471,6 +480,12 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{a.autor}</span>
                     <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{fmtDataHora(a.data_entrada, a.tempo)}</span>
                     {a.urgente && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.04em' }}>URGENTE</span>}
+                    {currentUser?.role === 'admin' && removeAviso && (
+                      <button onClick={() => removeAviso(a.id)} style={{
+                        marginLeft: 'auto', background: 'none', border: 'none', padding: 0,
+                        cursor: 'pointer', color: '#dc2626', fontSize: 14, lineHeight: 1,
+                      }}>×</button>
+                    )}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2, lineHeight: 1.4 }}>{a.texto}</div>
                 </div>
@@ -536,7 +551,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
               Sem atividade hoje ainda.
             </div>
           )}
-          {recentes.map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} />)}
+          {recentes.map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} />)}
         </div>
       </div>
     </div>
@@ -546,10 +561,11 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
 // ─────────────────────────────────────────────────────────────
 // HISTÓRICO · Registro eterno de atividades
 // ─────────────────────────────────────────────────────────────
-const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES }) => {
+const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, removeAtividade }) => {
   const [filtro, setFiltro] = useState('todos');
   const tipos = [
     { id: 'todos', nome: 'Tudo' },
+    { id: 'nutricao', nome: 'Nutrição' },
     { id: 'insumo', nome: 'Insumos' },
     { id: 'entrada', nome: 'Entradas' },
     { id: 'saida', nome: 'Saídas' },

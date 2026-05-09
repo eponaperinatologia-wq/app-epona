@@ -77,9 +77,10 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
       {/* Lista */}
       <div style={{ padding: '14px 20px 0' }}>
         {[...avisos].sort((a, b) => {
-          const aUrg = a.urgente && !a.resolvido ? 1 : 0;
-          const bUrg = b.urgente && !b.resolvido ? 1 : 0;
-          return bUrg - aUrg;
+          const aUrg = a.urgente && !a.resolvido ? 0 : 1;
+          const bUrg = b.urgente && !b.resolvido ? 0 : 1;
+          if (aUrg !== bUrg) return aUrg - bUrg;
+          return ((b.data_entrada || '') + 'T' + (b.tempo || '')).localeCompare((a.data_entrada || '') + 'T' + (a.tempo || ''));
         }).map(a => {
           const cav = a.cavaloId && getCavalo(a.cavaloId);
           const isGtaPendente = a.tipo === 'gta_pendente';
@@ -114,6 +115,12 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                     <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>· {fmtDataHora(a.data_entrada, a.tempo)}</span>
                     {isGtaPendente && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#b45309', color: '#fff', fontWeight: 700, letterSpacing: '0.06em' }}>GTA PENDENTE</span>}
                     {!isGtaPendente && a.urgente && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#c0392b', color: '#fff', fontWeight: 700, letterSpacing: '0.06em' }}>URGENTE</span>}
+                    {currentUser?.role === 'admin' && (
+                      <button onClick={() => removeAviso(a.id)} style={{
+                        marginLeft: 'auto', background: 'none', border: 'none', padding: '2px 4px',
+                        cursor: 'pointer', color: '#dc2626', fontSize: 13, lineHeight: 1,
+                      }}>×</button>
+                    )}
                   </div>
                   <div style={{ fontSize: 13, color: 'var(--ink)', marginTop: 4, lineHeight: 1.45 }}>{a.texto}</div>
                   {cav && (
