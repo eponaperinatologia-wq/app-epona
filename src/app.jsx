@@ -272,7 +272,20 @@ const loadAllData = async () => {
   };
   const updateProprietario = (id, updatedData) => {
     setProprietarios(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
-    dbUpdate('proprietarios', id, updatedData);
+    dbUpdate('proprietarios', id, toDbProprietario({ ...proprietarios.find(p => p.id === id), ...updatedData }));
+  };
+  const deleteProprietario = (id) => {
+    setProprietarios(prev => prev.filter(p => p.id !== id));
+    dbDelete('proprietarios', id);
+    setCavalos(prev => prev.map(c => {
+      if ((c.proprietarioIds || []).includes(id)) {
+        return { ...c, proprietarioIds: c.proprietarioIds.filter(pid => pid !== id) };
+      }
+      if (c.proprietarioId === id) {
+        return { ...c, proprietarioId: undefined };
+      }
+      return c;
+    }));
   };
 
   // ── Partos ────────────────────────────────────────────────────
@@ -504,7 +517,7 @@ const loadAllData = async () => {
   else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
   else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietarios} cavalos={cavalos} updateProprietario={updateProprietario} />;
   else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;
-  else if (screen === 'cadProprietarios') content = <CadProprietariosScreen setScreen={goScreen} setSelected={setSelected} proprietarios={proprietarios} cavalos={cavalos} addProprietario={addProprietario} />;
+  else if (screen === 'cadProprietarios') content = <CadProprietariosScreen setScreen={goScreen} setSelected={setSelected} proprietarios={proprietarios} cavalos={cavalos} addProprietario={addProprietario} deleteProprietario={deleteProprietario} />;
   else if (screen === 'cadCavalos') content = <CadCavalosScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} deleteCavalo={deleteCavalo} proprietarios={proprietarios} />;
   else if (screen === 'cadInsumos') content = <CadInsumosScreen setScreen={goScreen} setSelected={setSelected} insumos={insumos} addInsumo={addInsumo} updateInsumo={updateInsumo} />;
   else if (screen === 'addInsumo') content = <AddInsumoScreen setScreen={goScreen} addInsumo={addInsumo} insumos={insumos} />;

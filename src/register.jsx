@@ -132,7 +132,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
     addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, usuario: 'João T.' });
     addDescartaveis(addRegistro, insumoId, cavaloId, qtd, insumos, hora, 'Sistema (auto)');
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toISOString().split('T')[0];
+    const data = hoje.toLocaleDateString('sv-SE');
     if (addAtividade) addAtividade({
       id: 'at_' + Date.now(), tipo: 'insumo',
       cavaloId, insumoId, qtd, usuario: 'João T.',
@@ -366,7 +366,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toISOString().split('T')[0];
+    const data = hoje.toLocaleDateString('sv-SE');
     selectedCavalos.forEach(cid => {
       addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, usuario: 'João T.' });
       addDescartaveis(addRegistro, insumoId, cid, qtd, insumos, hora, 'Sistema (auto)');
@@ -539,7 +539,7 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
     addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId: insumoQuick, qtd: 1, hora, usuario: 'João T.' });
     addDescartaveis(addRegistro, insumoQuick, cid, 1, insumos, hora, 'Sistema (auto)');
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toISOString().split('T')[0];
+    const data = hoje.toLocaleDateString('sv-SE');
     if (addAtividade) addAtividade({
       id: 'at_' + Date.now() + cid, tipo: 'insumo',
       cavaloId: cid, insumoId: insumoQuick, qtd: 1, usuario: 'João T.',

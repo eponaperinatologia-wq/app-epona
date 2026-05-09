@@ -963,7 +963,8 @@ const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietari
 // ─────────────────────────────────────────────────────────────
 // CADASTRO · Proprietários
 // ─────────────────────────────────────────────────────────────
-const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRIETARIOS, cavalos = CAVALOS, addProprietario }) => {
+const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRIETARIOS, cavalos = CAVALOS, addProprietario, deleteProprietario }) => {
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const getCavalosDoProprietario = (propId) => cavalos.filter(c => (c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId);
 
   const handleCreateProprietario = () => {
@@ -1016,6 +1017,14 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
                 }}>
                   <Icon name="edit" size={14} />
                 </button>
+                {deleteProprietario && (
+                  <button onClick={() => setConfirmDelete(p)} style={{
+                    width: 32, height: 32, borderRadius: 10, border: '1px solid #dc262630',
+                    background: 'transparent', display: 'grid', placeItems: 'center', color: '#dc2626', cursor: 'pointer',
+                  }}>
+                    <Icon name="trash" size={14} />
+                  </button>
+                )}
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10, paddingLeft: 52 }}>
                 {ownedCavalos.length > 0 ? ownedCavalos.map(cav => (
@@ -1031,6 +1040,27 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
           );
         })}
       </div>
+
+      {confirmDelete && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
+          <div style={{ background: 'var(--bg)', borderRadius: 16, padding: 24, margin: 20, maxWidth: 360, width: '100%' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Excluir proprietário?</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 16, lineHeight: 1.4 }}>
+              Tem certeza que deseja excluir <strong>{confirmDelete.nome}</strong>?{getCavalosDoProprietario(confirmDelete.id).length > 0 ? ` Ele será removido de ${getCavalosDoProprietario(confirmDelete.id).length} cavalo(s).` : ''}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => setConfirmDelete(null)} style={{
+                flex: 1, padding: '10px', borderRadius: 10, border: '1px solid var(--line)',
+                background: 'var(--card)', fontSize: 13, fontWeight: 600, color: 'var(--ink)', cursor: 'pointer',
+              }}>Cancelar</button>
+              <button onClick={() => { deleteProprietario(confirmDelete.id); setConfirmDelete(null); }} style={{
+                flex: 1, padding: '10px', borderRadius: 10, border: 'none',
+                background: '#dc2626', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer',
+              }}>Excluir</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -1380,7 +1410,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       const autor = currentUser?.nome || 'Sistema';
       const supNomes = suplementos.map(s => INSUMOS.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
       const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-      const data = hoje.toISOString().split('T')[0];
+      const data = hoje.toLocaleDateString('sv-SE');
       addAtividade({
         id: 'at_' + Date.now(), tipo: 'nutricao',
         cavaloId: c.id, usuario: autor,
