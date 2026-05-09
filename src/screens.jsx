@@ -230,6 +230,10 @@ const ActivityRow = ({ a, first }) => {
     icon = 'bell'; color = '#7c2d12';
     title = `Aviso · ${a.autor}`;
     sub = a.texto;
+  } else if (a.tipo === 'nutricao') {
+    icon = 'wheat'; color = '#3d6043';
+    title = `Nutrição · ${cav?.nome || ''}`;
+    sub = a.texto || `Atualizado por ${a.usuario}`;
   }
   return (
     <div style={{
@@ -278,7 +282,7 @@ const getDataFmt = () => {
 };
 
 const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed }) => {
-  const hojeStr = new Date().toISOString().split('T')[0];
+  const hojeStr = new Date().toLocaleDateString('sv-SE');
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.filter(c => c.presente).length;
   const totalAvisos = avisos.length;

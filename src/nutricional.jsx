@@ -87,6 +87,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
         id: 'racaoBlock_' + c.id + '_' + turno,
         autor: 'Sistema',
         avatar: '⚠️',
+        tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         texto: `🚫 ${c.nome} não deve comer ração no trato da ${turno === 'manha' ? 'manhã' : 'tarde'} (${hoje})`,
         urgente: true,
         tipo: 'racaoBlock',

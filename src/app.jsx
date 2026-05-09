@@ -338,7 +338,7 @@ const loadAllData = async () => {
         if (!jaExiste) {
           const novoAviso = {
             id: 'av_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
-            autor: 'Sistema', avatar: '⚙️', tempo: '', texto,
+            autor: 'Sistema', avatar: '⚙️', tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto,
             urgente: false, resolvido: false, resolvidoPor: '',
             tipo: 'periodico', cavaloId: c.id,
             data_entrada: hoje, respostas: [],
@@ -358,7 +358,7 @@ const loadAllData = async () => {
     if (!texto.trim()) return;
     const autor = currentUser?.nome || 'Usuário';
     const avatar = currentUser?.iniciais || 'US';
-    const reply = { autor, avatar, texto: texto.trim(), tempo: 'agora' };
+    const reply = { autor, avatar, texto: texto.trim(), tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
     setAvisos(prev => prev.map(a => a.id === avisoId ? { ...a, respostas: [...(a.respostas || []), reply] } : a));
     const aviso = avisos.find(a => a.id === avisoId);
     if (aviso) {

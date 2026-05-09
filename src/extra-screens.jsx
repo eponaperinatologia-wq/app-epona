@@ -19,11 +19,11 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
     addAviso({
       id: 'a' + Date.now(),
       autor, avatar,
-      tempo: 'agora', texto: novo.trim(), urgente,
+      tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto: novo.trim(), urgente,
     });
     addAtividade && addAtividade({
       id: 'at' + Date.now(), tipo: 'aviso',
-      data: '2026-05-06', hora: new Date().toTimeString().slice(0, 5),
+      data: new Date().toLocaleDateString('sv-SE'), hora: new Date().toTimeString().slice(0, 5),
       autor, texto: novo.trim(), urgente,
     });
     setNovo(''); setUrgente(false);
@@ -214,7 +214,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
 const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento, updateCavalo, insumos = [], addRegistro }) => {
   const [tipo, setTipo] = useStateE('saida');
   const [cavaloId, setCavaloId] = useStateE(null);
-  const [data, setData] = useStateE('2026-05-04');
+  const [data, setData] = useStateE(new Date().toLocaleDateString('sv-SE'));
   const [motivo, setMotivo] = useStateE('');
   const [search, setSearch] = useStateE('');
   const [step, setStep] = useStateE('inicio');
@@ -264,7 +264,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
         id: 'gta_' + cavaloId,
         tipo: 'gta_pendente',
         autor: 'Sistema', avatar: 'GTA',
-        tempo: 'agora',
+        tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         texto: `GTA de ${cav.nome} ainda não foi conferida no GEDAVE. Entrada registrada em ${data}. Confirme assim que possível.`,
         urgente: true,
         cavaloId,
