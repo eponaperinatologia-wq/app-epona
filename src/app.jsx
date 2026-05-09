@@ -108,7 +108,7 @@ const loadAllData = async () => {
     setAvisos(avisosData || []);
     setCompras(comprasData || []);
     setAtividades(atividadesData || []);
-    setEmpresaInfo(configResult?.data || {});
+    setEmpresaInfo(fromDbConfiguracao(configResult?.data));
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
   }
