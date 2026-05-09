@@ -205,6 +205,17 @@ const HorseAvatar = ({ cavalo, size = 44 }) => {
 // ─────────────────────────────────────────────────────────────
 // Activity row — used in Home and Histórico
 // ─────────────────────────────────────────────────────────────
+const fmtDataHora = (dataStr, horaStr) => {
+  if (!dataStr && !horaStr) return '';
+  if (!dataStr) return horaStr || '';
+  const hoje = new Date().toLocaleDateString('sv-SE');
+  const ontem = new Date(Date.now() - 86400000).toLocaleDateString('sv-SE');
+  const t = horaStr || '';
+  if (dataStr === hoje) return t;
+  if (dataStr === ontem) return 'Ontem ' + t;
+  const d = dataStr.split('-');
+  return `${d[2]}/${d[1]} ${t}`;
+};
 const ActivityRow = ({ a, first }) => {
   const cav = a.cavaloId && getCavalo(a.cavaloId);
   let icon, color, title, sub;
@@ -250,7 +261,7 @@ const ActivityRow = ({ a, first }) => {
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
       </div>
       <div style={{ textAlign: 'right' }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{a.hora}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{fmtDataHora(a.data, a.hora)}</div>
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: 3, marginTop: 2,
           fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
@@ -458,7 +469,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'baseline' }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{a.autor}</span>
-                    <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{a.tempo}</span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{fmtDataHora(a.data_entrada, a.tempo)}</span>
                     {a.urgente && <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.04em' }}>URGENTE</span>}
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2, lineHeight: 1.4 }}>{a.texto}</div>
@@ -3097,6 +3108,7 @@ const TableRow = ({ left, sub, right }) => (
 );
 
 export {
+  fmtDataHora,
   TopBar, TabBar, OperacionalTabBar, HorseAvatar, DetailRow, NutritionRow, ActivityRow,
   HomeScreen, HistoricoScreen, CavalosScreen, CavaloDetalheScreen, EditarCavaloScreen, AddCavaloScreen,
   ProprietarioScreen,

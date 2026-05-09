@@ -2,7 +2,7 @@
 import React from 'react';
 import { Icon } from './icons';
 import { getCavalo, getProprietario, formatBRL, PROPRIETARIOS } from './data';
-import { TopBar, HorseAvatar } from './screens';
+import { TopBar, HorseAvatar, fmtDataHora } from './screens';
 const { useState: useStateE } = React;
 
 // ─────────────────────────────────────────────────────────────
@@ -19,6 +19,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
     addAviso({
       id: 'a' + Date.now(),
       autor, avatar,
+      data_entrada: new Date().toLocaleDateString('sv-SE'),
       tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto: novo.trim(), urgente,
     });
     addAtividade && addAtividade({
@@ -110,7 +111,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', gap: 6, alignItems: 'baseline', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{a.autor}</span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>· {a.tempo}</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>· {fmtDataHora(a.data_entrada, a.tempo)}</span>
                     {isGtaPendente && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#b45309', color: '#fff', fontWeight: 700, letterSpacing: '0.06em' }}>GTA PENDENTE</span>}
                     {!isGtaPendente && a.urgente && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#c0392b', color: '#fff', fontWeight: 700, letterSpacing: '0.06em' }}>URGENTE</span>}
                   </div>
@@ -264,6 +265,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
         id: 'gta_' + cavaloId,
         tipo: 'gta_pendente',
         autor: 'Sistema', avatar: 'GTA',
+        data_entrada: data,
         tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         texto: `GTA de ${cav.nome} ainda não foi conferida no GEDAVE. Entrada registrada em ${data}. Confirme assim que possível.`,
         urgente: true,
