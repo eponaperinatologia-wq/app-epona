@@ -1,4 +1,4 @@
-// nutricional.jsx — Lista nutricional compacta, agrupada por piquete, com busca e trato por horário
+// nutricional.jsx — Lista nutricional compacta, agrupada por baia/piquete, com busca e trato por horário
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { TopBar, HorseAvatar } from './screens';
@@ -106,7 +106,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
       background: racaoBloqueada ? '#fef2f2' : 'transparent',
       borderLeft: racaoBloqueada ? '4px solid #dc2626' : '4px solid transparent',
     }}>
-      {/* Linha 1: nome + baia + botão editar */}
+      {/* Linha 1: nome + local + botão editar */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
         <HorseAvatar cavalo={c} size={32} />
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -248,7 +248,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
 };
 
 // ─────────────────────────────────────────────────────────────
-// Header de um grupo de piquete
+// Header de um grupo de baia/piquete
 // ─────────────────────────────────────────────────────────────
 const PiqueteHeader = ({ label, count, expanded, onToggle }) => (
   <button
@@ -297,7 +297,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
     });
   };
 
-  // Filtrar + agrupar por piquete
+  // Filtrar + agrupar por baia/piquete
   const groups = useMemo(() => {
     const presentes = cavalos.filter(c => c.presente);
     const q = busca.trim().toLowerCase();
@@ -311,7 +311,8 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
 
     const map = {};
     filtered.forEach(c => {
-      const k = c.piquete ? String(c.piquete) : '__sem__';
+      const local = c.baia || c.piquete;
+      const k = local ? String(local) : '__sem__';
       if (!map[k]) map[k] = [];
       map[k].push(c);
     });
@@ -405,7 +406,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
         )}
 
         {groups.map(g => {
-          const label = g.key === '__sem__' ? 'Sem piquete definido' : `Piquete ${g.key}`;
+          const label = g.key === '__sem__' ? 'Sem local definido' : g.key;
           const expanded = temBusca || !colapsados.has(g.key);
 
           return (

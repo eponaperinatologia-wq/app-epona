@@ -738,7 +738,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
     <div style={{ paddingBottom: 110 }}>
       <TopBar 
         title={c.nome} 
-        subtitle={`Baia ${c.baia} · ${c.sexo === 'M' ? 'Macho' : 'Fêmea'}`} 
+        subtitle={`${c.baia || 'Sem local'} · ${c.sexo === 'M' ? 'Macho' : 'Fêmea'}`} 
         onBack={() => setScreen('cavalos')}
         action={
           <div style={{ display: 'flex', gap: 8 }}>
@@ -1320,7 +1320,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
   const [nome, setNome] = useState(c.nome);
   const [baia, setBaia] = useState(c.baia);
-  const [piquete, setPiquete] = useState(c.piquete || '');
+  const [piquete, setPiquete] = useState(c.piquete || c.baia || '');
+  const existingLocais = useMemo(() => {
+    const vals = new Set();
+    cavalos.forEach(cv => { if (cv.baia) vals.add(cv.baia); if (cv.piquete) vals.add(cv.piquete); });
+    return [...vals].sort((a, b) => a.localeCompare(b, 'pt'));
+  }, [cavalos]);
   const [mensalidade, setMensalidade] = useState(c.mensalidade);
   const [obs, setObs] = useState(c.obs || '');
   const [sexo, setSexo] = useState(c.sexo || '');
@@ -1419,7 +1424,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
     const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
     const categoriasArr = Array.from(categorias);
-    updateCavalo(id, { nome, baia, piquete, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -1495,15 +1500,20 @@ Suplementos: ${supNomes}` : ''}`;
             />
           </FormField>
           <div style={{ borderTop: '1px solid var(--line)' }}>
-            <FormField label="Baia">
+            <FormField label="Baia / Piquete">
               <input
                 value={baia}
-                onChange={e => setBaia(e.target.value)}
+                onChange={e => { setBaia(e.target.value); setPiquete(e.target.value); }}
+                list="locais-list"
+                placeholder="Ex: A-04, Piquete 3…"
                 style={{
                   width: '100%', border: 'none', outline: 'none', background: 'transparent',
                   fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
                 }}
               />
+              <datalist id="locais-list">
+                {existingLocais.map(v => <option key={v} value={v} />)}
+              </datalist>
           </FormField>
         </div>
         </div>
@@ -1958,6 +1968,11 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [dataCobertura, setDataCobertura] = useState('');
   const [pelagem, setPelagem] = useState('Tordilho');
   const [baia, setBaia] = useState('');
+  const existingLocaisAdd = useMemo(() => {
+    const vals = new Set();
+    cavalos.forEach(cv => { if (cv.baia) vals.add(cv.baia); if (cv.piquete) vals.add(cv.piquete); });
+    return [...vals].sort((a, b) => a.localeCompare(b, 'pt'));
+  }, [cavalos]);
   const [mensalidade, setMensalidade] = useState('1950');
   const hoje = new Date().toISOString().split('T')[0];
   const primeiroDiaMes = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-01';
@@ -2066,6 +2081,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       proprietarioId: selectedProprietarios[0],
       proprietarioIds: selectedProprietarios,
       baia: baia.trim() || 'A-00',
+      piquete: baia.trim() || 'A-00',
       mensalidade: parseInt(mensalidade) || 1950,
       obs: obs.trim(),
       dataEntrada: dataEntradaFinal,
@@ -2335,18 +2351,22 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
           </FormField>
         </div>
 
-        {/* Baia (opcional) */}
+        {/* Baia / Piquete (opcional) */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-          <FormField label="Baia (opcional)">
+          <FormField label="Baia / Piquete (opcional)">
             <input
               value={baia}
               onChange={e => setBaia(e.target.value)}
-              placeholder="Ex: A-04"
+              list="locais-list-add"
+              placeholder="Ex: A-04, Piquete 3…"
               style={{
                 width: '100%', border: 'none', outline: 'none', background: 'transparent',
                 fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
               }}
             />
+            <datalist id="locais-list-add">
+              {existingLocaisAdd.map(v => <option key={v} value={v} />)}
+            </datalist>
           </FormField>
         </div>
 
