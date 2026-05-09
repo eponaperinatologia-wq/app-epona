@@ -258,7 +258,7 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sub}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
       </div>
       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
         <div>
@@ -614,7 +614,7 @@ const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, remo
               letterSpacing: '0.08em', padding: '8px 4px 6px', fontWeight: 600,
             }}>{formatDia(dia)} · {grupos[dia].length}</div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-              {grupos[dia].map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} />)}
+              {grupos[dia].map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} />)}
             </div>
           </div>
         ))}
@@ -1427,12 +1427,30 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       const supNomes = suplementos.map(s => INSUMOS.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
       const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
       const data = hoje.toLocaleDateString('sv-SE');
+      const text = `🍽️ Plano nutricional de ${c.nome} atualizado:
+${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlManha) > 0 || parseFloat(oleoMlTarde) > 0 ? `
+Óleo ${(parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0)}ml/dia` : ''}${supNomes ? `
+Suplementos: ${supNomes}` : ''}`;
+      const hora = new Date().toTimeString().slice(0, 5);
       addAtividade({
         id: 'at_' + Date.now(), tipo: 'nutricao',
         cavaloId: c.id, usuario: autor,
-        texto: `Plano nutricional de ${c.nome} atualizado: ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlManha) > 0 || parseFloat(oleoMlTarde) > 0 ? `, óleo ${(parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
-        data, hora: new Date().toTimeString().slice(0, 5), mes,
+        texto: text,
+        data, hora, mes,
       });
+      if (addAviso) {
+        addAviso({
+          id: 'nut_' + Date.now(),
+          autor,
+          avatar: '🍽️',
+          tempo: hora,
+          texto: `${c.nome} · ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlManha) > 0 || parseFloat(oleoMlTarde) > 0 ? `, óleo ${(parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
+          urgente: false,
+          tipo: 'nutricao',
+          cavaloId: c.id,
+          data_entrada: data,
+        });
+      }
     }
 
     setSavedMessage(true);

@@ -470,7 +470,7 @@ const loadAllData = async () => {
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
     if (tab === 'faturas' && !['faturaDetalhe'].includes(screen)) setScreen('faturas');
-    if (tab === 'nutricional') setScreen('nutricional');
+    if (tab === 'nutricional' && !['editarCavalo', 'cavaloDetalhe'].includes(screen)) setScreen('nutricional');
     if (tab === 'avisos')    setScreen('avisos');
     if (tab === 'equipe')    setScreen('planner');
     if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
@@ -488,8 +488,8 @@ const loadAllData = async () => {
     if (currentUser?.role === 'vet' && ['faturas', 'faturaDetalhe', 'cadMensalidades'].includes(s)) return;
     if (currentUser?.role === 'operacional' && ['partos', 'registrarParto', 'partoDetalhe'].includes(s)) return;
     setScreen(s);
-    if (s === 'home') setTab('home');
-    if (s === 'cavalos' || s === 'addCavalo') setTab('cavalos');
+    if (s === 'home' || s === 'historico') setTab('home');
+    if (s === 'cavalos' || s === 'addCavalo' || s === 'cavaloDetalhe' || s === 'editarCavalo') setTab('cavalos');
     if (s === 'cadastros' || s.startsWith('cad') || s === 'addInsumo' || s === 'editarInsumo' || s === 'cadEmpresa') setTab('cadastros');
     if (s === 'faturas' || s === 'faturaDetalhe') setTab('faturas');
     if (s === 'avisos') setTab('avisos');
