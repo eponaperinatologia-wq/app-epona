@@ -130,7 +130,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                       fontSize: 11, color: 'var(--ink-2)',
                     }}>
                       <HorseAvatar cavalo={cav} size={18} />
-                      {cav.nome} · {cav.baia}
+                      {cav?.nome || '?'} · {cav?.baia || '?'}
                     </div>
                   )}
                   {isGtaPendente && (
@@ -274,7 +274,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
         autor: 'Sistema', avatar: 'GTA',
         data_entrada: data,
         tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        texto: `GTA de ${cav.nome} ainda não foi conferida no GEDAVE. Entrada registrada em ${data}. Confirme assim que possível.`,
+        texto: `GTA de ${cav?.nome || cavaloId} ainda não foi conferida no GEDAVE. Entrada registrada em ${data}. Confirme assim que possível.`,
         urgente: true,
         cavaloId,
         dataEntrada: data,
@@ -294,7 +294,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
           motoboy: { ativo: false, valor: 0 },
           total: gtaSv.valor,
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-          nota: 'GTA de saída — ' + cav.nome,
+          nota: 'GTA de saída — ' + (cav?.nome || cavaloId),
         });
       }
     }
@@ -322,7 +322,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
       cavaloId, motivo: motivo.trim() || (tipo === 'entrada' ? 'Início de hospedagem' : 'Saída'),
       usuario: 'João T.', mes,
     });
-    setToast(`${tipo === 'entrada' ? 'Entrada' : 'Saída'} de ${cav.nome} registrada`);
+    setToast(`${tipo === 'entrada' ? 'Entrada' : 'Saída'} de ${cav?.nome || 'desconhecido'} registrada`);
     setTimeout(() => setScreen('home'), 1400);
   };
 
@@ -454,7 +454,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
   const fimMes = new Date(ref.ano, ref.mes, 0).getDate();
   const dia = dataObj.getDate();
   const diasCobrados = tipo === 'entrada' ? (fimMes - dia + 1) : dia;
-  const valorBase = cav.mensalidade;
+  const valorBase = cav?.mensalidade || 0;
   const proporcional = valorBase * (diasCobrados / fimMes);
 
   return (
@@ -467,10 +467,10 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px', display: 'flex', alignItems: 'center', gap: 12,
         }}>
-          <HorseAvatar cavalo={cav} size={48} />
+          {cav ? <HorseAvatar cavalo={cav} size={48} /> : <div style={{ width: 48, height: 48, borderRadius: 48, background: 'var(--soft)' }} />}
           <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)' }}>{cav.nome}</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{cav.categoria} · {cav.baia}</div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)' }}>{cav?.nome || cavaloId}</div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{cav?.categoria || ''} · {cav?.baia || ''}</div>
           </div>
           <div style={{
             padding: '5px 10px', borderRadius: 8,

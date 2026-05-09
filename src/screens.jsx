@@ -223,19 +223,19 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
     const ins = getInsumo(a.insumoId);
     const cat = getCategoria(ins.categoria);
     icon = CATEGORIA_ICONS[cat.id]; color = cat.cor;
-    title = `${cav.nome} · ${ins.nome}`;
+    title = `${cav?.nome || a.cavaloId} · ${ins.nome}`;
     sub = `${a.qtd} ${ins.unidade} · ${a.usuario}`;
   } else if (a.tipo === 'entrada') {
     icon = 'plus'; color = '#3d6043';
-    title = `Entrada · ${cav.nome}`;
+    title = `Entrada · ${cav?.nome || a.cavaloId}`;
     sub = `${a.motivo} · ${a.usuario}`;
   } else if (a.tipo === 'saida') {
     icon = 'arrow-left'; color = '#854d0e';
-    title = `Saída · ${cav.nome}`;
+    title = `Saída · ${cav?.nome || a.cavaloId}`;
     sub = `${a.motivo} · ${a.usuario}`;
   } else if (a.tipo === 'cadastro') {
     icon = 'plus'; color = '#0f766e';
-    title = `Novo cavalo · ${cav.nome}`;
+    title = `Novo cavalo · ${cav?.nome || a.cavaloId}`;
     sub = `Cadastrado por ${a.usuario}`;
   } else if (a.tipo === 'aviso') {
     icon = 'bell'; color = '#7c2d12';
