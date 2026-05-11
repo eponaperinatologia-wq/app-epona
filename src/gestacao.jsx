@@ -138,7 +138,7 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
           )}
         </div>
       </div>
-      <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
+      <div style={{ flex:1, overflowY:'auto', paddingBottom:90, overscrollBehavior:'contain', WebkitOverflowScrolling:'touch' }}>
         {subTab === 'gestacoes' && (
           <GestaoesTab gestantes={gestantesFiltradas} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
         )}
@@ -327,7 +327,7 @@ export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo
         onChange={setSubTab}
       />
 
-      <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
+      <div style={{ flex:1, overflowY:'auto', paddingBottom:90, overscrollBehavior:'contain', WebkitOverflowScrolling:'touch' }}>
         {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} />}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
         {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} />}

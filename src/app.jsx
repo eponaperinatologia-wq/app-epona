@@ -627,7 +627,7 @@ const loadAllData = async () => {
               </button>
             </div>
           )}
-          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', position: 'relative' }}>
+          <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', position: 'relative', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
             {content}
           </div>
           {showMainTabs && <TabBar tab={tab} setTab={setTab} role={currentUser?.role} />}

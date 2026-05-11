@@ -27,8 +27,8 @@
       * { box-sizing: border-box; }
       html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
       #root { height: 100%; }
-      button { font-family: var(--sans); cursor: pointer; }
-      button:active { transform: scale(0.98); }
+      button { font-family: var(--sans); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+      button:active { transform: scale(0.97); transition: transform 0.08s; }
       input::placeholder { color: var(--ink-3); }
       ::-webkit-scrollbar { display: none; }
       @keyframes toastIn { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
