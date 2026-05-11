@@ -50,6 +50,8 @@ export const fromDbProcedimento = r => ({
   insumosAdicionais: r.insumos_adicionais || [],
   motoboy: r.motoboy || { ativo: false, valor: 0, nome: '' },
   laboratorio: r.laboratorio || '',
+  tubosSelecionados: r.tubos_selecionados || [],
+  examesSelecionados: r.exames_selecionados || [],
   total: Number(r.total) || 0, hora: r.hora || '', nota: r.nota || '', data: r.data,
 });
 
@@ -151,6 +153,8 @@ export const toDbProcedimento = p => ({
   insumos_adicionais: p.insumosAdicionais || [],
   motoboy: p.motoboy || { ativo: false, valor: 0, nome: '' },
   laboratorio: p.laboratorio || '',
+  tubos_selecionados: p.tubosSelecionados || [],
+  exames_selecionados: p.examesSelecionados || [],
   total: p.total || 0, hora: p.hora || '', nota: p.nota || '', data: p.data,
 });
 

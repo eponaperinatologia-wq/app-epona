@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Icon } from './icons';
 import {
-  CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS,
+  CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS, EXAMES_LABORATORIAIS,
   getInsumo, formatBRL,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
@@ -277,6 +277,16 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 // ─────────────────────────────────────────────────────────────
 // REGISTRAR PROCEDIMENTO
 // ─────────────────────────────────────────────────────────────
+const TUBOS_OPCOES = [
+  { id: 'i_tubo_roxo',     label: 'Tubo Roxo',     cor: '#7c3aed' },
+  { id: 'i_tubo_vermelho', label: 'Tubo Vermelho',  cor: '#dc2626' },
+  { id: 'i_tubo_verde',    label: 'Tubo Verde',     cor: '#16a34a' },
+  { id: 'i_tubo_cinza',    label: 'Tubo Cinza',     cor: '#6b7280' },
+  { id: 'i_tubo_amarelo',  label: 'Tubo Amarelo',   cor: '#eab308' },
+  { id: 'i_swab_stuart',   label: 'Swab + Stuart',  cor: '#0ea5e9' },
+  { id: 'i_swab_seco',     label: 'Swab Seco',       cor: '#f97316' },
+];
+
 const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento }) => {
   const [step, setStep] = useState('cavalo'); // cavalo → servico → confirmar
   const [cavaloId, setCavaloId] = useState(null);
@@ -290,6 +300,8 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const [motoboyValor, setMotoboyValor] = useState('');
   const [motoboyNome, setMotoboyNome] = useState('');
   const [laboratorio, setLaboratorio] = useState('');
+  const [tubosSelecionados, setTubosSelecionados] = useState([]);
+  const [examesSelecionados, setExamesSelecionados] = useState([]);
   const [toast, setToast] = useState(null);
 
   const cav = cavaloId ? cavalos.find(c => c.id === cavaloId) : null;
@@ -332,6 +344,13 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       const ins = insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId);
       total += (ins?.valorVenda || ins?.valor || 0) * a.qtd;
     });
+    if (sv?.categoria === 'exames') {
+      tubosSelecionados.forEach(tId => {
+        const ins = insumos.find(i => i.id === tId) || getInsumo(tId);
+        total += ins?.valorVenda || ins?.valor || 0;
+      });
+      examesSelecionados.forEach(e => { total += e.valor; });
+    }
     if (motoboy && motoboyValor) total += parseFloat(motoboyValor) || 0;
     return total;
   };
@@ -345,11 +364,21 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       insumosAdicionais,
       motoboy: motoboy ? { ativo: true, valor: parseFloat(motoboyValor) || 0, nome: motoboyNome.trim() } : { ativo: false, valor: 0, nome: '' },
       laboratorio: sv?.categoria === 'exames' ? laboratorio.trim() : '',
+      tubosSelecionados: sv?.categoria === 'exames' ? tubosSelecionados : [],
+      examesSelecionados: sv?.categoria === 'exames' ? examesSelecionados : [],
       total: calcTotal(),
       hora,
     });
     setToast(`${cav.nome} · ${sv.nome} registrado`);
     setTimeout(() => setScreen('home'), 1400);
+  };
+
+  const toggleTubo = (id) => {
+    setTubosSelecionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const toggleExame = (exame) => {
+    setExamesSelecionados(prev => prev.find(e => e.id === exame.id) ? prev.filter(e => e.id !== exame.id) : [...prev, exame]);
   };
 
   // ── Step 1: Cavalo ──
@@ -437,7 +466,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
             const c = CATEGORIAS_SERVICOS.find(x => x.id === sv.categoria);
             const nDesc = sv.descartaveisObrigatorios?.length || 0;
             return (
-              <button key={sv.id} onClick={() => { setServicoId(sv.id); setLaboratorio(''); setStep('confirmar'); }} style={{
+              <button key={sv.id} onClick={() => { setServicoId(sv.id); setLaboratorio(''); setTubosSelecionados([]); setExamesSelecionados([]); setStep('confirmar'); }} style={{
                 width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
                 borderRadius: 12, padding: '12px', marginBottom: 6,
                 display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
@@ -542,6 +571,70 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                 fontFamily: 'var(--sans)', outline: 'none',
               }}
             />
+          </div>
+        )}
+
+        {/* Tubos utilizados (para Exames Laboratoriais) */}
+        {sv?.categoria === 'exames' && (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Tubos / Swabs utilizados</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {TUBOS_OPCOES.map(t => {
+                const sel = tubosSelecionados.includes(t.id);
+                const ins = insumos.find(i => i.id === t.id) || getInsumo(t.id);
+                return (
+                  <button key={t.id} onClick={() => toggleTubo(t.id)} style={{
+                    padding: '8px 14px', borderRadius: 10, fontSize: 13,
+                    border: `1.5px solid ${sel ? t.cor : 'var(--line)'}`,
+                    background: sel ? t.cor + '18' : 'var(--soft)',
+                    color: sel ? t.cor : 'var(--ink-2)',
+                    fontWeight: sel ? 600 : 400,
+                    display: 'flex', alignItems: 'center', gap: 6,
+                  }}>
+                    <div style={{
+                      width: 16, height: 16, borderRadius: 4,
+                      border: `1.5px solid ${sel ? t.cor : 'var(--line-2)'}`,
+                      background: sel ? t.cor : 'transparent',
+                      display: 'grid', placeItems: 'center',
+                    }}>
+                      {sel && <Icon name="check" size={11} color="#fff" />}
+                    </div>
+                    {t.label}
+                    <span style={{ fontSize: 11, opacity: 0.7 }}>{ins ? formatBRL(ins.valorVenda || ins.valor || 0) : ''}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Exames solicitados (para Exames Laboratoriais) */}
+        {sv?.categoria === 'exames' && (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Exames solicitados</div>
+            {EXAMES_LABORATORIAIS.map(ex => {
+              const sel = examesSelecionados.find(e => e.id === ex.id);
+              return (
+                <button key={ex.id} onClick={() => toggleExame({ ...ex })} style={{
+                  width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '8px 12px', marginBottom: 4,
+                  background: sel ? 'var(--accent-soft)' : 'var(--soft)',
+                  border: `1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                  borderRadius: 10, textAlign: 'left', color: 'var(--ink)',
+                }}>
+                  <div style={{
+                    width: 18, height: 18, borderRadius: 4,
+                    border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line-2)'}`,
+                    background: sel ? 'var(--accent)' : 'transparent',
+                    display: 'grid', placeItems: 'center', flexShrink: 0,
+                  }}>
+                    {sel && <Icon name="check" size={12} color="#fff" />}
+                  </div>
+                  <span style={{ flex: 1, fontSize: 13 }}>{ex.nome}</span>
+                  <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{formatBRL(ex.valor)}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 

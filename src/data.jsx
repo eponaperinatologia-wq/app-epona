@@ -194,6 +194,7 @@ const SERVICOS = [
   { id: 'sv6',  nome: 'Inseminação Artificial', valor: 150.00,  categoria: 'veterinario', descartaveisObrigatorios: [] },
   { id: 'sv7',  nome: 'Inspeção ABCCH',         valor: 350.00,  categoria: 'veterinario', descartaveisObrigatorios: [] },
   { id: 'sv8',  nome: 'Ozonioterapia',          valor: 180.00,  categoria: 'veterinario', descartaveisObrigatorios: [] },
+  { id: 'sv9',  nome: 'Coleta para Exames Laboratoriais', valor: 15.00,  categoria: 'exames', descartaveisObrigatorios: [{ insumoId: 'i_seringa', qtd: 1 }, { insumoId: 'i_agulha', qtd: 1 }, { insumoId: 'i_algodao', qtd: 1 }] },
 ];
 
 const DESCARTAVEIS_INJETAVEL = [
@@ -327,6 +328,23 @@ const INSUMOS = [
   { id: 'im_snd6',   nome: 'Sonda Uretral Nº06', categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 1.50, markup: 0, valorVenda: 1.50, injetavel: false, descartaveis: [] },
   { id: 'im_snd8',   nome: 'Sonda Uretral Nº08', categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 1.60, markup: 0, valorVenda: 1.60, injetavel: false, descartaveis: [] },
   { id: 'im_snd12',  nome: 'Sonda Uretral Nº12', categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 1.60, markup: 0, valorVenda: 1.60, injetavel: false, descartaveis: [] },
+  // Tubos e swabs para exames laboratoriais
+  { id: 'i_tubo_roxo',     nome: 'Tubo Roxo',        categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 3.50, markup: 0, valorVenda: 5.00, injetavel: false, descartaveis: [] },
+  { id: 'i_tubo_vermelho', nome: 'Tubo Vermelho',    categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 3.50, markup: 0, valorVenda: 5.00, injetavel: false, descartaveis: [] },
+  { id: 'i_tubo_verde',    nome: 'Tubo Verde',       categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 3.50, markup: 0, valorVenda: 5.00, injetavel: false, descartaveis: [] },
+  { id: 'i_tubo_cinza',    nome: 'Tubo Cinza',       categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 3.50, markup: 0, valorVenda: 5.00, injetavel: false, descartaveis: [] },
+  { id: 'i_tubo_amarelo',  nome: 'Tubo Amarelo',     categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 3.50, markup: 0, valorVenda: 5.00, injetavel: false, descartaveis: [] },
+  { id: 'i_swab_stuart',   nome: 'Swab + Stuart',    categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 8.00, markup: 0, valorVenda: 12.00, injetavel: false, descartaveis: [] },
+  { id: 'i_swab_seco',     nome: 'Swab Seco',        categoria: 'descartavel', unidade: 'un', fornecedor: '', valorCompra: 5.00, markup: 0, valorVenda: 8.00, injetavel: false, descartaveis: [] },
+];
+
+const EXAMES_LABORATORIAIS = [
+  { id: 'ex_lab_hemograma',    nome: 'Hemograma Completo',               valor: 45.00 },
+  { id: 'ex_lab_bioquimico',   nome: 'Bioquímico (AST, GGT, FA, CK)',    valor: 85.00 },
+  { id: 'ex_lab_proteinas',    nome: 'Proteína Total e Fibrinogênio',     valor: 30.00 },
+  { id: 'ex_lab_eletrolitos',  nome: 'Eletrólitos (Na, K, Cl, Ca, P)',    valor: 55.00 },
+  { id: 'ex_lab_endocrino',    nome: 'Endócrinos (Cortisol, T4, etc.)',   valor: 90.00 },
+  { id: 'ex_lab_sorologia',    nome: 'Sorologia (Anemia Infecciosa)',     valor: 60.00 },
 ];
 
 const REGISTROS_HOJE = [];
@@ -479,7 +497,7 @@ const PARTOS = [];
 
 export {
   PROPRIETARIOS, CAVALOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS, INSUMOS, DESCARTAVEIS_INJETAVEL,
-  CATEGORIAS_SERVICOS, SERVICOS,
+  CATEGORIAS_SERVICOS, SERVICOS, EXAMES_LABORATORIAIS,
   REGISTROS_HOJE, SETORES, MOVIMENTACOES, AVISOS, ATIVIDADES, TAXA_INJETAVEL,
   FUNCIONARIOS, ESCALA_VAZIA, EVENTOS, PARTOS,
   getCavalo, getProprietario, getInsumo, getCategoria, idade, formatBRL,

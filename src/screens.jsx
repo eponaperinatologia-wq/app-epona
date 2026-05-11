@@ -12,6 +12,16 @@ import {
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
+const TUBOS_CORES = {
+  i_tubo_roxo:     { nome: 'Tubo Roxo',     cor: '#7c3aed' },
+  i_tubo_vermelho: { nome: 'Tubo Vermelho',  cor: '#dc2626' },
+  i_tubo_verde:    { nome: 'Tubo Verde',     cor: '#16a34a' },
+  i_tubo_cinza:    { nome: 'Tubo Cinza',     cor: '#6b7280' },
+  i_tubo_amarelo:  { nome: 'Tubo Amarelo',   cor: '#eab308' },
+  i_swab_stuart:   { nome: 'Swab + Stuart',  cor: '#0ea5e9' },
+  i_swab_seco:     { nome: 'Swab Seco',       cor: '#f97316' },
+};
+
 const calcDias = (cavalo, ref, movimentacoes) => {
   const cavaloId = cavalo.id;
   const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
@@ -945,6 +955,21 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                     {p.motoboy?.ativo && (
                       <div style={{ fontSize: 11, color: '#1e40af', marginTop: 1 }}>
                         Motoboy: {p.motoboy.nome || '—'} ({formatBRL(p.motoboy.valor || 0)})
+                      </div>
+                    )}
+                    {p.tubosSelecionados?.length > 0 && (
+                      <div style={{ fontSize: 11, color: '#7c3aed', marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {p.tubosSelecionados.map(tId => {
+                          const nome = TUBOS_CORES[tId]?.nome || tId.replace('i_tubo_', '').replace('i_swab_', '').replace('_', ' ');
+                          return <span key={tId} style={{ background: '#7c3aed12', padding: '1px 7px', borderRadius: 6 }}>{nome}</span>;
+                        })}
+                      </div>
+                    )}
+                    {p.examesSelecionados?.length > 0 && (
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                        {p.examesSelecionados.map((e, i) => (
+                          <span key={e.id || i}>{e.nome}{i < p.examesSelecionados.length - 1 ? ', ' : ''}</span>
+                        ))}
                       </div>
                     )}
                   </div>

@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { EXAMES_LABORATORIAIS } from '../data';
 
 function mapProprietario(p) {
   return {
@@ -81,6 +82,7 @@ export async function seedDatabase({ proprietarios, cavalos, insumos, servicos, 
   await upsertTable('Insumos', insumos.map(mapInsumo), 'insumos');
   await upsertTable('Serviços', servicos.map(mapServico), 'servicos');
   await upsertTable('Funcionários', funcionarios.map(mapFuncionario), 'funcionarios');
+  await upsertTable('Exames Laboratoriais', EXAMES_LABORATORIAIS, 'exames_laboratoriais');
 
   return results;
 }
