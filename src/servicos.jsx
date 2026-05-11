@@ -10,7 +10,7 @@ import { TopBar, HorseAvatar } from './screens';
 // ─────────────────────────────────────────────────────────────
 // CADASTRO DE SERVIÇOS
 // ─────────────────────────────────────────────────────────────
-const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, setSelected, deleteServico }) => {
+const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, setSelected, deleteServico, insumos: insumosProp = [] }) => {
   const [catFilter, setCatFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -21,8 +21,9 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const [descartaveis, setDescartaveis] = useState([]);
   const [descSearch, setDescSearch] = useState('');
 
+  const insumosBase = insumosProp.length > 0 ? insumosProp : INSUMOS;
   const lista = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter));
-  const descartaveisDisp = INSUMOS.filter(i => i.categoria === 'descartavel')
+  const descartaveisDisp = insumosBase.filter(i => i.categoria === 'descartavel')
     .filter(i => !descSearch || i.nome.toLowerCase().includes(descSearch.toLowerCase()));
 
   const openAdd = () => {
@@ -67,12 +68,12 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 
   if (showForm) {
     return (
-      <div style={{ paddingBottom: 90 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <TopBar
           title={editId ? 'Editar serviço' : 'Novo serviço'}
           onBack={() => setShowForm(false)}
         />
-        <div style={{ padding: '14px 20px 0' }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '14px 20px', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
           {/* Nome */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Nome</div>
@@ -127,7 +128,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
             {descartaveis.length > 0 && (
               <div style={{ marginBottom: 10 }}>
                 {descartaveis.map(d => {
-                  const ins = INSUMOS.find(i => i.id === d.insumoId);
+                  const ins = insumosBase.find(i => i.id === d.insumoId);
                   return (
                     <div key={d.insumoId} style={{
                       background: 'var(--accent-soft)', border: '1px solid var(--accent)',
@@ -190,7 +191,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
           </div>
         </div>
 
-        <div style={{ position: 'fixed', bottom: 24, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
+        <div style={{ flexShrink: 0, padding: '12px 20px 28px', background: 'var(--bg)', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
           <button onClick={() => setShowForm(false)} style={{
             flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
             padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
