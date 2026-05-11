@@ -441,16 +441,16 @@ function GestacaoTab({ c, updateCavalo, mes }) {
             </div>
             <div style={{ fontSize:22, fontWeight:900, color:'var(--ink-3)', flexShrink:0, marginTop:24 }}>×</div>
             <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>
-                {c.categorias?.includes('Receptora') ? 'Receptora' : 'Mãe biológica'}
+              <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>Mãe Biológica</div>
+              <div style={{ ...inputStyle, textAlign:'center', background:'var(--soft)', color:'var(--ink)', fontWeight:600 }}>
+                {c.categorias?.includes('Receptora') ? (g.mae || '—') : c.nome}
               </div>
-              <div style={{ ...inputStyle, textAlign:'center', background:'var(--soft)', color:'var(--ink)', fontWeight:600 }}>{c.nome}</div>
             </div>
           </div>
-          {c.categorias?.includes('Receptora') && g.mae && (
+          {c.categorias?.includes('Receptora') && (
             <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 0', marginTop:8, borderTop:'1px solid var(--line)' }}>
-              <span style={{ fontSize:12, color:'var(--ink-3)' }}>Mãe biológica (doadora)</span>
-              <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{g.mae}</span>
+              <span style={{ fontSize:12, color:'var(--ink-3)' }}>Receptora (portadora)</span>
+              <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{c.nome}</span>
             </div>
           )}
         </div>
