@@ -939,7 +939,14 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome || 'Procedimento'}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{p.hora} · total {formatBRL(p.total || 0)}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                      {p.hora}{p.laboratorio ? ` · ${p.laboratorio}` : ''} · total {formatBRL(p.total || 0)}
+                    </div>
+                    {p.motoboy?.ativo && (
+                      <div style={{ fontSize: 11, color: '#1e40af', marginTop: 1 }}>
+                        Motoboy: {p.motoboy.nome || '—'} ({formatBRL(p.motoboy.valor || 0)})
+                      </div>
+                    )}
                   </div>
                   {deleteProcedimento && (
                     <button onClick={() => { if (window.confirm(`Remover ${sv?.nome || 'procedimento'}?`)) deleteProcedimento(p.id); }} style={{

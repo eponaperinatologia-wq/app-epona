@@ -288,6 +288,8 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const [insSearch, setInsSearch] = useState('');
   const [motoboy, setMotoboy] = useState(false);
   const [motoboyValor, setMotoboyValor] = useState('');
+  const [motoboyNome, setMotoboyNome] = useState('');
+  const [laboratorio, setLaboratorio] = useState('');
   const [toast, setToast] = useState(null);
 
   const cav = cavaloId ? cavalos.find(c => c.id === cavaloId) : null;
@@ -341,7 +343,8 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       valorServico: sv.valor,
       descartaveisObrigatorios: sv.descartaveisObrigatorios || [],
       insumosAdicionais,
-      motoboy: motoboy ? { ativo: true, valor: parseFloat(motoboyValor) || 0 } : { ativo: false, valor: 0 },
+      motoboy: motoboy ? { ativo: true, valor: parseFloat(motoboyValor) || 0, nome: motoboyNome.trim() } : { ativo: false, valor: 0, nome: '' },
+      laboratorio: sv?.categoria === 'exames' ? laboratorio.trim() : '',
       total: calcTotal(),
       hora,
     });
@@ -434,7 +437,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
             const c = CATEGORIAS_SERVICOS.find(x => x.id === sv.categoria);
             const nDesc = sv.descartaveisObrigatorios?.length || 0;
             return (
-              <button key={sv.id} onClick={() => { setServicoId(sv.id); setStep('confirmar'); }} style={{
+              <button key={sv.id} onClick={() => { setServicoId(sv.id); setLaboratorio(''); setStep('confirmar'); }} style={{
                 width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
                 borderRadius: 12, padding: '12px', marginBottom: 6,
                 display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
@@ -524,6 +527,23 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
             </div>
           )}
         </div>
+
+        {/* Laboratório (para Exames Laboratoriais) */}
+        {sv?.categoria === 'exames' && (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Laboratório</div>
+            <input
+              value={laboratorio} onChange={e => setLaboratorio(e.target.value)}
+              placeholder="Nome do laboratório"
+              style={{
+                width: '100%', boxSizing: 'border-box',
+                background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10,
+                padding: '10px 12px', fontSize: 15, color: 'var(--ink)',
+                fontFamily: 'var(--sans)', outline: 'none',
+              }}
+            />
+          </div>
+        )}
 
         {/* Insumos adicionais */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
@@ -638,6 +658,17 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
           </button>
           {motoboy && (
             <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Nome do motoboy</div>
+              <input
+                value={motoboyNome} onChange={e => setMotoboyNome(e.target.value)}
+                placeholder="Ex: José"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: 'var(--soft)', border: '1px solid #1e40af40', borderRadius: 10,
+                  padding: '10px 12px', fontSize: 15, color: 'var(--ink)',
+                  fontFamily: 'var(--sans)', outline: 'none', marginBottom: 10,
+                }}
+              />
               <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Valor do motoboy (R$)</div>
               <input
                 value={motoboyValor} onChange={e => setMotoboyValor(e.target.value)}

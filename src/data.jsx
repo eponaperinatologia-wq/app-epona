@@ -182,6 +182,7 @@ const CATEGORIAS_INSUMOS = [
 const CATEGORIAS_SERVICOS = [
   { id: 'veterinario', nome: 'Veterinário', cor: '#0f766e' },
   { id: 'transporte',  nome: 'Transporte',  cor: '#1e40af' },
+  { id: 'exames',      nome: 'Exames Laboratoriais', cor: '#7c3aed' },
 ];
 
 const SERVICOS = [
