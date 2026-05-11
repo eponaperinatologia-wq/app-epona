@@ -239,9 +239,9 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
   }, [novoCavaloPendente]);
 
   const cav = cavaloId && cavalos.find(c => c.id === cavaloId);
-  const cavalosVisiveis = tipo === 'saida'
+  const cavalosVisiveis = (tipo === 'saida'
     ? cavalos.filter(c => c.presente)
-    : cavalos;
+    : cavalos).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const cavalosFiltrados = cavalosVisiveis.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     c.baia.toLowerCase().includes(search.toLowerCase())

@@ -643,8 +643,8 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const [search, setSearch] = useState('');
 
-  const presentes = cavalos.filter(c => c.presente);
-  const ausentes = cavalos.filter(c => !c.presente);
+  const presentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const ausentes = cavalos.filter(c => !c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const filteredPresentes = presentes.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
@@ -1357,8 +1357,8 @@ const CadMensalidadesScreen = ({ setScreen }) => (
 // ─────────────────────────────────────────────────────────────
 const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCavalo, proprietarios = PROPRIETARIOS }) => {
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
-  const presentes = cavalos.filter(c => c.presente);
-  const ausentes = cavalos.filter(c => !c.presente);
+  const presentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const ausentes = cavalos.filter(c => !c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const renderCavalo = (c) => {
     const prop = getProprietarioLocal(c.proprietarioId);
     return (
@@ -1661,7 +1661,7 @@ Suplementos: ${supNomes}` : ''}`;
                   fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
                 }}>
                   <option value="">Selecionar insumo…</option>
-                  {insumosBase.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
+                  {insumosBase.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(i => (
                     <option key={i.id} value={i.id}>{i.nome}</option>
                   ))}
                 </select>
@@ -1906,7 +1906,7 @@ Suplementos: ${supNomes}` : ''}`;
               width: '100%', border: 'none', outline: 'none', background: 'transparent',
               fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
             }}>
-              {insumosBase.filter(i => i.categoria === 'racao').map(i => (
+              {insumosBase.filter(i => i.categoria === 'racao').sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -1979,7 +1979,7 @@ Suplementos: ${supNomes}` : ''}`;
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {insumosBase.filter(i => i.categoria === 'suplemento').map(i => {
+              {insumosBase.filter(i => i.categoria === 'suplemento').sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
@@ -2524,7 +2524,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
               }}
             >
-              {insumosBase.filter(i => i.categoria === 'racao').map(i => (
+              {insumosBase.filter(i => i.categoria === 'racao').sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -2598,7 +2598,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {insumosBase.filter(i => i.categoria === 'suplemento').map(i => {
+              {insumosBase.filter(i => i.categoria === 'suplemento').sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>

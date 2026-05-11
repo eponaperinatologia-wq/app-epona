@@ -24,7 +24,8 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const insumosBase = insumosProp.length > 0 ? insumosProp : INSUMOS;
   const lista = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter));
   const descartaveisDisp = insumosBase.filter(i => i.categoria === 'descartavel')
-    .filter(i => !descSearch || i.nome.toLowerCase().includes(descSearch.toLowerCase()));
+    .filter(i => !descSearch || i.nome.toLowerCase().includes(descSearch.toLowerCase()))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const openAdd = () => {
     setEditId(null);
@@ -324,7 +325,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const cavalosFiltered = cavalos.filter(c =>
     c.nome.toLowerCase().includes(searchCav.toLowerCase()) ||
     c.baia.toLowerCase().includes(searchCav.toLowerCase())
-  );
+  ).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const servicosFiltered = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter))
     .filter(s => s.categoria !== 'exames')
@@ -333,7 +334,8 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const [insCatFilter, setInsCatFilter] = useState('all');
   const insumosDisp = (insCatFilter === 'all' ? insumos : insumos.filter(i => i.categoria === insCatFilter))
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
-    .filter(i => !insSearch || i.nome.toLowerCase().includes(insSearch.toLowerCase()));
+    .filter(i => !insSearch || i.nome.toLowerCase().includes(insSearch.toLowerCase()))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const toggleInsumoAdicional = (id) => {
     setInsumosAdicionais(prev => {
