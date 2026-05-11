@@ -6,7 +6,7 @@ import { TopBar, HorseAvatar } from './screens';
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
-const fmtKg = (v) => {
+const fmtNum = (v) => {
   const n = parseFloat(v) || 0;
   const s = n % 1 === 0 ? String(n) : n.toFixed(1);
   return s.replace('.', ',');
@@ -225,7 +225,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           {racao && !racaoBloqueada && (
             <>
               <Chip cor="#3d6043">
-                {trato === 'manha' ? '🌅' : '🌇'} {fmtKg(kgTrato)} kg
+                {trato === 'manha' ? '🌅' : '🌇'} {fmtNum(kgTrato)} kg
               </Chip>
               <Chip cor="#1e4a6b">
                 {racao.nome}
@@ -237,10 +237,10 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               🚫 NÃO COMER RAÇÃO AGORA
             </Chip>
           )}
-          {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
+          {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtNum(oleoTrato)} ml</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">
-              {s.ins.nome} {fmtKg(s.qtdTrato)} {s.ins.unidade || 'un'}
+              {s.ins.nome} {fmtNum(s.qtdTrato)} {s.ins.unidade || 'un'}
             </Chip>
           ))}
           {periodicosHoje.map(p => {

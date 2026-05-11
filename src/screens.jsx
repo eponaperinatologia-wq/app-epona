@@ -726,7 +726,7 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
 // ─────────────────────────────────────────────────────────────
 // CAVALO DETALHE
 // ─────────────────────────────────────────────────────────────
-const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], servicos = SERVICOS, setSelected, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, deleteRegistro, updateRegistro, deleteProcedimento }) => {
+const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], servicos = SERVICOS, setSelected, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, deleteRegistro, updateRegistro, deleteProcedimento, insumos }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const props = (c.proprietarioIds || [c.proprietarioId]).map(id => getProprietarioLocal(id) || { nome: 'Sem proprietário' });
@@ -734,7 +734,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
   const meusProcedimentos = procedimentos.filter(p => p.cavaloId === id);
   const [editRegQtd, setEditRegQtd] = useState(null);
   const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
-  const consumoDia = consumoDiarioCavalo(c.id);
+  const consumoDia = consumoDiarioCavalo(c.id, insumos);
 
   return (
     <div style={{ paddingBottom: 110 }}>
