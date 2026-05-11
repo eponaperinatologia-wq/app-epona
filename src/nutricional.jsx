@@ -27,7 +27,21 @@ const isSemanaPar = () => {
   return semana % 2 === 0;
 };
 
+const getFreqDias = (freq) => {
+  if (freq === 'diario') return 1;
+  if (freq === 'semanal') return 7;
+  if (freq === 'quinzenal') return 14;
+  if (freq?.startsWith('cada')) return parseInt(freq.replace('cada', '')) || 7;
+  return 7;
+};
+
 const isPeriodicoHoje = (p) => {
+  if (p.frequencia === 'diario') return true;
+  if (p.frequencia?.startsWith('cada')) {
+    const interval = getFreqDias(p.frequencia);
+    const daysSinceEpoch = Math.floor(Date.now() / 86400000);
+    return daysSinceEpoch % interval === 0;
+  }
   if (p.diaSemana !== getDiaSemana()) return false;
   if (p.frequencia === 'semanal') return true;
   if (p.frequencia === 'quinzenal') return isSemanaPar();

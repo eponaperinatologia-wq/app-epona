@@ -206,6 +206,18 @@ const loadAllData = async () => {
     setRegistros(prev => [...prev, r]);
     dbInsert('registros', toDbRegistro(r));
   };
+  const deleteRegistro = (id) => {
+    setRegistros(prev => prev.filter(r => r.id !== id));
+    dbDelete('registros', id);
+  };
+  const updateRegistro = (id, data) => {
+    setRegistros(prev => prev.map(r => r.id === id ? { ...r, ...data } : r));
+    dbUpdate('registros', id, data);
+  };
+  const deleteProcedimento = (id) => {
+    setProcedimentos(prev => prev.filter(p => p.id !== id));
+    dbDelete('procedimentos', id);
+  };
 
   // ── Insumos ───────────────────────────────────────────────────
   const addInsumo = (ins) => {
@@ -336,6 +348,13 @@ const loadAllData = async () => {
     const semana = Math.ceil((((d - new Date(d.getFullYear(), 0, 4)) / 86400000) + 1) / 7);
     return semana % 2 === 0;
   };
+  const getFreqDias = (freq) => {
+    if (freq === 'diario') return 1;
+    if (freq === 'semanal') return 7;
+    if (freq === 'quinzenal') return 14;
+    if (freq?.startsWith('cada')) return parseInt(freq.replace('cada', '')) || 7;
+    return 7;
+  };
   const gerarAvisosPeriodicos = () => {
     const hoje = new Date().toISOString().split('T')[0];
     const diaSemana = getDiaSemana();
@@ -343,8 +362,16 @@ const loadAllData = async () => {
     for (const c of cavalos) {
       if (!c.nutricao?.periodicos) continue;
       for (const p of c.nutricao.periodicos) {
-        if (p.diaSemana !== diaSemana) continue;
-        if (p.frequencia === 'quinzenal' && !semanaPar) continue;
+        if (p.frequencia === 'diario') {
+          // always create alert for daily items
+        } else if (p.frequencia?.startsWith('cada')) {
+          const interval = getFreqDias(p.frequencia);
+          const daysSinceEpoch = Math.floor(Date.now() / 86400000);
+          if (daysSinceEpoch % interval !== 0) continue;
+        } else {
+          if (p.diaSemana !== diaSemana) continue;
+          if (p.frequencia === 'quinzenal' && !semanaPar) continue;
+        }
         const ins = insumos.find(i => i.id === p.insumoId);
         const texto = `📅 ${ins?.nome || p.insumoId} para ${c.nome} (${p.qtd} ${ins?.unidade || 'un'})`;
         const jaExiste = avisos.some(a => a.texto === texto && a.data_entrada === hoje);
@@ -517,7 +544,7 @@ const loadAllData = async () => {
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} updateCavalo={updateCavalo} insumos={insumos} addRegistro={addRegistro} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
   else if (screen === 'addCavalo') content = <AddCavaloScreen setScreen={goScreen} addCavalo={addCavalo} cavalos={cavalos} setNovoCavaloPendente={setNovoCavaloPendente} pendingEntradaCavalo={pendingEntradaCavalo} setPendingEntradaCavalo={setPendingEntradaCavalo} proprietarios={proprietarios} addProprietario={addProprietario} />;
-  else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registros} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} />;
+  else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registros} procedimentos={procedimentos} setSelected={setSelected} cavalos={cavalos} servicos={servicos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} />;
   else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
   else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietarios} cavalos={cavalos} updateProprietario={updateProprietario} />;
   else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;

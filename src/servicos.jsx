@@ -598,7 +598,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                       {sel && <Icon name="check" size={11} color="#fff" />}
                     </div>
                     <span style={{ fontSize: 13, flex: 1 }}>{i.nome}</span>
-                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{formatBRL(i.valorVenda || i.valor || 0)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{formatBRL(i.valorVenda || i.valor || 0)}/{i.unidade}</span>
                   </button>
                 );
               })}

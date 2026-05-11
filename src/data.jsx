@@ -446,7 +446,7 @@ const consumoDiarioCavalo = (cavaloId) => {
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = getInsumo(p.insumoId);
     if (!ins) continue;
-    const freqDias = p.frequencia === 'quinzenal' ? 14 : 7;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     linhas.push({
       insumoId: ins.id, nome: ins.nome + ' (periódico)',
