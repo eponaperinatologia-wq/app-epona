@@ -23,9 +23,9 @@ export const diasAteParto = dataCobricao => {
 };
 
 const mesDaGestacao = dataCobricao => {
-  if (!dataCobricao) return 1;
+  if (!dataCobricao) return 0;
   const diff = Math.floor((new Date() - new Date(dataCobricao+'T12:00:00')) / 86400000);
-  return Math.min(Math.max(Math.ceil(diff / 30), 1), 11);
+  return Math.min(Math.max(Math.floor(diff / 30), 0), 11);
 };
 
 const CAMPOS_ACOMP = [
@@ -278,7 +278,7 @@ function PartosTab({ partos, cavalos, proprietarios, setScreen, setSelected }) {
 // ─────────────────────────────────────────────────────────────
 // DETALHE DA ÉGUA GESTANTE — 3 abas
 // ─────────────────────────────────────────────────────────────
-export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo, proprietarios, insumos }) {
+export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo, proprietarios, insumos, addAviso }) {
   const c = cavalos.find(cv => cv.id === id);
   const [subTab, setSubTab] = useState('gestacao');
 
@@ -330,7 +330,7 @@ export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo
       <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
         {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} />}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
-        {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} />}
+        {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} />}
       </div>
     </div>
   );
@@ -525,7 +525,7 @@ function AlimentacaoTab({ c, insumos }) {
 }
 
 // ── Aba Acompanhamento ────────────────────────────────────────
-function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
+function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso }) {
   const [expandido, setExpandido] = useState(mesAtual);
   const g = c.gestacao || {};
   const acomp = g.acompanhamento || {};
@@ -533,6 +533,16 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
   const salvarMes = (mes, dados) => {
     const novoAcomp = { ...acomp, [mes]: dados };
     updateCavalo(c.id, { gestacao: { ...g, acompanhamento: novoAcomp } });
+    if (addAviso) addAviso({
+      texto: `Acompanhamento Gestacional realizado — ${c.nome} (${mes}º mês)`,
+      tipo: 'acompanhamento',
+      cavaloId: c.id,
+      urgente: false,
+      autor: 'Sistema',
+      avatar: '🐴',
+      tempo: '',
+      data_entrada: new Date().toISOString().split('T')[0],
+    });
   };
 
   const salvarSexagem = (sexagem) => {
@@ -551,7 +561,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
         Acompanhamento mensal da gestação. Mês atual estimado: <strong>Mês {mesAtual}</strong>.
       </div>
 
-      {Array.from({ length:11 }, (_, i) => i + 1).map(mes => (
+      {Array.from({ length:12 }, (_, i) => i).map(mes => (
         <MesAcompanhamento
           key={mes}
           mes={mes}

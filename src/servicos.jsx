@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { Icon } from './icons';
 import {
-  CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS, EXAMES_LABORATORIAIS,
+  CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS,
   getInsumo, formatBRL,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
@@ -10,7 +10,7 @@ import { TopBar, HorseAvatar } from './screens';
 // ─────────────────────────────────────────────────────────────
 // CADASTRO DE SERVIÇOS
 // ─────────────────────────────────────────────────────────────
-const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, setSelected }) => {
+const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, setSelected, deleteServico }) => {
   const [catFilter, setCatFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -243,30 +243,49 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
           const cat = CATEGORIAS_SERVICOS.find(c => c.id === sv.categoria);
           const nDesc = sv.descartaveisObrigatorios?.length || 0;
           return (
-            <button key={sv.id} onClick={() => openEdit(sv)} style={{
-              width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
-              borderRadius: 14, padding: '14px', marginBottom: 8,
-              display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+            <div key={sv.id} style={{
+              background: 'var(--card)', border: '1px solid var(--line)',
+              borderRadius: 14, marginBottom: 8,
+              display: 'flex', alignItems: 'stretch', overflow: 'hidden',
             }}>
-              <div style={{
-                width: 42, height: 42, borderRadius: 12,
-                background: (cat?.cor || '#888') + '18', color: cat?.cor || '#888',
-                display: 'grid', placeItems: 'center', flexShrink: 0,
+              <button onClick={() => openEdit(sv)} style={{
+                flex: 1, padding: '14px',
+                display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+                background: 'transparent', border: 'none',
               }}>
-                <Icon name="stethoscope" size={20} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{sv.nome}</div>
-                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-                  {formatBRL(sv.valor)}
-                  {nDesc > 0 ? ` · ${nDesc} descartável(is) obrigatório(s)` : ''}
+                <div style={{
+                  width: 42, height: 42, borderRadius: 12,
+                  background: (cat?.cor || '#888') + '18', color: cat?.cor || '#888',
+                  display: 'grid', placeItems: 'center', flexShrink: 0,
+                }}>
+                  <Icon name="stethoscope" size={20} />
                 </div>
-              </div>
-              <div style={{
-                fontSize: 11, background: (cat?.cor || '#888') + '18',
-                color: cat?.cor || '#888', borderRadius: 6, padding: '3px 8px', fontWeight: 600,
-              }}>{cat?.nome}</div>
-            </button>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{sv.nome}</div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                    {formatBRL(sv.valor)}
+                    {nDesc > 0 ? ` · ${nDesc} descartável(is) obrigatório(s)` : ''}
+                  </div>
+                </div>
+                <div style={{
+                  fontSize: 11, background: (cat?.cor || '#888') + '18',
+                  color: cat?.cor || '#888', borderRadius: 6, padding: '3px 8px', fontWeight: 600,
+                }}>{cat?.nome}</div>
+              </button>
+              {deleteServico && (
+                <button
+                  onClick={() => { if (window.confirm(`Excluir "${sv.nome}"?`)) deleteServico(sv.id); }}
+                  style={{
+                    width: 48, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'transparent', border: 'none', borderLeft: '1px solid var(--line)',
+                    color: '#dc2626',
+                  }}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              )}
+            </div>
           );
         })}
       </div>
@@ -277,18 +296,12 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 // ─────────────────────────────────────────────────────────────
 // REGISTRAR PROCEDIMENTO
 // ─────────────────────────────────────────────────────────────
-const TUBOS_OPCOES = [
-  { id: 'i_tubo_roxo',     label: 'Tubo Roxo',     cor: '#7c3aed' },
-  { id: 'i_tubo_vermelho', label: 'Tubo Vermelho',  cor: '#dc2626' },
-  { id: 'i_tubo_verde',    label: 'Tubo Verde',     cor: '#16a34a' },
-  { id: 'i_tubo_cinza',    label: 'Tubo Cinza',     cor: '#6b7280' },
-  { id: 'i_tubo_amarelo',  label: 'Tubo Amarelo',   cor: '#eab308' },
-  { id: 'i_swab_stuart',   label: 'Swab + Stuart',  cor: '#0ea5e9' },
-  { id: 'i_swab_seco',     label: 'Swab Seco',       cor: '#f97316' },
-];
+
+const EXAMES_LAB_ID = '__exames_lab__';
+const SV_EXAMES = { id: EXAMES_LAB_ID, nome: 'Exames Laboratoriais', categoria: 'exames', valor: 0, descartaveisObrigatorios: [] };
 
 const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento }) => {
-  const [step, setStep] = useState('cavalo'); // cavalo → servico → confirmar
+  const [step, setStep] = useState('cavalo'); // cavalo → servico → exames → confirmar
   const [cavaloId, setCavaloId] = useState(null);
   const [servicoId, setServicoId] = useState(null);
   const [catFilter, setCatFilter] = useState('all');
@@ -300,12 +313,13 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const [motoboyValor, setMotoboyValor] = useState('');
   const [motoboyNome, setMotoboyNome] = useState('');
   const [laboratorio, setLaboratorio] = useState('');
-  const [tubosSelecionados, setTubosSelecionados] = useState([]);
   const [examesSelecionados, setExamesSelecionados] = useState([]);
   const [toast, setToast] = useState(null);
 
   const cav = cavaloId ? cavalos.find(c => c.id === cavaloId) : null;
-  const sv = servicoId ? servicos.find(s => s.id === servicoId) : null;
+  const sv = servicoId === EXAMES_LAB_ID
+    ? SV_EXAMES
+    : (servicoId ? servicos.find(s => s.id === servicoId) : null);
   const cat = sv ? CATEGORIAS_SERVICOS.find(c => c.id === sv.categoria) : null;
 
   const cavalosFiltered = cavalos.filter(c =>
@@ -314,6 +328,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   );
 
   const servicosFiltered = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter))
+    .filter(s => s.categoria !== 'exames')
     .filter(s => !searchSv || s.nome.toLowerCase().includes(searchSv.toLowerCase()));
 
   const [insCatFilter, setInsCatFilter] = useState('all');
@@ -333,24 +348,34 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
     setInsumosAdicionais(prev => prev.map(a => a.insumoId === id ? { ...a, qtd: Math.max(1, qtd) } : a));
   };
 
+  const getMergedDescartaveis = () =>
+    examesSelecionados.reduce((acc, e) => {
+      (e.descartaveisObrigatorios || []).forEach(d => {
+        if (!acc.find(x => x.insumoId === d.insumoId)) acc.push({ ...d });
+      });
+      return acc;
+    }, []);
+
   const calcTotal = () => {
     if (!sv) return 0;
-    let total = sv.valor;
-    sv.descartaveisObrigatorios?.forEach(d => {
-      const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
-      total += (ins?.valorVenda || ins?.valor || 0) * d.qtd;
-    });
+    let total = 0;
+    if (sv.categoria === 'exames') {
+      examesSelecionados.forEach(e => { total += e.valor || 0; });
+      getMergedDescartaveis().forEach(d => {
+        const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
+        total += (ins?.valorVenda || ins?.valor || 0) * d.qtd;
+      });
+    } else {
+      total = sv.valor;
+      sv.descartaveisObrigatorios?.forEach(d => {
+        const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
+        total += (ins?.valorVenda || ins?.valor || 0) * d.qtd;
+      });
+    }
     insumosAdicionais.forEach(a => {
       const ins = insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId);
       total += (ins?.valorVenda || ins?.valor || 0) * a.qtd;
     });
-    if (sv?.categoria === 'exames') {
-      tubosSelecionados.forEach(tId => {
-        const ins = insumos.find(i => i.id === tId) || getInsumo(tId);
-        total += ins?.valorVenda || ins?.valor || 0;
-      });
-      examesSelecionados.forEach(e => { total += e.valor; });
-    }
     if (motoboy && motoboyValor) total += parseFloat(motoboyValor) || 0;
     return total;
   };
@@ -359,22 +384,18 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     addProcedimento({
       cavaloId, servicoId,
-      valorServico: sv.valor,
-      descartaveisObrigatorios: sv.descartaveisObrigatorios || [],
+      valorServico: sv.categoria === 'exames' ? 0 : sv.valor,
+      descartaveisObrigatorios: sv.categoria === 'exames' ? getMergedDescartaveis() : sv.descartaveisObrigatorios || [],
       insumosAdicionais,
       motoboy: motoboy ? { ativo: true, valor: parseFloat(motoboyValor) || 0, nome: motoboyNome.trim() } : { ativo: false, valor: 0, nome: '' },
       laboratorio: sv?.categoria === 'exames' ? laboratorio.trim() : '',
-      tubosSelecionados: sv?.categoria === 'exames' ? tubosSelecionados : [],
+      tubosSelecionados: [],
       examesSelecionados: sv?.categoria === 'exames' ? examesSelecionados : [],
       total: calcTotal(),
       hora,
     });
     setToast(`${cav.nome} · ${sv.nome} registrado`);
     setTimeout(() => setScreen('home'), 1400);
-  };
-
-  const toggleTubo = (id) => {
-    setTubosSelecionados(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
   const toggleExame = (exame) => {
@@ -451,14 +472,26 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
         </div>
         {/* category chips */}
         <div style={{ padding: '8px 20px 4px', display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
-          {[{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_SERVICOS].map(c => (
-            <button key={c.id} onClick={() => setCatFilter(c.id)} style={{
-              padding: '7px 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
-              border: `1px solid ${catFilter === c.id ? c.cor : 'var(--line)'}`,
-              background: catFilter === c.id ? c.cor : 'var(--card)',
-              color: catFilter === c.id ? '#fff' : 'var(--ink-2)',
-              whiteSpace: 'nowrap', flexShrink: 0,
-            }}>{c.nome}</button>
+          {[
+            { id: 'all',          nome: 'Todos',       cor: '#3d6043' },
+            { id: 'veterinario',  nome: 'Veterinário', cor: '#0f766e' },
+            { id: 'exames',       nome: 'Exames',      cor: '#7c3aed', nav: true },
+            { id: 'transporte',   nome: 'Transporte',  cor: '#1e40af' },
+          ].map(c => (
+            <button
+              key={c.id}
+              onClick={() => c.nav
+                ? (setServicoId(EXAMES_LAB_ID), setLaboratorio(''), setExamesSelecionados([]), setMotoboy(false), setMotoboyValor(''), setMotoboyNome(''), setStep('exames'))
+                : setCatFilter(c.id)
+              }
+              style={{
+                padding: '7px 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+                border: `1px solid ${!c.nav && catFilter === c.id ? c.cor : 'var(--line)'}`,
+                background: !c.nav && catFilter === c.id ? c.cor : 'var(--card)',
+                color: !c.nav && catFilter === c.id ? '#fff' : 'var(--ink-2)',
+                whiteSpace: 'nowrap', flexShrink: 0,
+              }}
+            >{c.nome}</button>
           ))}
         </div>
         <div style={{ padding: '8px 20px 0' }}>
@@ -466,7 +499,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
             const c = CATEGORIAS_SERVICOS.find(x => x.id === sv.categoria);
             const nDesc = sv.descartaveisObrigatorios?.length || 0;
             return (
-              <button key={sv.id} onClick={() => { setServicoId(sv.id); setLaboratorio(''); setTubosSelecionados([]); setExamesSelecionados([]); setStep('confirmar'); }} style={{
+              <button key={sv.id} onClick={() => { setServicoId(sv.id); setLaboratorio(''); setExamesSelecionados([]); setStep('confirmar'); }} style={{
                 width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
                 borderRadius: 12, padding: '12px', marginBottom: 6,
                 display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
@@ -498,13 +531,156 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
     );
   }
 
+  // ── Step exames: Selecionar exames ──
+  if (step === 'exames') {
+    const examServicos = servicos.filter(s => s.categoria === 'exames');
+    return (
+      <div style={{ paddingBottom: 100 }}>
+        <TopBar title="Exames Laboratoriais" subtitle={`Para ${cav?.nome}`} onBack={() => setStep('servico')} />
+        <div style={{ padding: '8px 20px 0' }}>
+          <div style={{
+            background: 'var(--accent-soft)', borderRadius: 12, padding: '8px 12px',
+            display: 'flex', alignItems: 'center', gap: 10, border: '1px solid var(--accent)20',
+          }}>
+            <HorseAvatar cavalo={cav} size={28} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{cav?.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{cav?.baia}</div>
+            </div>
+            <button onClick={() => setStep('cavalo')} style={{ fontSize: 11, background: 'transparent', border: 'none', color: 'var(--accent)', fontWeight: 600 }}>Trocar</button>
+          </div>
+        </div>
+        <div style={{ padding: '12px 20px 0' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+            Selecione os exames a realizar
+          </div>
+          {examServicos.length === 0 && (
+            <div style={{ textAlign: 'center', padding: '30px 0', color: 'var(--ink-3)', fontSize: 14 }}>
+              Nenhum exame cadastrado.{'\n'}Adicione em Cadastros → Serviços.
+            </div>
+          )}
+          {examServicos.map(ex => {
+            const sel = examesSelecionados.find(e => e.id === ex.id);
+            return (
+              <button key={ex.id} onClick={() => toggleExame(ex)} style={{
+                width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+                padding: '12px 14px', marginBottom: 6,
+                background: sel ? '#7c3aed0d' : 'var(--card)',
+                border: `1.5px solid ${sel ? '#7c3aed' : 'var(--line)'}`,
+                borderRadius: 12, textAlign: 'left', color: 'var(--ink)',
+              }}>
+                <div style={{
+                  width: 20, height: 20, borderRadius: 6,
+                  border: `1.5px solid ${sel ? '#7c3aed' : 'var(--line-2)'}`,
+                  background: sel ? '#7c3aed' : 'transparent',
+                  display: 'grid', placeItems: 'center', flexShrink: 0,
+                }}>
+                  {sel && <Icon name="check" size={13} color="#fff" />}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--ink)' }}>{ex.nome}</div>
+                  {ex.descartaveisObrigatorios?.length > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                      {ex.descartaveisObrigatorios.length} insumo{ex.descartaveisObrigatorios.length > 1 ? 's' : ''} incluso{ex.descartaveisObrigatorios.length > 1 ? 's' : ''}
+                    </div>
+                  )}
+                </div>
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 15, color: sel ? '#7c3aed' : 'var(--ink-3)' }}>
+                  {formatBRL(ex.valor)}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Motoboy */}
+        <div style={{ padding: '0 20px 12px' }}>
+          <div style={{
+            background: 'var(--card)', border: `1px solid ${motoboy ? '#1e40af' : 'var(--line)'}`,
+            borderRadius: 14, padding: '14px',
+          }}>
+            <button onClick={() => setMotoboy(v => !v)} style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 12,
+              background: 'transparent', border: 'none', color: 'var(--ink)', textAlign: 'left',
+            }}>
+              <div style={{
+                width: 42, height: 42, borderRadius: 12,
+                background: motoboy ? '#1e40af18' : 'var(--soft)',
+                color: motoboy ? '#1e40af' : 'var(--ink-3)',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="truck" size={20} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>Motoboy / Transporte</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Houve necessidade de motoboy?</div>
+              </div>
+              <div style={{
+                width: 26, height: 26, borderRadius: 8,
+                border: `1.5px solid ${motoboy ? '#1e40af' : 'var(--line-2)'}`,
+                background: motoboy ? '#1e40af' : 'transparent',
+                display: 'grid', placeItems: 'center',
+              }}>
+                {motoboy && <Icon name="check" size={14} color="#fff" />}
+              </div>
+            </button>
+            {motoboy && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Nome do motoboy</div>
+                <input
+                  value={motoboyNome} onChange={e => setMotoboyNome(e.target.value)}
+                  placeholder="Ex: José"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'var(--soft)', border: '1px solid #1e40af40', borderRadius: 10,
+                    padding: '10px 12px', fontSize: 15, color: 'var(--ink)',
+                    fontFamily: 'var(--sans)', outline: 'none', marginBottom: 10,
+                  }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>Valor do motoboy (R$)</div>
+                <input
+                  value={motoboyValor} onChange={e => setMotoboyValor(e.target.value)}
+                  placeholder="0,00" type="number" min="0" step="0.01"
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'var(--soft)', border: '1px solid #1e40af40', borderRadius: 10,
+                    padding: '10px 12px', fontSize: 15, color: 'var(--ink)',
+                    fontFamily: 'var(--sans)', outline: 'none',
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div style={{ position: 'fixed', bottom: 24, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
+          <button onClick={() => setStep('servico')} style={{
+            flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
+          }}>Voltar</button>
+          <button onClick={() => setStep('confirmar')} disabled={examesSelecionados.length === 0} style={{
+            flex: 2, background: examesSelecionados.length > 0 ? '#7c3aed' : 'var(--line)',
+            color: examesSelecionados.length > 0 ? '#fff' : 'var(--ink-3)',
+            border: 'none', borderRadius: 14, padding: '14px',
+            fontFamily: 'var(--sans)', fontSize: 15, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}>
+            {examesSelecionados.length > 0
+              ? <><Icon name="check" size={18} color="#fff" />Confirmar ({examesSelecionados.length} exame{examesSelecionados.length > 1 ? 's' : ''})</>
+              : 'Selecione ao menos 1'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Step 3: Confirmar ──
   const descObrig = sv?.descartaveisObrigatorios || [];
   const insDisp = insumosDisp;
 
   return (
     <div style={{ paddingBottom: 100, position: 'relative' }}>
-      <TopBar title="Confirmar" subtitle="Passo 3 de 3" onBack={() => setStep('servico')} />
+      <TopBar title="Confirmar" subtitle="Passo 3 de 3" onBack={() => setStep(sv?.categoria === 'exames' ? 'exames' : 'servico')} />
 
       <div style={{ padding: '16px 20px 0' }}>
         {/* Serviço card */}
@@ -531,29 +707,53 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                 <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome}</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{cat?.nome}</div>
               </div>
-              <span style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)' }}>{formatBRL(sv?.valor || 0)}</span>
+              {sv?.categoria !== 'exames' && (
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)' }}>{formatBRL(sv?.valor || 0)}</span>
+              )}
             </div>
           </div>
 
-          {/* Descartáveis obrigatórios */}
-          {descObrig.length > 0 && (
-            <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
-                Descartáveis inclusos
+          {/* Descartáveis — agrupados para exames, fixos para outros */}
+          {sv?.categoria === 'exames' ? (
+            getMergedDescartaveis().length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                  Descartáveis (agrupados)
+                </div>
+                {getMergedDescartaveis().map(d => {
+                  const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
+                  return (
+                    <div key={d.insumoId} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 13, color: 'var(--ink-2)', padding: '3px 0',
+                    }}>
+                      <span>• {ins?.nome} ×{d.qtd}</span>
+                      <span>{formatBRL((ins?.valorVenda || ins?.valor || 0) * d.qtd)}</span>
+                    </div>
+                  );
+                })}
               </div>
-              {descObrig.map(d => {
-                const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
-                return (
-                  <div key={d.insumoId} style={{
-                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    fontSize: 13, color: 'var(--ink-2)', padding: '3px 0',
-                  }}>
-                    <span>• {ins?.nome} ×{d.qtd}</span>
-                    <span>{formatBRL((ins?.valorVenda || ins?.valor || 0) * d.qtd)}</span>
-                  </div>
-                );
-              })}
-            </div>
+            )
+          ) : (
+            descObrig.length > 0 && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                  Descartáveis inclusos
+                </div>
+                {descObrig.map(d => {
+                  const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
+                  return (
+                    <div key={d.insumoId} style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      fontSize: 13, color: 'var(--ink-2)', padding: '3px 0',
+                    }}>
+                      <span>• {ins?.nome} ×{d.qtd}</span>
+                      <span>{formatBRL((ins?.valorVenda || ins?.valor || 0) * d.qtd)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )
           )}
         </div>
 
@@ -574,48 +774,19 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
           </div>
         )}
 
-        {/* Tubos utilizados (para Exames Laboratoriais) */}
+        {/* Exames a realizar — multi-seleção a partir dos serviços cadastrados */}
         {sv?.categoria === 'exames' && (
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Tubos / Swabs utilizados</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {TUBOS_OPCOES.map(t => {
-                const sel = tubosSelecionados.includes(t.id);
-                const ins = insumos.find(i => i.id === t.id) || getInsumo(t.id);
-                return (
-                  <button key={t.id} onClick={() => toggleTubo(t.id)} style={{
-                    padding: '8px 14px', borderRadius: 10, fontSize: 13,
-                    border: `1.5px solid ${sel ? t.cor : 'var(--line)'}`,
-                    background: sel ? t.cor + '18' : 'var(--soft)',
-                    color: sel ? t.cor : 'var(--ink-2)',
-                    fontWeight: sel ? 600 : 400,
-                    display: 'flex', alignItems: 'center', gap: 6,
-                  }}>
-                    <div style={{
-                      width: 16, height: 16, borderRadius: 4,
-                      border: `1.5px solid ${sel ? t.cor : 'var(--line-2)'}`,
-                      background: sel ? t.cor : 'transparent',
-                      display: 'grid', placeItems: 'center',
-                    }}>
-                      {sel && <Icon name="check" size={11} color="#fff" />}
-                    </div>
-                    {t.label}
-                    <span style={{ fontSize: 11, opacity: 0.7 }}>{ins ? formatBRL(ins.valorVenda || ins.valor || 0) : ''}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Exames solicitados (para Exames Laboratoriais) */}
-        {sv?.categoria === 'exames' && (
-          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 12 }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Exames solicitados</div>
-            {EXAMES_LABORATORIAIS.map(ex => {
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8 }}>Exames a realizar</div>
+            {servicos.filter(s => s.categoria === 'exames').length === 0 && (
+              <div style={{ fontSize: 13, color: 'var(--ink-3)', textAlign: 'center', padding: '8px 0' }}>
+                Nenhum exame cadastrado. Adicione em Cadastros → Serviços.
+              </div>
+            )}
+            {servicos.filter(s => s.categoria === 'exames').map(ex => {
               const sel = examesSelecionados.find(e => e.id === ex.id);
               return (
-                <button key={ex.id} onClick={() => toggleExame({ ...ex })} style={{
+                <button key={ex.id} onClick={() => toggleExame(ex)} style={{
                   width: '100%', display: 'flex', alignItems: 'center', gap: 10,
                   padding: '8px 12px', marginBottom: 4,
                   background: sel ? 'var(--accent-soft)' : 'var(--soft)',

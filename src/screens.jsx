@@ -948,7 +948,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                     <Icon name="stethoscope" size={16} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome || 'Procedimento'}</div>
+                    <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome || (p.examesSelecionados?.length > 0 ? 'Exames Laboratoriais' : 'Procedimento')}</div>
                     <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
                       {p.hora}{p.laboratorio ? ` · ${p.laboratorio}` : ''} · total {formatBRL(p.total || 0)}
                     </div>
@@ -1182,7 +1182,7 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
 // ─────────────────────────────────────────────────────────────
 // CADASTRO · Insumos
 // ─────────────────────────────────────────────────────────────
-const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, updateInsumo }) => {
+const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, updateInsumo, deleteInsumo }) => {
   const [filtro, setFiltro] = useState('all');
   const [busca, setBusca] = useState('');
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
@@ -1239,47 +1239,65 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
           const cat = getCategoria(i.categoria);
           const temDescartaveis = i.descartaveis?.length > 0;
           return (
-            <button key={i.id} onClick={() => { setSelected(i.id); setScreen('editarInsumo'); }} style={{
-              width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-              padding: '12px 14px', marginBottom: 6,
-              display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+            <div key={i.id} style={{
+              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+              marginBottom: 6, display: 'flex', alignItems: 'stretch', overflow: 'hidden',
             }}>
-              <div style={{
-                width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center',
-                background: (cat?.cor || '#888') + '15', color: cat?.cor || '#888',
+              <button onClick={() => { setSelected(i.id); setScreen('editarInsumo'); }} style={{
+                flex: 1, padding: '12px 14px',
+                display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+                background: 'transparent', border: 'none',
               }}>
-                <Icon name={CATEGORIA_ICONS[cat?.id] || 'package'} size={18} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                  <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{i.nome}</div>
-                  {i.injetavel && (
-                    <span style={{
-                      fontSize: 9, padding: '2px 6px', borderRadius: 4,
-                      background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.06em',
-                    }}>INJETÁVEL</span>
+                <div style={{
+                  width: 36, height: 36, borderRadius: 10, display: 'grid', placeItems: 'center',
+                  background: (cat?.cor || '#888') + '15', color: cat?.cor || '#888',
+                }}>
+                  <Icon name={CATEGORIA_ICONS[cat?.id] || 'package'} size={18} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{i.nome}</div>
+                    {i.injetavel && (
+                      <span style={{
+                        fontSize: 9, padding: '2px 6px', borderRadius: 4,
+                        background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.06em',
+                      }}>INJETÁVEL</span>
+                    )}
+                    {temDescartaveis && !i.injetavel && (
+                      <span style={{
+                        fontSize: 9, padding: '2px 6px', borderRadius: 4,
+                        background: '#f0f4ff', color: '#3b4fc3', fontWeight: 700, letterSpacing: '0.06em',
+                      }}>+{i.descartaveis.length} DESC.</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                    por {i.unidade}
+                    {i.fornecedor && <span style={{ marginLeft: 6 }}>· {i.fornecedor}</span>}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
+                    {formatBRL(i.valorVenda ?? i.valor ?? 0)}
+                  </div>
+                  {i.markup > 0 && (
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>+{i.markup}% markup</div>
                   )}
-                  {temDescartaveis && !i.injetavel && (
-                    <span style={{
-                      fontSize: 9, padding: '2px 6px', borderRadius: 4,
-                      background: '#f0f4ff', color: '#3b4fc3', fontWeight: 700, letterSpacing: '0.06em',
-                    }}>+{i.descartaveis.length} DESC.</span>
-                  )}
                 </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
-                  por {i.unidade}
-                  {i.fornecedor && <span style={{ marginLeft: 6 }}>· {i.fornecedor}</span>}
-                </div>
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
-                  {formatBRL(i.valorVenda ?? i.valor ?? 0)}
-                </div>
-                {i.markup > 0 && (
-                  <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>+{i.markup}% markup</div>
-                )}
-              </div>
-            </button>
+              </button>
+              {deleteInsumo && (
+                <button
+                  onClick={() => { if (window.confirm(`Excluir "${i.nome}"?`)) deleteInsumo(i.id); }}
+                  style={{
+                    width: 48, flexShrink: 0,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    background: 'transparent', border: 'none', borderLeft: '1px solid var(--line)',
+                    color: '#dc2626',
+                  }}
+                >
+                  <Icon name="trash" size={16} />
+                </button>
+              )}
+            </div>
           );
         })}
         {filtered.length === 0 && (
