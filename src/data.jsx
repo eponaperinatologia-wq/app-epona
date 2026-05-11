@@ -182,6 +182,7 @@ const CATEGORIAS_INSUMOS = [
 const CATEGORIAS_SERVICOS = [
   { id: 'veterinario', nome: 'Veterinário', cor: '#0f766e' },
   { id: 'transporte',  nome: 'Transporte',  cor: '#1e40af' },
+  { id: 'exames',      nome: 'Exames Laboratoriais', cor: '#7c3aed' },
 ];
 
 const SERVICOS = [
@@ -223,7 +224,7 @@ const INSUMOS = [
   { id: 'i_organew',   nome: 'Organew',                   categoria: 'suplemento',  unidade: 'g',         fornecedor: '', valorCompra: 0.07,  markup: 0, valorVenda: 0.07,  injetavel: false, descartaveis: [] },
   { id: 'i_promun',    nome: 'Promun Equi',               categoria: 'suplemento',  unidade: 'g',         fornecedor: '', valorCompra: 0.30,  markup: 0, valorVenda: 0.30,  injetavel: false, descartaveis: [] },
   { id: 'i_redcell',   nome: 'RedCell',                   categoria: 'suplemento',  unidade: 'ml',        fornecedor: '', valorCompra: 0.20,  markup: 0, valorVenda: 0.20,  injetavel: false, descartaveis: [] },
-  { id: 'i_sal',       nome: 'SAL KROMIUM PROTEICO',      categoria: 'suplemento',  unidade: 'kg',        fornecedor: '', valorCompra: 4.40,  markup: 0, valorVenda: 4.40,  injetavel: false, descartaveis: [] },
+  { id: 'i_sal',       nome: 'SAL KROMIUM PROTEICO',      categoria: 'suplemento',  unidade: 'g',         fornecedor: '', valorCompra: 0.0044,  markup: 0, valorVenda: 0.0044,  injetavel: false, descartaveis: [] },
   { id: 'i_simequi',   nome: 'Sim Equi',                  categoria: 'suplemento',  unidade: 'ml',        fornecedor: '', valorCompra: 1.00,  markup: 0, valorVenda: 1.00,  injetavel: false, descartaveis: [] },
   // Medicamentos
   { id: 'im1',  nome: 'Ácido Acetilsalicílico (Sachê)', categoria: 'medicamento', unidade: 'sachê',     fornecedor: '', valorCompra: 4.00,   markup: 0, valorVenda: 4.00,   injetavel: false, descartaveis: [] },
@@ -420,12 +421,20 @@ const proporcaoMensalidade = (cavaloId, ref, movs) => {
   return { dias, total, parcial, valor: valorBase * (dias / total), valorBase };
 };
 
-const consumoDiarioCavalo = (cavaloId) => {
+const findInsumo = (id, insumos) => {
+  if (insumos) {
+    const found = insumos.find(i => i.id === id);
+    if (found) return found;
+  }
+  return getInsumo(id);
+};
+
+const consumoDiarioCavalo = (cavaloId, insumos) => {
   const cav = getCavalo(cavaloId);
   if (!cav || !cav.nutricao) return [];
   const linhas = [];
   if (cav.nutricao.oleoMlDia > 0) {
-    const oleo = getInsumo('i_oleo');
+    const oleo = findInsumo('i_oleo', insumos);
     if (oleo) linhas.push({
       insumoId: oleo.id, nome: oleo.nome,
       qtdDia: cav.nutricao.oleoMlDia, unidade: oleo.unidade,
@@ -434,7 +443,7 @@ const consumoDiarioCavalo = (cavaloId) => {
     });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
-    const ins = getInsumo(s.insumoId);
+    const ins = findInsumo(s.insumoId, insumos);
     if (!ins) continue;
     linhas.push({
       insumoId: ins.id, nome: ins.nome,
@@ -444,9 +453,9 @@ const consumoDiarioCavalo = (cavaloId) => {
     });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
-    const ins = getInsumo(p.insumoId);
+    const ins = findInsumo(p.insumoId, insumos);
     if (!ins) continue;
-    const freqDias = p.frequencia === 'quinzenal' ? 14 : 7;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     linhas.push({
       insumoId: ins.id, nome: ins.nome + ' (periódico)',
@@ -458,9 +467,9 @@ const consumoDiarioCavalo = (cavaloId) => {
   return linhas;
 };
 
-const cobrancaPerfilMes = (cavaloId, ref, movs) => {
+const cobrancaPerfilMes = (cavaloId, ref, movs, insumos) => {
   const { dias } = diasNoMes(cavaloId, ref, movs);
-  const linhas = consumoDiarioCavalo(cavaloId).map(l => ({
+  const linhas = consumoDiarioCavalo(cavaloId, insumos).map(l => ({
     ...l, dias, valorMes: l.valorDia * dias,
   }));
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
@@ -474,5 +483,5 @@ export {
   REGISTROS_HOJE, SETORES, MOVIMENTACOES, AVISOS, ATIVIDADES, TAXA_INJETAVEL,
   FUNCIONARIOS, ESCALA_VAZIA, EVENTOS, PARTOS,
   getCavalo, getProprietario, getInsumo, getCategoria, idade, formatBRL,
-  diasNoMes, proporcaoMensalidade, consumoDiarioCavalo, cobrancaPerfilMes,
+  diasNoMes, proporcaoMensalidade, findInsumo, consumoDiarioCavalo, cobrancaPerfilMes,
 };

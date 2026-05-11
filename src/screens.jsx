@@ -5,7 +5,7 @@ import { getEmpresa, saveEmpresa } from './utils/empresa';
 import { gerarPdfFatura, nomePdfFatura } from './utils/pdfFatura';
 import {
   CAVALOS, PROPRIETARIOS, INSUMOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS,
-  AVISOS, ATIVIDADES,
+  AVISOS, ATIVIDADES, CATEGORIAS_SERVICOS, SERVICOS,
   getCavalo, getInsumo, getCategoria, idade, formatBRL,
   consumoDiarioCavalo,
 } from './data';
@@ -87,7 +87,7 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins) continue;
-    const freqDias = p.frequencia === 'quinzenal' ? 14 : 7;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * dias });
   }
@@ -442,15 +442,15 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
         </button>
       </div>
 
-      {/* Seed button — admin only, when DB is empty */}
-      {currentUser?.role === 'admin' && onSeed && (
+      {/* Seed button — admin only */}
+      {onSeed && currentUser?.role === 'admin' && cavalos.length === 0 && (
         <div style={{ padding: '10px 20px 0' }}>
           <button onClick={onSeed} style={{
             width: '100%', padding: '10px 16px', borderRadius: 12,
-            border: '1px dashed #6b7280', background: 'transparent',
-            color: '#6b7280', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em',
+            border: '1px dashed var(--accent)', background: 'var(--accent-soft)',
+            color: 'var(--accent)', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em',
           }}>
-            Seed Database (Supabase)
+            Banco vazio — Clique para popular com dados iniciais
           </button>
         </div>
       )}
@@ -726,13 +726,15 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
 // ─────────────────────────────────────────────────────────────
 // CAVALO DETALHE
 // ─────────────────────────────────────────────────────────────
-const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS }) => {
+const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], servicos = SERVICOS, setSelected, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, deleteRegistro, updateRegistro, deleteProcedimento, insumos }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const props = (c.proprietarioIds || [c.proprietarioId]).map(id => getProprietarioLocal(id) || { nome: 'Sem proprietário' });
   const meusRegistros = registros.filter(r => r.cavaloId === id);
+  const meusProcedimentos = procedimentos.filter(p => p.cavaloId === id);
+  const [editRegQtd, setEditRegQtd] = useState(null);
   const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
-  const consumoDia = consumoDiarioCavalo(c.id);
+  const consumoDia = consumoDiarioCavalo(c.id, insumos);
 
   return (
     <div style={{ paddingBottom: 110 }}>
@@ -863,9 +865,10 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
           {meusRegistros.map((r, i) => {
             const ins = getInsumo(r.insumoId);
             const cat = getCategoria(ins.categoria);
+            const editing = editRegQtd === r.id;
             return (
               <div key={r.id} style={{
-                display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
                 borderTop: i === 0 ? 'none' : '1px solid var(--line)',
               }}>
                 <div style={{
@@ -874,18 +877,88 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, setSelected, cavalos = 
                 }}>
                   <Icon name={CATEGORIA_ICONS[cat.id]} size={16} />
                 </div>
-                <div style={{ flex: 1 }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{ins.nome}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{r.hora} · {r.qtd} {ins.unidade}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                    {r.hora} ·
+                    {editing ? (
+                      <input type="number" min="0.5" step="0.5" value={r.qtd}
+                        onChange={e => updateRegistro(r.id, { qtd: parseFloat(e.target.value) || 0.5 })}
+                        onBlur={() => setEditRegQtd(null)}
+                        onKeyDown={e => e.key === 'Enter' && setEditRegQtd(null)}
+                        style={{ width: 50, border: '1px solid var(--line)', borderRadius: 4, padding: '2px 4px', fontSize: 11, textAlign: 'center', marginLeft: 4 }}
+                      />
+                    ) : (
+                      <span onClick={() => { if (deleteRegistro) setEditRegQtd(r.id); }} style={{ cursor: deleteRegistro ? 'pointer' : 'default' }}> {r.qtd} {ins.unidade}</span>
+                    )}
+                  </div>
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
                   {formatBRL((ins.valorVenda ?? 0) * r.qtd)}
                 </div>
+                {deleteRegistro && (
+                  <>
+                    <button onClick={() => setEditRegQtd(editing ? null : r.id)} style={{
+                      background: 'none', border: 'none', color: 'var(--accent)', fontSize: 14, cursor: 'pointer', padding: 4,
+                      opacity: editing ? 0.5 : 1,
+                    }}>
+                      <Icon name="pencil" size={14} />
+                    </button>
+                    <button onClick={() => { if (window.confirm(`Remover ${ins.nome}?`)) deleteRegistro(r.id); }} style={{
+                      background: 'none', border: 'none', color: '#dc2626', fontSize: 14, cursor: 'pointer', padding: 4,
+                    }}>✕</button>
+                  </>
+                )}
               </div>
             );
           })}
         </div>
       </div>
+
+      {/* Procedimentos do mês */}
+      {meusProcedimentos.length > 0 && (
+        <div style={{ padding: '20px 20px 0' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Procedimentos · maio</h2>
+            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusProcedimentos.length} registros</span>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            {meusProcedimentos.map((p, i) => {
+              const sv = servicos.find(s => s.id === p.servicoId);
+              const cat = CATEGORIAS_SERVICOS.find(c => c.id === sv?.categoria);
+              return (
+                <div key={p.id} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px',
+                  borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                }}>
+                  <div style={{
+                    width: 32, height: 32, borderRadius: 10, display: 'grid', placeItems: 'center',
+                    background: (cat?.cor || '#888') + '15', color: cat?.cor || '#888',
+                  }}>
+                    <Icon name="stethoscope" size={16} />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome || 'Procedimento'}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                      {p.hora}{p.laboratorio ? ` · ${p.laboratorio}` : ''} · total {formatBRL(p.total || 0)}
+                    </div>
+                    {p.motoboy?.ativo && (
+                      <div style={{ fontSize: 11, color: '#1e40af', marginTop: 1 }}>
+                        Motoboy: {p.motoboy.nome || '—'} ({formatBRL(p.motoboy.valor || 0)})
+                      </div>
+                    )}
+                  </div>
+                  {deleteProcedimento && (
+                    <button onClick={() => { if (window.confirm(`Remover ${sv?.nome || 'procedimento'}?`)) deleteProcedimento(p.id); }} style={{
+                      background: 'none', border: 'none', color: '#dc2626', fontSize: 14, cursor: 'pointer', padding: 4,
+                    }}>✕</button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Quick action */}
       <div style={{ padding: '20px 20px 0' }}>
@@ -1371,6 +1444,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [showPerForm, setShowPerForm] = useState(false);
   const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const FREQ_OPTIONS = [
+    { value: 'diario', label: 'Diário' },
+    { value: 'cada2', label: 'Cada 2 dias' },
+    { value: 'cada3', label: 'Cada 3 dias' },
+    { value: 'cada4', label: 'Cada 4 dias' },
+    { value: 'cada5', label: 'Cada 5 dias' },
+    { value: 'cada6', label: 'Cada 6 dias' },
     { value: 'semanal', label: 'Semanal' },
     { value: 'quinzenal', label: 'Quinzenal' },
   ];
@@ -1531,7 +1610,7 @@ Suplementos: ${supNomes}` : ''}`;
                   return (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
                       <span style={{ flex: 1, color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
-                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label} · {DIAS_SEMANA[p.diaSemana]} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
+                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label}{p.frequencia === 'diario' || p.frequencia?.startsWith('cada') ? '' : ` · ${DIAS_SEMANA[p.diaSemana]}`} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
                       <button onClick={() => handleRemovePeriodico(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, padding: 0 }}>×</button>
                     </div>
                   );
@@ -1560,6 +1639,7 @@ Suplementos: ${supNomes}` : ''}`;
                   <input type="number" step="0.1" value={novoPerQtd} onChange={e => setNovoPerQtd(e.target.value)}
                     placeholder="Dose"
                     style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                  {novoPerInsumoId && (() => { const i = INSUMOS.find(x => x.id === novoPerInsumoId); return <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>{i?.unidade || 'un'}</span>; })()}
                   <select value={novoPerFreq} onChange={e => setNovoPerFreq(e.target.value)} style={{
                     border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
                     fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
@@ -1879,10 +1959,13 @@ Suplementos: ${supNomes}` : ''}`;
                         style={{ cursor: 'pointer' }} />
                       <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
                       {sup && (
-                        <input type="number" step="0.1" value={sup.qtdDia}
-                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                          placeholder="dose/dia"
-                          style={{ width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center' }} />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input type="number" step={i.unidade === 'kg' || i.unidade === 'l' ? '0.1' : '1'} value={sup.qtdDia}
+                            onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                            placeholder="dose/dia"
+                            style={{ width: 65, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center' }} />
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 16 }}>{i.unidade || 'un'}</span>
+                        </span>
                       )}
                     </div>
                     {sup && (
@@ -2498,17 +2581,20 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                       />
                       <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
                       {sup && (
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={sup.qtdDia}
-                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                          placeholder="dose/dia"
-                          style={{
-                            width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
-                            fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center',
-                          }}
-                        />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            type="number"
+                            step={i.unidade === 'kg' || i.unidade === 'l' ? '0.1' : '1'}
+                            value={sup.qtdDia}
+                            onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                            placeholder="dose/dia"
+                            style={{
+                              width: 65, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
+                              fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center',
+                            }}
+                          />
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 16 }}>{i.unidade || 'un'}</span>
+                        </span>
                       )}
                     </div>
                     {sup && (

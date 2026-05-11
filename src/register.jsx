@@ -29,14 +29,17 @@ const { useState: useStateR, useMemo: useMemoR } = React;
 // ─────────────────────────────────────────────────────────────
 const QtyStepper = ({ value, onChange, unit }) => {
   const [text, setText] = React.useState(String(value));
-  React.useEffect(() => { setText(String(value)); }, [value]);
-  const commit = (v) => onChange(Math.max(0.5, parseFloat(v) || 0.5));
+  React.useEffect(() => { setText(String(value)); }, [value, unit]);
+  const isKgL = unit === 'kg' || unit === 'l';
+  const step = isKgL ? 0.5 : 1;
+  const min = isKgL ? 0.5 : 1;
+  const commit = (v) => onChange(Math.max(min, parseFloat(v) || min));
   return (
   <div style={{
     display: 'flex', alignItems: 'center', gap: 0,
     background: 'var(--soft)', borderRadius: 14, padding: 4,
   }}>
-    <button onClick={() => commit(value - 0.5)} style={{
+    <button onClick={() => commit(value - step)} style={{
       width: 44, height: 44, borderRadius: 11, border: 'none',
       background: 'var(--card)', color: 'var(--ink)',
       display: 'grid', placeItems: 'center',
@@ -45,7 +48,7 @@ const QtyStepper = ({ value, onChange, unit }) => {
       <Icon name="minus" size={18} />
     </button>
     <div style={{ flex: 1, textAlign: 'center', padding: '0 12px' }}>
-      <input type="number" value={text} min="0.5" step="0.5"
+      <input type="number" value={text} min={min} step={step}
         onChange={e => setText(e.target.value)}
         onBlur={e => commit(e.target.value)}
         onKeyDown={e => e.key === 'Enter' && commit(e.target.value)}
@@ -58,7 +61,7 @@ const QtyStepper = ({ value, onChange, unit }) => {
       />
       <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 2 }}>{unit}</div>
     </div>
-    <button onClick={() => commit(value + 0.5)} style={{
+    <button onClick={() => commit(value + step)} style={{
       width: 44, height: 44, borderRadius: 11, border: 'none',
       background: 'var(--card)', color: 'var(--ink)',
       display: 'grid', placeItems: 'center',
