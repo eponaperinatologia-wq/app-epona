@@ -1429,7 +1429,7 @@ const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCav
 // ─────────────────────────────────────────────────────────────
 // EDITAR CAVALO
 // ─────────────────────────────────────────────────────────────
-const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, addAtividade, currentUser }) => {
+const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, addAtividade, currentUser, insumos: insumosBase = INSUMOS }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (pid) => proprietarios.find(p => p.id === pid);
   const prop = getProprietarioLocal(c.proprietarioId);
@@ -1549,9 +1549,9 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
-      const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
+      const racaoNome = insumosBase.find(i => i.id === racaoId)?.nome || racaoId;
       const autor = currentUser?.nome || 'Sistema';
-      const supNomes = suplementos.map(s => INSUMOS.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
+      const supNomes = suplementos.map(s => insumosBase.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
       const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
       const data = hoje.toLocaleDateString('sv-SE');
       const text = `🍽️ Plano nutricional de ${c.nome} atualizado:
@@ -1636,7 +1636,7 @@ Suplementos: ${supNomes}` : ''}`;
             {periodicos.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 {periodicos.map((p, idx) => {
-                  const ins = INSUMOS.find(i => i.id === p.insumoId);
+                  const ins = insumosBase.find(i => i.id === p.insumoId);
                   return (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
                       <span style={{ flex: 1, color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
@@ -1661,7 +1661,7 @@ Suplementos: ${supNomes}` : ''}`;
                   fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
                 }}>
                   <option value="">Selecionar insumo…</option>
-                  {INSUMOS.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
+                  {insumosBase.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
                     <option key={i.id} value={i.id}>{i.nome}</option>
                   ))}
                 </select>
@@ -1906,7 +1906,7 @@ Suplementos: ${supNomes}` : ''}`;
               width: '100%', border: 'none', outline: 'none', background: 'transparent',
               fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
             }}>
-              {INSUMOS.filter(i => i.categoria === 'racao').map(i => (
+              {insumosBase.filter(i => i.categoria === 'racao').map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -1979,7 +1979,7 @@ Suplementos: ${supNomes}` : ''}`;
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
+              {insumosBase.filter(i => i.categoria === 'suplemento').map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
@@ -2068,7 +2068,7 @@ const FormField = ({ label, children }) => (
 // ─────────────────────────────────────────────────────────────
 // ADICIONAR CAVALO
 // ─────────────────────────────────────────────────────────────
-const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCavaloPendente, pendingEntradaCavalo, setPendingEntradaCavalo, proprietarios: allProprietarios = PROPRIETARIOS, addProprietario }) => {
+const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCavaloPendente, pendingEntradaCavalo, setPendingEntradaCavalo, proprietarios: allProprietarios = PROPRIETARIOS, addProprietario, insumos: insumosBase = INSUMOS }) => {
   const pelagenOptions = ['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha'];
   
   const [nome, setNome] = useState('');
@@ -2524,7 +2524,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
               }}
             >
-              {INSUMOS.filter(i => i.categoria === 'racao').map(i => (
+              {insumosBase.filter(i => i.categoria === 'racao').map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -2598,7 +2598,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
+              {insumosBase.filter(i => i.categoria === 'suplemento').map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
