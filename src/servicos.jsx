@@ -68,12 +68,12 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 
   if (showForm) {
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ paddingBottom: 20 }}>
         <TopBar
           title={editId ? 'Editar serviço' : 'Novo serviço'}
           onBack={() => setShowForm(false)}
         />
-        <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', padding: '14px 20px', WebkitOverflowScrolling: 'touch', overscrollBehavior: 'contain' }}>
+        <div style={{ padding: '14px 20px 0' }}>
           {/* Nome */}
           <div style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Nome</div>
@@ -121,7 +121,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
           </div>
 
           {/* Descartáveis obrigatórios */}
-          <div style={{ marginBottom: 20 }}>
+          <div style={{ marginBottom: 8 }}>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
               Descartáveis obrigatórios
             </div>
@@ -165,33 +165,31 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
                 style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 13, color: 'var(--ink)' }}
               />
             </div>
-            <div style={{ maxHeight: 180, overflowY: 'auto' }}>
-              {descartaveisDisp.map(i => {
-                const sel = !!descartaveis.find(d => d.insumoId === i.id);
-                return (
-                  <button key={i.id} onClick={() => toggleDescartavel(i.id)} style={{
-                    width: '100%', background: sel ? 'var(--accent-soft)' : 'var(--soft)',
-                    border: `1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
-                    borderRadius: 10, padding: '8px 12px', marginBottom: 4,
-                    display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', color: 'var(--ink)',
+            {descartaveisDisp.map(i => {
+              const sel = !!descartaveis.find(d => d.insumoId === i.id);
+              return (
+                <button key={i.id} onClick={() => toggleDescartavel(i.id)} style={{
+                  width: '100%', background: sel ? 'var(--accent-soft)' : 'var(--soft)',
+                  border: `1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                  borderRadius: 10, padding: '8px 12px', marginBottom: 4,
+                  display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', color: 'var(--ink)',
+                }}>
+                  <div style={{
+                    width: 18, height: 18, borderRadius: 5,
+                    border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line-2)'}`,
+                    background: sel ? 'var(--accent)' : 'transparent',
+                    display: 'grid', placeItems: 'center', flexShrink: 0,
                   }}>
-                    <div style={{
-                      width: 18, height: 18, borderRadius: 5,
-                      border: `1.5px solid ${sel ? 'var(--accent)' : 'var(--line-2)'}`,
-                      background: sel ? 'var(--accent)' : 'transparent',
-                      display: 'grid', placeItems: 'center', flexShrink: 0,
-                    }}>
-                      {sel && <Icon name="check" size={12} color="#fff" />}
-                    </div>
-                    <span style={{ fontSize: 13, flex: 1 }}>{i.nome}</span>
-                  </button>
-                );
-              })}
-            </div>
+                    {sel && <Icon name="check" size={12} color="#fff" />}
+                  </div>
+                  <span style={{ fontSize: 13, flex: 1 }}>{i.nome}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
-        <div style={{ flexShrink: 0, padding: '12px 20px 28px', background: 'var(--bg)', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
+        <div style={{ position: 'sticky', bottom: 0, padding: '12px 20px 28px', background: 'var(--bg)', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
           <button onClick={() => setShowForm(false)} style={{
             flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
             padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
