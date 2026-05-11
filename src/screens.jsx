@@ -897,9 +897,17 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                   {formatBRL((ins.valorVenda ?? 0) * r.qtd)}
                 </div>
                 {deleteRegistro && (
-                  <button onClick={() => { if (window.confirm(`Remover ${ins.nome}?`)) deleteRegistro(r.id); }} style={{
-                    background: 'none', border: 'none', color: '#dc2626', fontSize: 14, cursor: 'pointer', padding: 4,
-                  }}>✕</button>
+                  <>
+                    <button onClick={() => setEditRegQtd(editing ? null : r.id)} style={{
+                      background: 'none', border: 'none', color: 'var(--accent)', fontSize: 14, cursor: 'pointer', padding: 4,
+                      opacity: editing ? 0.5 : 1,
+                    }}>
+                      <Icon name="pencil" size={14} />
+                    </button>
+                    <button onClick={() => { if (window.confirm(`Remover ${ins.nome}?`)) deleteRegistro(r.id); }} style={{
+                      background: 'none', border: 'none', color: '#dc2626', fontSize: 14, cursor: 'pointer', padding: 4,
+                    }}>✕</button>
+                  </>
                 )}
               </div>
             );
@@ -1624,6 +1632,7 @@ Suplementos: ${supNomes}` : ''}`;
                   <input type="number" step="0.1" value={novoPerQtd} onChange={e => setNovoPerQtd(e.target.value)}
                     placeholder="Dose"
                     style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                  {novoPerInsumoId && (() => { const i = INSUMOS.find(x => x.id === novoPerInsumoId); return <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>{i?.unidade || 'un'}</span>; })()}
                   <select value={novoPerFreq} onChange={e => setNovoPerFreq(e.target.value)} style={{
                     border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
                     fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
@@ -1943,10 +1952,13 @@ Suplementos: ${supNomes}` : ''}`;
                         style={{ cursor: 'pointer' }} />
                       <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
                       {sup && (
-                        <input type="number" step="0.1" value={sup.qtdDia}
-                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                          placeholder="dose/dia"
-                          style={{ width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center' }} />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input type="number" step={i.unidade === 'kg' || i.unidade === 'l' ? '0.1' : '1'} value={sup.qtdDia}
+                            onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                            placeholder="dose/dia"
+                            style={{ width: 65, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center' }} />
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 16 }}>{i.unidade || 'un'}</span>
+                        </span>
                       )}
                     </div>
                     {sup && (
@@ -2562,17 +2574,20 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                       />
                       <span style={{ flex: 1, fontSize: 14, color: 'var(--ink)', fontWeight: 600 }}>{i.nome}</span>
                       {sup && (
-                        <input
-                          type="number"
-                          step="0.1"
-                          value={sup.qtdDia}
-                          onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
-                          placeholder="dose/dia"
-                          style={{
-                            width: 70, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
-                            fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center',
-                          }}
-                        />
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <input
+                            type="number"
+                            step={i.unidade === 'kg' || i.unidade === 'l' ? '0.1' : '1'}
+                            value={sup.qtdDia}
+                            onChange={e => handleUpdateSuplementoQtd(i.id, e.target.value)}
+                            placeholder="dose/dia"
+                            style={{
+                              width: 65, border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px',
+                              fontSize: 12, color: 'var(--ink)', outline: 'none', textAlign: 'center',
+                            }}
+                          />
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 16 }}>{i.unidade || 'un'}</span>
+                        </span>
                       )}
                     </div>
                     {sup && (

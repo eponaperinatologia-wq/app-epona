@@ -240,7 +240,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">
-              {s.ins.nome} {fmtKg(s.qtdTrato)}x
+              {s.ins.nome} {fmtKg(s.qtdTrato)} {s.ins.unidade || 'un'}
             </Chip>
           ))}
           {periodicosHoje.map(p => {

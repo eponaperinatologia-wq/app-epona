@@ -550,6 +550,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                       width: 24, height: 24, borderRadius: 6, border: '1px solid var(--line)',
                       background: 'var(--card)', display: 'grid', placeItems: 'center', fontSize: 14,
                     }}>+</button>
+                    <span style={{ fontSize: 11, color: 'var(--ink-3)', minWidth: 20 }}>{ins?.unidade || 'un'}</span>
                     <button onClick={() => toggleInsumoAdicional(a.insumoId)} style={{
                       background: 'transparent', border: 'none', color: '#dc2626', fontSize: 15,
                     }}>✕</button>
