@@ -442,15 +442,15 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
         </button>
       </div>
 
-      {/* Seed button — dev only */}
-      {process.env.NODE_ENV === 'development' && onSeed && (
+      {/* Seed button — admin only, when DB is empty */}
+      {currentUser?.role === 'admin' && onSeed && (
         <div style={{ padding: '10px 20px 0' }}>
           <button onClick={onSeed} style={{
             width: '100%', padding: '10px 16px', borderRadius: 12,
             border: '1px dashed #6b7280', background: 'transparent',
             color: '#6b7280', fontSize: 12, fontWeight: 600, letterSpacing: '0.05em',
           }}>
-            DEV — Seed Database (Supabase)
+            Seed Database (Supabase)
           </button>
         </div>
       )}
