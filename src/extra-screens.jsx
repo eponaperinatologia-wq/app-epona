@@ -291,7 +291,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
           valorServico: gtaSv.valor,
           descartaveisObrigatorios: [],
           insumosAdicionais: [],
-          motoboy: { ativo: false, valor: 0, nome: '' },
+          motoboy: { ativo: false, valor: 0 },
           total: gtaSv.valor,
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           nota: 'GTA de saída — ' + (cav?.nome || cavaloId),

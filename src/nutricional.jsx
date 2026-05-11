@@ -6,7 +6,7 @@ import { TopBar, HorseAvatar } from './screens';
 // ─────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────
-const fmtNum = (v) => {
+const fmtKg = (v) => {
   const n = parseFloat(v) || 0;
   const s = n % 1 === 0 ? String(n) : n.toFixed(1);
   return s.replace('.', ',');
@@ -27,21 +27,7 @@ const isSemanaPar = () => {
   return semana % 2 === 0;
 };
 
-const getFreqDias = (freq) => {
-  if (freq === 'diario') return 1;
-  if (freq === 'semanal') return 7;
-  if (freq === 'quinzenal') return 14;
-  if (freq?.startsWith('cada')) return parseInt(freq.replace('cada', '')) || 7;
-  return 7;
-};
-
 const isPeriodicoHoje = (p) => {
-  if (p.frequencia === 'diario') return true;
-  if (p.frequencia?.startsWith('cada')) {
-    const interval = getFreqDias(p.frequencia);
-    const daysSinceEpoch = Math.floor(Date.now() / 86400000);
-    return daysSinceEpoch % interval === 0;
-  }
   if (p.diaSemana !== getDiaSemana()) return false;
   if (p.frequencia === 'semanal') return true;
   if (p.frequencia === 'quinzenal') return isSemanaPar();
@@ -225,7 +211,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           {racao && !racaoBloqueada && (
             <>
               <Chip cor="#3d6043">
-                {trato === 'manha' ? '🌅' : '🌇'} {fmtNum(kgTrato)} kg
+                {trato === 'manha' ? '🌅' : '🌇'} {fmtKg(kgTrato)} kg
               </Chip>
               <Chip cor="#1e4a6b">
                 {racao.nome}
@@ -237,10 +223,10 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               🚫 NÃO COMER RAÇÃO AGORA
             </Chip>
           )}
-          {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtNum(oleoTrato)} ml</Chip>}
+          {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtKg(oleoTrato)} ml</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">
-              {s.ins.nome} {fmtNum(s.qtdTrato)} {s.ins.unidade || 'un'}
+              {s.ins.nome} {fmtKg(s.qtdTrato)}x
             </Chip>
           ))}
           {periodicosHoje.map(p => {
