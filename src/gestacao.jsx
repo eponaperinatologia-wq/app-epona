@@ -533,16 +533,6 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso }) {
   const salvarMes = (mes, dados) => {
     const novoAcomp = { ...acomp, [mes]: dados };
     updateCavalo(c.id, { gestacao: { ...g, acompanhamento: novoAcomp } });
-    if (addAviso) addAviso({
-      texto: `Acompanhamento Gestacional realizado — ${c.nome} (${mes}º mês)`,
-      tipo: 'acompanhamento',
-      cavaloId: c.id,
-      urgente: false,
-      autor: 'Sistema',
-      avatar: '🐴',
-      tempo: '',
-      data_entrada: new Date().toISOString().split('T')[0],
-    });
   };
 
   const salvarSexagem = (sexagem) => {

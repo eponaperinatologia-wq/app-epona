@@ -1565,19 +1565,6 @@ Suplementos: ${supNomes}` : ''}`;
         texto: text,
         data, hora, mes,
       });
-      if (addAviso) {
-        addAviso({
-          id: 'nut_' + Date.now(),
-          autor,
-          avatar: '🍽️',
-          tempo: hora,
-          texto: `${c.nome} · ${racaoNome} — Manhã ${manha}kg + Tarde ${tarde}kg${comeAlmoco ? ` + Almoço ${almoco}kg` : ''}${parseFloat(oleoMlManha) > 0 || parseFloat(oleoMlTarde) > 0 ? `, óleo ${(parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0)}ml/dia` : ''}${supNomes ? `, suplementos: ${supNomes}` : ''}`,
-          urgente: false,
-          tipo: 'nutricao',
-          cavaloId: c.id,
-          data_entrada: data,
-        });
-      }
     }
 
     setSavedMessage(true);

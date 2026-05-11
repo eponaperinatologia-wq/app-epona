@@ -22,11 +22,6 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
       data_entrada: new Date().toLocaleDateString('sv-SE'),
       tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto: novo.trim(), urgente,
     });
-    addAtividade && addAtividade({
-      id: 'at' + Date.now(), tipo: 'aviso',
-      data: new Date().toLocaleDateString('sv-SE'), hora: new Date().toTimeString().slice(0, 5),
-      autor, texto: novo.trim(), urgente,
-    });
     setNovo(''); setUrgente(false);
   };
 

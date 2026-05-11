@@ -68,7 +68,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 
   if (showForm) {
     return (
-      <div style={{ paddingBottom: 20 }}>
+      <div style={{ paddingBottom: 90 }}>
         <TopBar
           title={editId ? 'Editar serviço' : 'Novo serviço'}
           onBack={() => setShowForm(false)}
@@ -189,7 +189,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
           </div>
         </div>
 
-        <div style={{ position: 'sticky', bottom: 0, padding: '12px 20px 28px', background: 'var(--bg)', borderTop: '1px solid var(--line)', display: 'flex', gap: 8 }}>
+        <div style={{ padding: '12px 20px 0', display: 'flex', gap: 8 }}>
           <button onClick={() => setShowForm(false)} style={{
             flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
             padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
