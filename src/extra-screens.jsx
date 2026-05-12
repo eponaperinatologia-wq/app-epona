@@ -11,6 +11,7 @@ const { useState: useStateE } = React;
 const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, resolverAviso, addResposta, currentUser }) => {
   const [novo, setNovo] = useStateE('');
   const [urgente, setUrgente] = useStateE(false);
+  const [replyTexts, setReplyTexts] = useStateE({});
 
   const enviar = () => {
     if (!novo.trim()) return;
@@ -188,11 +189,15 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
               {addResposta && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
                   <input
+                    value={replyTexts[a.id] || ''}
+                    onChange={e => setReplyTexts(prev => ({ ...prev, [a.id]: e.target.value }))}
                     placeholder="Responder…"
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
-                        addResposta(a.id, e.target.value);
-                        e.target.value = '';
+                        const txt = replyTexts[a.id] || '';
+                        if (!txt.trim()) return;
+                        addResposta(a.id, txt);
+                        setReplyTexts(prev => ({ ...prev, [a.id]: '' }));
                       }
                     }}
                     style={{
@@ -201,6 +206,20 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                       background: 'var(--bg)', color: 'var(--ink)', fontFamily: 'var(--sans)',
                     }}
                   />
+                  <button
+                    onClick={() => {
+                      const txt = replyTexts[a.id] || '';
+                      if (!txt.trim()) return;
+                      addResposta(a.id, txt);
+                      setReplyTexts(prev => ({ ...prev, [a.id]: '' }));
+                    }}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, border: 'none',
+                      background: 'var(--accent)', color: '#fff',
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      opacity: (replyTexts[a.id] || '').trim() ? 1 : 0.4,
+                    }}
+                  >Enviar</button>
                 </div>
               )}
             </div>

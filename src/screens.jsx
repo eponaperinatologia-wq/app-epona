@@ -80,6 +80,31 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
+const calcDosesPeriodico = (p, ref) => {
+  const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
+  const fimMes = new Date(ref.ano, ref.mes, 0);
+  const today = new Date(); today.setHours(23, 59, 59, 999);
+  const isCurrentMonth = today.getFullYear() === ref.ano && today.getMonth() + 1 === ref.mes;
+  const fimEfetivo = isCurrentMonth ? new Date(Math.min(today.getTime(), fimMes.getTime())) : fimMes;
+  const dataInicio = p.dataInicio ? new Date(p.dataInicio + 'T00:00:00') : inicioMes;
+  const effectiveStart = new Date(Math.max(dataInicio.getTime(), inicioMes.getTime()));
+  if (effectiveStart > fimEfetivo) return 0;
+  if (p.frequencia === 'diario') {
+    return Math.max(0, Math.floor((fimEfetivo - effectiveStart) / (1000 * 60 * 60 * 24)) + 1);
+  }
+  const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 :
+    p.frequencia?.startsWith('cada') ? (parseInt(p.frequencia.replace('cada', '')) || 7) : 7;
+  let cursor = new Date(effectiveStart);
+  if (p.frequencia === 'semanal' || p.frequencia === 'quinzenal') {
+    const targetDay = p.diaSemana != null ? p.diaSemana : cursor.getDay();
+    const offset = (targetDay - cursor.getDay() + 7) % 7;
+    cursor.setDate(cursor.getDate() + offset);
+  }
+  let doses = 0;
+  while (cursor <= fimEfetivo) { doses++; cursor.setDate(cursor.getDate() + freqDias); }
+  return doses;
+};
+
 const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
@@ -87,19 +112,19 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const linhas = [];
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
-    if (oleoIns) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias });
+    if (oleoIns) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins) continue;
-    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * dias });
+    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins) continue;
-    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
-    const qtdDia = p.qtd / freqDias;
-    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * dias });
+    const doses = calcDosesPeriodico(p, ref);
+    if (doses === 0) continue;
+    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtd: p.qtd, unidade: ins.unidade, valorUnit: ins.valorVenda, valorMes: ins.valorVenda * p.qtd * doses, tipoLinha: 'periodico', doses });
   }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
@@ -255,6 +280,10 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
     icon = 'wheat'; color = '#3d6043';
     title = `Nutrição · ${cav?.nome || ''}`;
     sub = a.texto || `Atualizado por ${a.usuario}`;
+  } else if (a.tipo === 'gestacao') {
+    icon = 'heart'; color = '#7c3aed';
+    title = a.texto || `Acompanhamento gestacional · ${cav?.nome || ''}`;
+    sub = `Por ${a.usuario}`;
   }
   return (
     <div style={{
@@ -267,7 +296,7 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.3 }}>{title}</div>
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
       </div>
       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1484,6 +1513,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [novoPerFreq, setNovoPerFreq] = useState('semanal');
   const [novoPerDia, setNovoPerDia] = useState(1);
   const [novoPerTurno, setNovoPerTurno] = useState('manha');
+  const [novoPerDataInicio, setNovoPerDataInicio] = useState('');
   const [showPerForm, setShowPerForm] = useState(false);
   const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const FREQ_OPTIONS = [
@@ -1520,9 +1550,11 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       frequencia: novoPerFreq,
       diaSemana: novoPerDia,
       turno: novoPerTurno,
+      dataInicio: novoPerDataInicio || '',
     }]);
     setNovoPerInsumoId('');
     setNovoPerQtd('');
+    setNovoPerDataInicio('');
     setShowPerForm(false);
   };
   const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
@@ -1640,7 +1672,7 @@ Suplementos: ${supNomes}` : ''}`;
                   return (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
                       <span style={{ flex: 1, color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
-                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label}{p.frequencia === 'diario' || p.frequencia?.startsWith('cada') ? '' : ` · ${DIAS_SEMANA[p.diaSemana]}`} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
+                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label}{p.frequencia === 'diario' || p.frequencia?.startsWith('cada') ? '' : ` · ${DIAS_SEMANA[p.diaSemana]}`} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}{p.dataInicio ? ` · desde ${p.dataInicio.split('-').reverse().join('/')}` : ' · início do mês'}</span>
                       <button onClick={() => handleRemovePeriodico(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, padding: 0 }}>×</button>
                     </div>
                   );
@@ -1691,12 +1723,17 @@ Suplementos: ${supNomes}` : ''}`;
                     {TURNO_OPTIONS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <label style={{ fontSize: 11, color: 'var(--ink-3)' }}>Data de início (opcional — sem data, cobra desde o início do mês)</label>
+                  <input type="date" value={novoPerDataInicio} onChange={e => setNovoPerDataInicio(e.target.value)}
+                    style={{ border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                </div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={handleAddPeriodico} disabled={!novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0} style={{
                     flex: 1, background: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'var(--ink-1)' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
                     padding: '8px', fontSize: 13, fontWeight: 600, cursor: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'not-allowed' : 'pointer', fontFamily: 'var(--sans)',
                   }}>Adicionar</button>
-                  <button onClick={() => setShowPerForm(false)} style={{
+                  <button onClick={() => { setShowPerForm(false); setNovoPerDataInicio(''); }} style={{
                     background: 'none', border: '1px solid var(--line)', borderRadius: 8,
                     padding: '8px 16px', fontSize: 13, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)',
                   }}>Cancelar</button>
@@ -3104,12 +3141,14 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             />
           ))}
 
-          {propPerfil.length > 0 && <SectionTitle>Óleo & suplementos · perfil × dias</SectionTitle>}
+          {propPerfil.length > 0 && <SectionTitle>Nutrição & periódicos</SectionTitle>}
           {propPerfil.flatMap(pp => pp.linhas.map(l => (
             <TableRow
               key={pp.cav.id + l.insumoId}
               left={`${l.nome} · ${pp.cav.nome}`}
-              sub={`${l.qtdDia} ${l.unidade}/dia × ${l.dias} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
+              sub={l.tipoLinha === 'periodico'
+                ? `${l.doses} dose${l.doses !== 1 ? 's' : ''} × ${l.qtd} ${l.unidade}/dose${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`
+                : `${l.qtdDia} ${l.unidade}/dia × ${l.diasUsados ?? pp.dias} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
               right={formatBRL((l.valorMes || 0) / pp.share)}
             />
           )))}

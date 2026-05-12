@@ -117,13 +117,13 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   }, [step, cavaloId, insumoId, qtd, search, catFilter]);
   const clearRegCavalo = () => sessionStorage.removeItem(REG_CAVALO_KEY);
 
-  const cav = cavaloId && getCavalo(cavaloId);
+  const cav = cavaloId && ((cavalos || CAVALOS).find(c => c.id === cavaloId));
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
 
   const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
   const cavalosFiltrados = cavalosDisponiveis.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    c.baia.toLowerCase().includes(search.toLowerCase())
+    (c.nome || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.baia || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
@@ -550,7 +550,8 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
     });
     const next = new Set(confirmados); next.add(cid);
     setConfirmados(next);
-    setToast(`${getCavalo(cid).nome} ✓`);
+    const cavNome = ((cavalos || CAVALOS).find(x => x.id === cid))?.nome || '?';
+    setToast(`${cavNome} ✓`);
     setTimeout(() => setToast(null), 800);
   };
 
@@ -608,7 +609,7 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
           Toque para registrar 1× {ins.nome}
         </div>
         {setor.cavalos.map(cid => {
-          const c = getCavalo(cid);
+          const c = (cavalos || CAVALOS).find(x => x.id === cid) || getCavalo(cid);
           const done = confirmados.has(cid);
           return (
             <button key={cid} onClick={() => registrarRapido(cid)} disabled={done} style={{

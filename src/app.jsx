@@ -35,6 +35,7 @@ import {
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
   partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP,
 } from './utils/db';
+import { subscribeToPush, sendPush } from './utils/push';
 
 const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
@@ -147,6 +148,7 @@ const loadAllData = async () => {
         await loadAllData();
         if (parsedUser) {
           setCurrentUser(parsedUser);
+          subscribeToPush(parsedUser.login || parsedUser.nome, parsedUser.role);
           const savedSession = sessionStorage.getItem('epona_session');
           if (savedSession) {
             try {
@@ -186,9 +188,12 @@ const loadAllData = async () => {
     } catch (e) {}
   }, [screen, tab, fluxo, selected, currentUser]);
 
-  // ── Avisos periódicos ────────────────────────────────────
+  // ── Avisos periódicos + maternidade ──────────────────────
   useEffect(() => {
-    if (currentUser && cavalos.length > 0) gerarAvisosPeriodicos();
+    if (currentUser && cavalos.length > 0) {
+      gerarAvisosPeriodicos();
+      gerarAvisosMaternidade();
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
@@ -197,6 +202,7 @@ const loadAllData = async () => {
     setCurrentUser(user);
     localStorage.setItem('epona_user', JSON.stringify(user));
     await loadAllData();
+    subscribeToPush(user.login || user.nome, user.role);
     if (user.role === 'operacional') {
       setScreen('avisos'); setTab('avisos');
     } else {
@@ -352,6 +358,9 @@ const loadAllData = async () => {
     const novoAviso = { id: 'av_' + Date.now(), resolvido: false, respostas: [], ...a };
     setAvisos(prev => [novoAviso, ...prev]);
     dbInsert('avisos', toDbAviso(novoAviso));
+    if (novoAviso.urgente) {
+      sendPush('⚠️ Aviso urgente', novoAviso.texto, 'all');
+    }
   };
   const removeAviso = (id) => {
     setAvisos(prev => prev.filter(a => a.id !== id));
@@ -407,6 +416,33 @@ const loadAllData = async () => {
       }
     }
   };
+  const gerarAvisosMaternidade = () => {
+    const hoje = new Date().toISOString().split('T')[0];
+    for (const c of cavalos) {
+      if (!c.gestacao?.dataCobricao) continue;
+      const dataCobricao = new Date(c.gestacao.dataCobricao + 'T00:00:00');
+      const diasDeGestacao = Math.floor((Date.now() - dataCobricao.getTime()) / (1000 * 60 * 60 * 24));
+      if (diasDeGestacao < 300) continue;
+      const jaExiste = avisos.some(a => a.tipo === 'maternidade' && a.cavaloId === c.id && !a.resolvido);
+      if (jaExiste) continue;
+      const texto = `A égua ${c.nome} completou ${diasDeGestacao} dias de gestação e deve ser transferida para o piquete maternidade.`;
+      const novoAviso = {
+        id: 'av_mat_' + c.id + '_' + hoje,
+        autor: 'Sistema', avatar: '🏥',
+        tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        texto, urgente: true, resolvido: false, resolvidoPor: '',
+        tipo: 'maternidade', cavaloId: c.id,
+        data_entrada: hoje, respostas: [],
+      };
+      setAvisos(prev => {
+        if (prev.some(a => a.id === novoAviso.id)) return prev;
+        dbInsert('avisos', toDbAviso(novoAviso));
+        sendPush('🏥 Alerta maternidade', texto, 'all');
+        return [novoAviso, ...prev];
+      });
+    }
+  };
+
   const resolverAviso = (id) => {
     const nome = currentUser?.nome || 'Usuário';
     setAvisos(prev => prev.map(a => a.id === id ? { ...a, urgente: false, resolvido: true, resolvidoPor: nome } : a));
@@ -417,12 +453,13 @@ const loadAllData = async () => {
     const autor = currentUser?.nome || 'Usuário';
     const avatar = currentUser?.iniciais || 'US';
     const reply = { autor, avatar, texto: texto.trim(), tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) };
-    setAvisos(prev => prev.map(a => a.id === avisoId ? { ...a, respostas: [...(a.respostas || []), reply] } : a));
-    const aviso = avisos.find(a => a.id === avisoId);
-    if (aviso) {
+    setAvisos(prev => {
+      const aviso = prev.find(a => a.id === avisoId);
+      if (!aviso) return prev;
       const novasRespostas = [...(aviso.respostas || []), reply];
       dbUpdate('avisos', avisoId, { respostas: novasRespostas });
-    }
+      return prev.map(a => a.id === avisoId ? { ...a, respostas: novasRespostas } : a);
+    });
   };
   const removeFaturaFechada = (id) => {
     setFaturasFechadas(prev => prev.filter(f => f.id !== id));
@@ -434,6 +471,7 @@ const loadAllData = async () => {
     const nova = { ...c, id: c.id || 'c_' + Date.now() };
     setCompras(prev => [nova, ...prev]);
     dbInsert('lista_compras', toDbListaCompra(nova));
+    sendPush('🛒 Lista de compras', `${nova.nome}${nova.quantidade ? ' · ' + nova.quantidade : ''} adicionado`, 'admin');
   };
   const deleteCompra = (id) => {
     setCompras(prev => prev.filter(c => c.id !== id));
@@ -581,10 +619,10 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
-  else if (screen === 'partos') content = <GestacaoPartosScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} />;
+  else if (screen === 'partos') content = <GestacaoPartosScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} />;
-  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} />;
+  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
   else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;
