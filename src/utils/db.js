@@ -242,22 +242,27 @@ export async function fetchAll(table, mapper) {
   return mapper ? (data || []).map(mapper) : (data || []);
 }
 
+const notifyDbError = (op, table, msg) => {
+  console.error(`${op} ${table}:`, msg);
+  window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg } }));
+};
+
 export const dbInsert = (table, row) =>
   supabase.from(table).insert([row]).then(({ error }) => {
-    if (error) console.error(`insert ${table}:`, error.message);
+    if (error) notifyDbError('insert', table, error.message);
   });
 
 export const dbUpdate = (table, id, changes) =>
   supabase.from(table).update(changes).eq('id', id).then(({ error }) => {
-    if (error) console.error(`update ${table}:`, error.message);
+    if (error) notifyDbError('update', table, error.message);
   });
 
 export const dbDelete = (table, id) =>
   supabase.from(table).delete().eq('id', id).then(({ error }) => {
-    if (error) console.error(`delete ${table}:`, error.message);
+    if (error) notifyDbError('delete', table, error.message);
   });
 
 export const dbUpsert = (table, row) =>
   supabase.from(table).upsert([row]).then(({ error }) => {
-    if (error) console.error(`upsert ${table}:`, error.message);
+    if (error) notifyDbError('upsert', table, error.message);
   });

@@ -71,6 +71,16 @@ function AppEpona() {
   const [pendingEntradaCavalo, setPendingEntradaCavalo] = useState(false);
   const [fluxo, setFluxo] = useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
+  const [dbErrorMsg, setDbErrorMsg] = useState(null);
+
+  React.useEffect(() => {
+    const handler = (e) => {
+      setDbErrorMsg(`Erro ao salvar (${e.detail.table}): ${e.detail.msg}`);
+      setTimeout(() => setDbErrorMsg(null), 6000);
+    };
+    window.addEventListener('db-error', handler);
+    return () => window.removeEventListener('db-error', handler);
+  }, []);
 
  // ── Carregamento inicial ──────────────────────────────────────
 const loadAllData = async () => {
@@ -632,6 +642,16 @@ const loadAllData = async () => {
           </div>
           {showMainTabs && <TabBar tab={tab} setTab={setTab} role={currentUser?.role} />}
           {showOperacionalTabs && <OperacionalTabBar tab={tab} setTab={setTab} />}
+          {dbErrorMsg && (
+            <div style={{
+              position: 'absolute', bottom: 80, left: 12, right: 12, zIndex: 999,
+              background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 12,
+              padding: '12px 14px', fontSize: 13, color: '#991b1b',
+              boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            }}>
+              ⚠️ {dbErrorMsg}
+            </div>
+          )}
       </div>
 
       <TweaksPanel title="Tweaks">
