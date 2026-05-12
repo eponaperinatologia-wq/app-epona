@@ -1546,7 +1546,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
     const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
     const categoriasArr = Array.from(categorias);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade) || 0, obs, sexo, pelagem, dataEntrada: dataEntrada || '', proprietarioId: selectedProprietarios[0] || c.proprietarioId || null, proprietarioIds: selectedProprietarios || [], categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = insumosBase.find(i => i.id === racaoId)?.nome || racaoId;
