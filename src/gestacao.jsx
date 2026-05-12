@@ -590,9 +590,11 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   const g = c.gestacao || {};
   const acomp = g.acompanhamento || {};
 
-  const salvarMes = (mes, dados) => {
+  const salvarMes = (mes, dados, sexagem) => {
     const novoAcomp = { ...acomp, [mes]: dados };
-    updateCavalo(c.id, { gestacao: { ...g, acompanhamento: novoAcomp } });
+    const novaGestacao = { ...g, acompanhamento: novoAcomp };
+    if (mes === 4 && sexagem !== undefined) novaGestacao.sexagem = sexagem;
+    updateCavalo(c.id, { gestacao: novaGestacao });
     if (addAtividade) {
       const agora = new Date();
       const hora = agora.toTimeString().slice(0, 5);
@@ -606,10 +608,6 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
         data, hora, mes: mesRef,
       });
     }
-  };
-
-  const salvarSexagem = (sexagem) => {
-    updateCavalo(c.id, { gestacao: { ...g, sexagem } });
   };
 
   const temDados = (mes) => {
@@ -634,15 +632,14 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
           expandido={expandido === mes}
           temDados={temDados(mes)}
           onToggle={() => setExpandido(expandido === mes ? null : mes)}
-          onSalvar={dados => salvarMes(mes, dados)}
-          onSalvarSexagem={salvarSexagem}
+          onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
         />
       ))}
     </div>
   );
 }
 
-function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar, onSalvarSexagem }) {
+function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar }) {
   const [form, setForm] = useState({ ...ACOMP_VAZIO, ...dados });
   const [sexagem, setSexagem] = useState(sexagemAtual);
   const [saved, setSaved] = useState(false);
@@ -650,8 +647,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   const is4 = mes === 4;
 
   const handleSalvar = () => {
-    onSalvar(form);
-    if (is4) onSalvarSexagem(sexagem);
+    onSalvar(form, is4 ? sexagem : undefined);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
