@@ -336,9 +336,13 @@ const loadAllData = async () => {
     dbInsert('cavalos', toDbCavalo(newCavalo));
     return newId;
   };
-  const updateCavalo = (id, partialData) => {
+  const updateCavalo = async (id, partialData) => {
     setCavalos(prev => prev.map(c => c.id === id ? { ...c, ...partialData } : c));
-    dbUpdate('cavalos', id, partialToDb(partialData, CAVALO_MAP));
+    const ok = await dbUpdate('cavalos', id, partialToDb(partialData, CAVALO_MAP));
+    if (!ok) {
+      const { data } = await supabase.from('cavalos').select('*').eq('id', id).single();
+      if (data) setCavalos(prev => prev.map(c => c.id === id ? fromDbCavalo(data) : c));
+    }
   };
   const deleteCavalo = (id) => {
     setCavalos(prev => prev.filter(c => c.id !== id));

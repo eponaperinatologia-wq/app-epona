@@ -274,22 +274,27 @@ const notifyDbError = (op, table, msg) => {
   window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg } }));
 };
 
-export const dbInsert = (table, row) =>
-  supabase.from(table).insert([row]).then(({ error }) => {
-    if (error) notifyDbError('insert', table, error.message);
-  });
+export const dbInsert = async (table, row) => {
+  const { error } = await supabase.from(table).insert([row]);
+  if (error) { notifyDbError('insert', table, error.message); return false; }
+  return true;
+};
 
-export const dbUpdate = (table, id, changes) =>
-  supabase.from(table).update(changes).eq('id', id).then(({ error }) => {
-    if (error) notifyDbError('update', table, error.message);
-  });
+export const dbUpdate = async (table, id, changes) => {
+  const { error, count } = await supabase.from(table).update(changes, { count: 'exact' }).eq('id', id);
+  if (error) { notifyDbError('update', table, error.message); return false; }
+  if (count === 0) { notifyDbError('update', table, `Nenhum registro encontrado (id=${id}). Dados não salvos.`); return false; }
+  return true;
+};
 
-export const dbDelete = (table, id) =>
-  supabase.from(table).delete().eq('id', id).then(({ error }) => {
-    if (error) notifyDbError('delete', table, error.message);
-  });
+export const dbDelete = async (table, id) => {
+  const { error } = await supabase.from(table).delete().eq('id', id);
+  if (error) { notifyDbError('delete', table, error.message); return false; }
+  return true;
+};
 
-export const dbUpsert = (table, row) =>
-  supabase.from(table).upsert([row]).then(({ error }) => {
-    if (error) notifyDbError('upsert', table, error.message);
-  });
+export const dbUpsert = async (table, row) => {
+  const { error } = await supabase.from(table).upsert([row]);
+  if (error) { notifyDbError('upsert', table, error.message); return false; }
+  return true;
+};
