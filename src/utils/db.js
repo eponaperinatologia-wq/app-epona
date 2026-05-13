@@ -281,9 +281,8 @@ export const dbInsert = async (table, row) => {
 };
 
 export const dbUpdate = async (table, id, changes) => {
-  const { error, count } = await supabase.from(table).update(changes, { count: 'exact' }).eq('id', id);
+  const { error } = await supabase.from(table).update(changes).eq('id', id);
   if (error) { notifyDbError('update', table, error.message); return false; }
-  if (count === 0) { notifyDbError('update', table, `Nenhum registro encontrado (id=${id}). Dados não salvos.`); return false; }
   return true;
 };
 
