@@ -654,7 +654,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
           </div>
         </div>
 
-        <div style={{ position: 'fixed', bottom: 24, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
+        <div style={{ position: 'fixed', bottom: 90, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
           <button onClick={() => setStep('servico')} style={{
             flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
             padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
@@ -959,7 +959,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
         </div>
       </div>
 
-      <div style={{ position: 'fixed', bottom: 24, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
+      <div style={{ position: 'fixed', bottom: 90, left: 20, right: 20, display: 'flex', gap: 8, zIndex: 10 }}>
         <button onClick={() => setScreen('home')} style={{
           flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',

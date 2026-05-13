@@ -245,7 +245,12 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
         gestacao: null,
         historicoGestacional: [
           ...(egua.historicoGestacional || []),
-          { dataCobricao: g.dataCobricao || null, dataPrevisao, pai: g.pai || '', sexagem: g.sexagem || null, dataParto: data, potroId },
+          {
+            dataCobricao: g.dataCobricao || null, dataPrevisao,
+            pai: g.pai || '', sexagem: g.sexagem || null,
+            dataParto: data, potroId,
+            gestacaoCompleta: egua.gestacao || {},
+          },
         ],
       });
     }
@@ -358,14 +363,23 @@ export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteP
   const update = (field, value) => updateParto(pt.id, { [field]: value });
 
   const handleDesfazer = () => {
-    // Restaura a égua para Gestante com os dados originais da gestação
     if (egua) {
-      const hist = (egua.historicoGestacional || []).find(h => h.potroId === pt.potroId);
-      const novoHist = (egua.historicoGestacional || []).filter(h => h.potroId !== pt.potroId);
+      const histAll = egua.historicoGestacional || [];
+      // Tenta encontrar pelo potroId, depois pelo dataParto, depois pega o último
+      const hist = histAll.find(h => h.potroId === pt.potroId)
+        || histAll.find(h => h.dataParto === pt.data)
+        || histAll[histAll.length - 1];
+      const novoHist = hist ? histAll.filter(h => h !== hist) : histAll;
+
+      // Restaura gestacao completa (com acompanhamento) se disponível, senão reconstrói do básico
+      const gestacaoRestaurada = hist?.gestacaoCompleta
+        || (hist ? { dataCobricao: hist.dataCobricao || '', pai: hist.pai || '', sexagem: hist.sexagem || null } : {});
+
+      const categoriasAtuais = (egua.categorias || []).filter(c => c !== 'Matriz' && c !== 'Gestante');
       updateCavalo(egua.id, {
         categoria: 'Gestante',
-        categorias: [...((egua.categorias || []).filter(c => c !== 'Matriz')), 'Gestante'],
-        gestacao: hist ? { dataCobricao: hist.dataCobricao || '', pai: hist.pai || '', sexagem: hist.sexagem || null } : {},
+        categorias: [...categoriasAtuais, 'Gestante'],
+        gestacao: gestacaoRestaurada,
         historicoGestacional: novoHist,
       });
     }
