@@ -399,11 +399,21 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       hora, data,
     });
     if (addAtividade) {
-      const nExames = examesSelecionados.length;
+      const linhasTexto = [
+        `${cav.nome} · ${sv.nome}`,
+        sv.categoria === 'exames' && laboratorio ? `Laboratório: ${laboratorio}` : null,
+        sv.categoria === 'exames' && examesSelecionados.length
+          ? `Exames:\n${examesSelecionados.map(e => `  • ${e.nome}`).join('\n')}`
+          : null,
+        insumosAdicionais.length
+          ? `Insumos: ${insumosAdicionais.map(a => { const ins = insumos.find(i => i.id === a.insumoId); return `${ins?.nome || a.insumoId} ×${a.qtd}`; }).join(', ')}`
+          : null,
+        motoboy && motoboyValor ? `Motoboy: ${motoboyNome || '—'} (R$ ${parseFloat(motoboyValor).toFixed(2).replace('.', ',')})` : null,
+        `Total: R$ ${calcTotal().toFixed(2).replace('.', ',')}`,
+      ].filter(Boolean).join('\n');
       addAtividade({
         id: 'at_' + Date.now(), tipo: 'procedimento',
-        cavaloId,
-        texto: `${cav.nome} · ${sv.nome}${sv.categoria === 'exames' && nExames ? ` (${nExames} exame${nExames > 1 ? 's' : ''})` : ''}`,
+        cavaloId, texto: linhasTexto,
         data, hora, mes,
       });
     }

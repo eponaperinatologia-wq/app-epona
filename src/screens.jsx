@@ -284,20 +284,25 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
     icon = 'heart'; color = '#7c3aed';
     title = a.texto || `Acompanhamento gestacional · ${cav?.nome || ''}`;
     sub = `Por ${a.usuario}`;
+  } else if (a.tipo === 'procedimento') {
+    icon = 'stethoscope'; color = '#0369a1';
+    const linhas = (a.texto || '').split('\n');
+    title = linhas[0] || 'Procedimento';
+    sub = linhas.slice(1).join('\n');
   }
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+      display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
       borderTop: first ? 'none' : '1px solid var(--line)',
     }}>
       {cav ? <HorseAvatar cavalo={cav} size={36} /> : (
-        <div style={{ width: 36, height: 36, borderRadius: 36, background: color + '20', color, display: 'grid', placeItems: 'center' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 36, background: color + '20', color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon name={icon} size={18} />
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.3 }}>{title}</div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{sub}</div>
       </div>
       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
         <div>

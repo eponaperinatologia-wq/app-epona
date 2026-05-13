@@ -43,17 +43,22 @@ export const fromDbRegistro = r => ({
   isAuto: !!r.is_auto, data: r.data,
 });
 
-export const fromDbProcedimento = r => ({
-  id: r.id, cavaloId: r.cavalo_id, servicoId: r.servico_id,
-  valorServico: Number(r.valor_servico) || 0,
-  descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
-  insumosAdicionais: r.insumos_adicionais || [],
-  motoboy: (r.dados_extras?.motoboy) || { ativo: false, valor: 0, nome: '' },
-  laboratorio: r.dados_extras?.laboratorio || '',
-  tubosSelecionados: r.dados_extras?.tubosSelecionados || [],
-  examesSelecionados: r.dados_extras?.examesSelecionados || [],
-  total: Number(r.total) || 0, hora: r.hora || '', nota: r.nota || '', data: r.data,
-});
+export const fromDbProcedimento = r => {
+  const extras = r.dados_extras || {};
+  const isExamesLab = !r.servico_id && (extras.examesSelecionados?.length > 0 || extras.laboratorio);
+  return {
+    id: r.id, cavaloId: r.cavalo_id,
+    servicoId: r.servico_id || (isExamesLab ? '__exames_lab__' : null),
+    valorServico: Number(r.valor_servico) || 0,
+    descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
+    insumosAdicionais: r.insumos_adicionais || [],
+    motoboy: extras.motoboy || { ativo: false, valor: 0, nome: '' },
+    laboratorio: extras.laboratorio || '',
+    tubosSelecionados: extras.tubosSelecionados || [],
+    examesSelecionados: extras.examesSelecionados || [],
+    total: Number(r.total) || 0, hora: r.hora || '', nota: r.nota || '', data: r.data,
+  };
+};
 
 export const fromDbParto = r => ({
   id: r.id, eguaId: r.egua_id, potroId: r.potro_id, data: r.data || '',
@@ -152,7 +157,8 @@ export const toDbRegistro = r => ({
 });
 
 export const toDbProcedimento = p => ({
-  id: p.id, cavalo_id: p.cavaloId, servico_id: p.servicoId,
+  id: p.id, cavalo_id: p.cavaloId,
+  servico_id: (p.servicoId === '__exames_lab__' || !p.servicoId) ? null : p.servicoId,
   valor_servico: p.valorServico || 0,
   descartaveis_obrigatorios: p.descartaveisObrigatorios || [],
   insumos_adicionais: p.insumosAdicionais || [],
