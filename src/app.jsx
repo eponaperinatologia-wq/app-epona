@@ -329,8 +329,19 @@ const loadAllData = async () => {
     return newId;
   };
   const updateParto = (id, data) => {
-    setPartos(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
-    dbUpdate('partos', id, partialToDb(data, PARTO_MAP));
+    setPartos(prev => {
+      const next = prev.map(p => {
+        if (p.id !== id) return p;
+        const merged = { ...p, ...data };
+        dbUpdate('partos', id, toDbParto(merged));
+        return merged;
+      });
+      return next;
+    });
+  };
+  const deleteParto = (id) => {
+    setPartos(prev => prev.filter(p => p.id !== id));
+    dbDelete('partos', id);
   };
 
   // ── Serviços e Procedimentos ──────────────────────────────────
@@ -621,7 +632,7 @@ const loadAllData = async () => {
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
   else if (screen === 'partos') content = <GestacaoPartosScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} />;
-  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} />;
+  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
   else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} />;
   else if (screen === 'registrar') {

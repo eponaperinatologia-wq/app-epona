@@ -61,6 +61,8 @@ export const fromDbParto = r => ({
   pesoPotro: r.peso_potro, mamouColostro: !!r.mamou_colostro,
   horaPrimeiroLeite: r.hora_primeiro_leite || '', status: r.status || 'normal',
   obs: r.obs || '', insumosParto: r.insumos_parto || [],
+  // Todos os campos neonatais ficam no JSONB dados_neonatal
+  ...(r.dados_neonatal || {}),
 });
 
 export const fromDbMovimentacao = r => ({
@@ -164,6 +166,20 @@ export const toDbParto = p => ({
   peso_potro: p.pesoPotro || null, mamou_colostro: !!p.mamouColostro,
   hora_primeiro_leite: p.horaPrimeiroLeite || '', status: p.status || 'normal',
   obs: p.obs || '', insumos_parto: p.insumosParto || [],
+  dados_neonatal: {
+    hora: p.hora || '',
+    posicaoEsternal: p.posicaoEsternal ?? null, horaPosicaoEsternal: p.horaPosicaoEsternal || '',
+    reflexoSucao: p.reflexoSucao ?? null,       horaReflexoSucao: p.horaReflexoSucao || '',
+    levantou: p.levantou ?? null,               horaLevantou: p.horaLevantou || '',
+    mamou: p.mamou ?? null,                     horaMamou: p.horaMamou || '',
+    liberouMeconio: p.liberouMeconio ?? null,   horaLiberouMeconio: p.horaLiberouMeconio || '',
+    transicaoFezes: p.transicaoFezes ?? null,   horaTransicaoFezes: p.horaTransicaoFezes || '',
+    urinou: p.urinou ?? null,                   horaUrinou: p.horaUrinou || '',
+    altura: p.altura || '', peso: p.peso || '',
+    obsAprumo: p.obsAprumo || '', obsGerais: p.obsGerais || '',
+    insumosUsados: p.insumosUsados || [],
+    proprietarioId: p.proprietarioId || null,
+  },
 });
 
 export const toDbMovimentacao = m => ({
