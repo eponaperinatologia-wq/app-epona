@@ -180,6 +180,58 @@ const loadAllData = async () => {
     initializeApp();
   }, []);
 
+  // ── Realtime sync entre logins ────────────────────────────
+  useEffect(() => {
+    const ch = supabase.channel('epona-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'cavalos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setCavalos(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbCavalo(n)]);
+        if (et === 'UPDATE') setCavalos(prev => prev.map(c => c.id === n.id ? fromDbCavalo(n) : c));
+        if (et === 'DELETE') setCavalos(prev => prev.filter(c => c.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'procedimentos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setProcedimentos(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbProcedimento(n)]);
+        if (et === 'UPDATE') setProcedimentos(prev => prev.map(p => p.id === n.id ? fromDbProcedimento(n) : p));
+        if (et === 'DELETE') setProcedimentos(prev => prev.filter(p => p.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'atividades' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setAtividades(prev => prev.some(a => a.id === n.id) ? prev : [...prev, fromDbAtividade(n)]);
+        if (et === 'UPDATE') setAtividades(prev => prev.map(a => a.id === n.id ? fromDbAtividade(n) : a));
+        if (et === 'DELETE') setAtividades(prev => prev.filter(a => a.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'registros' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setRegistros(prev => prev.some(r => r.id === n.id) ? prev : [...prev, fromDbRegistro(n)]);
+        if (et === 'UPDATE') setRegistros(prev => prev.map(r => r.id === n.id ? fromDbRegistro(n) : r));
+        if (et === 'DELETE') setRegistros(prev => prev.filter(r => r.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'avisos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setAvisos(prev => prev.some(a => a.id === n.id) ? prev : [fromDbAviso(n), ...prev]);
+        if (et === 'UPDATE') setAvisos(prev => prev.map(a => a.id === n.id ? fromDbAviso(n) : a));
+        if (et === 'DELETE') setAvisos(prev => prev.filter(a => a.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setPartos(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbParto(n)]);
+        if (et === 'UPDATE') setPartos(prev => prev.map(p => p.id === n.id ? fromDbParto(n) : p));
+        if (et === 'DELETE') setPartos(prev => prev.filter(p => p.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'movimentacoes' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setMovimentacoes(prev => prev.some(m => m.id === n.id) ? prev : [...prev, fromDbMovimentacao(n)]);
+        if (et === 'UPDATE') setMovimentacoes(prev => prev.map(m => m.id === n.id ? fromDbMovimentacao(n) : m));
+        if (et === 'DELETE') setMovimentacoes(prev => prev.filter(m => m.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lista_compras' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setCompras(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbListaCompra(n)]);
+        if (et === 'UPDATE') setCompras(prev => prev.map(c => c.id === n.id ? fromDbListaCompra(n) : c));
+        if (et === 'DELETE') setCompras(prev => prev.filter(c => c.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'faturas_fechadas' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setFaturasFechadas(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaFechada(n)]);
+        if (et === 'UPDATE') setFaturasFechadas(prev => prev.map(f => f.id === n.id ? fromDbFaturaFechada(n) : f));
+        if (et === 'DELETE') setFaturasFechadas(prev => prev.filter(f => f.id !== o.id));
+      })
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, []);
+
   // ── Session persistence ──────────────────────────────────
   useEffect(() => {
     if (!currentUser) return;

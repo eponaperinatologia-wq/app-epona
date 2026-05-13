@@ -238,10 +238,10 @@ export const fromDbAtividade = r => ({
 
 export const toDbAtividade = a => ({
   id: a.id, tipo: a.tipo,
-  cavalo_id: a.cavaloId, insumo_id: a.insumoId,
-  qtd: a.qtd, motivo: a.motivo || '', usuario: a.usuario || '',
+  cavalo_id: a.cavaloId || null, insumo_id: a.insumoId || null,
+  qtd: a.qtd ?? null, motivo: a.motivo || '', usuario: a.usuario || '',
   autor: a.autor || '', texto: a.texto || '',
-  mes: a.mes, data: a.data, hora: a.hora || '',
+  mes: a.mes || null, data: a.data || null, hora: a.hora || '',
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
