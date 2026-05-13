@@ -300,7 +300,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 const EXAMES_LAB_ID = '__exames_lab__';
 const SV_EXAMES = { id: EXAMES_LAB_ID, nome: 'Exames Laboratoriais', categoria: 'exames', valor: 0, descartaveisObrigatorios: [] };
 
-const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento }) => {
+const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento, addAtividade }) => {
   const [step, setStep] = useState('cavalo'); // cavalo → servico → exames → confirmar
   const [cavaloId, setCavaloId] = useState(null);
   const [servicoId, setServicoId] = useState(null);
@@ -382,7 +382,10 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   };
 
   const confirmar = () => {
-    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const hoje = new Date();
+    const hora = hoje.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const data = hoje.toLocaleDateString('sv-SE');
+    const mes = data.slice(0, 7);
     addProcedimento({
       cavaloId, servicoId,
       valorServico: sv.categoria === 'exames' ? 0 : sv.valor,
@@ -393,8 +396,17 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       tubosSelecionados: [],
       examesSelecionados: sv?.categoria === 'exames' ? examesSelecionados : [],
       total: calcTotal(),
-      hora,
+      hora, data,
     });
+    if (addAtividade) {
+      const nExames = examesSelecionados.length;
+      addAtividade({
+        id: 'at_' + Date.now(), tipo: 'procedimento',
+        cavaloId,
+        texto: `${cav.nome} · ${sv.nome}${sv.categoria === 'exames' && nExames ? ` (${nExames} exame${nExames > 1 ? 's' : ''})` : ''}`,
+        data, hora, mes,
+      });
+    }
     setToast(`${cav.nome} · ${sv.nome} registrado`);
     setTimeout(() => setScreen('home'), 1400);
   };

@@ -2815,7 +2815,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
 // ─────────────────────────────────────────────────────────────
 // FATURAS · Lista
 // ─────────────────────────────────────────────────────────────
-const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [] }) => {
+const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [] }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   const findInsumo = (id) => insumos.find(i => i.id === id);
@@ -2827,10 +2827,13 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
   const faturas = proprietarios.map(p => {
     const ff = getFaturaFechada(p.id);
     const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
-    if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
+    const cavIds = new Set(cavalosObj.map(c => c.id));
+    if (ff) {
+      const ffProcTotal = (ff.linhas || []).filter(l => l.tipo === 'procedimento').reduce((s, l) => s + (l.valor || 0), 0);
+      return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, procedimentos: ffProcTotal, cavalosObj, fechada: true };
+    }
     const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
     const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
-    const cavIds = new Set(cavalosObj.map(c => c.id));
     const myReg = registros.filter(r => {
       if (!cavIds.has(r.cavaloId)) return false;
       if (!r.data) return true;
@@ -2842,7 +2845,17 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
       const cav = cavalos.find(c => c.id === r.cavaloId);
       return s + ((i?.valorVenda ?? 0) * r.qtd) / shareCount(cav || {});
     }, 0);
-    return { ...p, total: mensalidades + perfilTotal + insumosTotal, mensalidades, perfil: perfilTotal, insumos: insumosTotal, cavalosObj, fechada: false };
+    const myProcs = procedimentos.filter(pr => {
+      if (!cavIds.has(pr.cavaloId)) return false;
+      if (!pr.data) return false;
+      const d = new Date(pr.data);
+      return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+    });
+    const procedimentosTotal = myProcs.reduce((s, pr) => {
+      const cav = cavalos.find(c => c.id === pr.cavaloId);
+      return s + pr.total / shareCount(cav || {});
+    }, 0);
+    return { ...p, total: mensalidades + perfilTotal + insumosTotal + procedimentosTotal, mensalidades, perfil: perfilTotal, insumos: insumosTotal, procedimentos: procedimentosTotal, cavalosObj, fechada: false };
   });
 
   const navMes = (delta) => {
@@ -2902,7 +2915,7 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{f.nome}</div>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                {f.cavalosObj.length} cavalo{f.cavalosObj.length !== 1 ? 's' : ''} · {f.fechada ? 'Fatura fechada ✓' : `mens. ${formatBRL(f.mensalidades)} + perfil ${formatBRL(f.perfil)} + ins. ${formatBRL(f.insumos)}`}
+                {f.cavalosObj.length} cavalo{f.cavalosObj.length !== 1 ? 's' : ''} · {f.fechada ? 'Fatura fechada ✓' : `mens. ${formatBRL(f.mensalidades)} + perfil ${formatBRL(f.perfil)} + ins. ${formatBRL(f.insumos)}${f.procedimentos > 0 ? ` + proc. ${formatBRL(f.procedimentos)}` : ''}`}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -3008,7 +3021,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser }) => {
+const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [] }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const empresa = getEmpresa();
 
@@ -3042,7 +3055,21 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
   });
   const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
-  const total = mensTotal + perfilTotal + insumosTotal;
+
+  const procLinhas = procedimentos.filter(pr => {
+    if (!cavIds.has(pr.cavaloId)) return false;
+    if (!pr.data) return false;
+    const d = new Date(pr.data);
+    return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+  }).map(pr => {
+    const cav = cavalos.find(c => c.id === pr.cavaloId);
+    const sv = servicos.find(s => s.id === pr.servicoId);
+    const share = shareCount(cav || {});
+    return { proc: pr, cav, sv, share, total: pr.total / share };
+  });
+  const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
+
+  const total = mensTotal + perfilTotal + insumosTotal + procedimentosTotal;
 
   const mesNome = MESES[ref.mes - 1];
   const mesAno = `${String(ref.mes).padStart(2, '0')} / ${ref.ano}`;
@@ -3058,11 +3085,13 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
         return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor };
       })),
       ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total })),
+      ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.sv?.nome || 'Procedimento', hora: l.proc.hora, data: l.proc.data, valor: l.total })),
     ];
     addFaturaFechada({
       id: `ff_${id}_${ref.ano}_${ref.mes}`,
       proprietarioId: id, ano: ref.ano, mes: ref.mes,
       total, mensalidades: mensTotal, perfilNutricional: perfilTotal, insumosAvulsos: insumosTotal,
+      procedimentosAvulsos: procedimentosTotal,
       linhas, fechadaPor: currentUser?.nome || '',
     });
   };
@@ -3079,6 +3108,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     `Mensalidades: ${BRL(mensTotal)}`,
     perfilTotal > 0 ? `Óleo & suplementos: ${BRL(perfilTotal)}` : null,
     `Insumos avulsos: ${BRL(insumosTotal)}`,
+    procedimentosTotal > 0 ? `Procedimentos: ${BRL(procedimentosTotal)}` : null,
     `*Total: ${BRL(total)}*`,
   ].filter(l => l !== null).join('\n');
 
@@ -3168,6 +3198,16 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             />
           ))}
 
+          {procLinhas.length > 0 && <SectionTitle>Procedimentos veterinários</SectionTitle>}
+          {procLinhas.map(l => (
+            <TableRow
+              key={l.proc.id}
+              left={l.sv?.nome || 'Procedimento'}
+              sub={`${l.cav?.nome || '—'} · ${l.proc.data || ''}`}
+              right={formatBRL(l.total)}
+            />
+          ))}
+
           {/* totais */}
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)', fontFamily: 'var(--sans)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
@@ -3181,6 +3221,11 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
               <span>Insumos avulsos</span><span>{formatBRL(insumosTotal)}</span>
             </div>
+            {procedimentosTotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
+                <span>Procedimentos</span><span>{formatBRL(procedimentosTotal)}</span>
+              </div>
+            )}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
               padding: '10px 0 0', borderTop: '1px solid var(--ink)', marginTop: 6,

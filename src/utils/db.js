@@ -91,6 +91,7 @@ export const fromDbFaturaFechada = r => ({
   mensalidades: Number(r.mensalidades) || 0,
   perfilNutricional: Number(r.perfil_nutricional) || 0,
   insumosAvulsos: Number(r.insumos_avulsos) || 0,
+  procedimentosAvulsos: Number(r.procedimentos_avulsos) || 0,
   linhas: r.linhas || [], fechadaEm: r.fechada_em, fechadaPor: r.fechada_por || '',
 });
 
@@ -101,7 +102,9 @@ export const toDbFaturaFechada = f => ({
   id: f.id, proprietario_id: f.proprietarioId,
   ano: f.ano, mes: f.mes, total: f.total,
   mensalidades: f.mensalidades, perfil_nutricional: f.perfilNutricional || 0,
-  insumos_avulsos: f.insumosAvulsos || 0, linhas: f.linhas || [],
+  insumos_avulsos: f.insumosAvulsos || 0,
+  procedimentos_avulsos: f.procedimentosAvulsos || 0,
+  linhas: f.linhas || [],
   fechada_por: f.fechadaPor || '',
 });
 
