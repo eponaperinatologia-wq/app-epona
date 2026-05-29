@@ -1,5 +1,5 @@
 // app.jsx — Main App Epona shell
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } from './tweaks-panel';
 import { AddInsumoScreen, EditarInsumoScreen } from './insumo-form';
 import {
@@ -43,6 +43,7 @@ const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
 }/*EDITMODE-END*/;
 
 function AppEpona() {
+  const recentlyUpdatedPartos = useRef(new Set());
   const [loading, setLoading] = useState(true);
   const [currentUser, setCurrentUser] = useState(null);
   const [tab, setTab] = useState('home');
@@ -210,7 +211,7 @@ const loadAllData = async () => {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'partos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setPartos(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbParto(n)]);
-        if (et === 'UPDATE') setPartos(prev => prev.map(p => p.id === n.id ? fromDbParto(n) : p));
+        if (et === 'UPDATE' && !recentlyUpdatedPartos.current.has(n.id)) setPartos(prev => prev.map(p => p.id === n.id ? fromDbParto(n) : p));
         if (et === 'DELETE') setPartos(prev => prev.filter(p => p.id !== o.id));
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'movimentacoes' }, ({ eventType: et, new: n, old: o }) => {
@@ -329,11 +330,11 @@ const loadAllData = async () => {
   };
 
   // ── Cavalos ───────────────────────────────────────────────────
-  const addCavalo = (data) => {
+  const addCavalo = async (data) => {
     const newId = 'c_' + Date.now();
     const newCavalo = { id: newId, ...data };
     setCavalos(prev => [...prev, newCavalo]);
-    dbInsert('cavalos', toDbCavalo(newCavalo));
+    await dbInsert('cavalos', toDbCavalo(newCavalo));
     return newId;
   };
   const updateCavalo = async (id, partialData) => {
@@ -385,6 +386,11 @@ const loadAllData = async () => {
     return newId;
   };
   const updateParto = (id, data) => {
+    recentlyUpdatedPartos.current.add(id);
+    clearTimeout(recentlyUpdatedPartos.current['t_' + id]);
+    recentlyUpdatedPartos.current['t_' + id] = setTimeout(() => {
+      recentlyUpdatedPartos.current.delete(id);
+    }, 3000);
     setPartos(prev => {
       const next = prev.map(p => {
         if (p.id !== id) return p;
@@ -660,7 +666,7 @@ const loadAllData = async () => {
     );
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
-  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} />;
+  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
@@ -687,15 +693,15 @@ const loadAllData = async () => {
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
   else if (screen === 'partos') content = <GestacaoPartosScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} />;
-  else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} />;
-  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} />;
-  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />;
-  else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} />;
+  else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
+  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} addProcedimento={addProcedimento} />;
+  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} />;
+  else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;
-    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} />;
-    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} />;
-    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} />;
+    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
+    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
+    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
   }
 
   const isOperacional = currentUser?.role === 'operacional';
