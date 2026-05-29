@@ -245,7 +245,12 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
         gestacao: null,
         historicoGestacional: [
           ...(egua.historicoGestacional || []),
-          { dataCobricao: g.dataCobricao || null, dataPrevisao, pai: g.pai || '', sexagem: g.sexagem || null, dataParto: data, potroId },
+          {
+            dataCobricao: g.dataCobricao || null, dataPrevisao,
+            pai: g.pai || '', sexagem: g.sexagem || null,
+            dataParto: data, potroId,
+            gestacaoCompleta: egua.gestacao || {},
+          },
         ],
       });
     }
@@ -339,9 +344,10 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
 // ─────────────────────────────────────────────────────────────
 // DETALHE DO PARTO — 3 abas
 // ─────────────────────────────────────────────────────────────
-export function PartoDetalheScreen({ id, setScreen, partos, updateParto, cavalos, proprietarios, insumos }) {
+export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteParto, cavalos, updateCavalo, deleteCavalo, proprietarios, insumos }) {
   const pt = partos.find(p => p.id === id);
   const [subTab, setSubTab] = useState('dados');
+  const [confirmando, setConfirmando] = useState(false);
 
   if (!pt) return (
     <div style={{ paddingBottom: 90 }}>
@@ -355,6 +361,32 @@ export function PartoDetalheScreen({ id, setScreen, partos, updateParto, cavalos
   const prop = proprietarios.find(p => p.id === pt.proprietarioId);
 
   const update = (field, value) => updateParto(pt.id, { [field]: value });
+
+  const handleDesfazer = () => {
+    if (egua) {
+      const histAll = egua.historicoGestacional || [];
+      // Tenta encontrar pelo potroId, depois pelo dataParto, depois pega o último
+      const hist = histAll.find(h => h.potroId === pt.potroId)
+        || histAll.find(h => h.dataParto === pt.data)
+        || histAll[histAll.length - 1];
+      const novoHist = hist ? histAll.filter(h => h !== hist) : histAll;
+
+      // Restaura gestacao completa (com acompanhamento) se disponível, senão reconstrói do básico
+      const gestacaoRestaurada = hist?.gestacaoCompleta
+        || (hist ? { dataCobricao: hist.dataCobricao || '', pai: hist.pai || '', sexagem: hist.sexagem || null } : {});
+
+      const categoriasAtuais = (egua.categorias || []).filter(c => c !== 'Matriz' && c !== 'Gestante');
+      updateCavalo(egua.id, {
+        categoria: 'Gestante',
+        categorias: [...categoriasAtuais, 'Gestante'],
+        gestacao: gestacaoRestaurada,
+        historicoGestacional: novoHist,
+      });
+    }
+    if (pt.potroId) deleteCavalo(pt.potroId);
+    deleteParto(pt.id);
+    setScreen('partos');
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -380,7 +412,45 @@ export function PartoDetalheScreen({ id, setScreen, partos, updateParto, cavalos
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 90 }}>
         {subTab === 'dados' && <DadosTab pt={pt} update={update} />}
         {subTab === 'insumos' && <InsumosTab pt={pt} updateParto={updateParto} insumos={insumos} />}
-        {subTab === 'relatorio' && <RelatorioTab pt={pt} egua={egua} potro={potro} prop={prop} insumos={insumos} updateParto={updateParto} />}
+        {subTab === 'relatorio' && (
+          <>
+            <RelatorioTab pt={pt} egua={egua} potro={potro} prop={prop} insumos={insumos} updateParto={updateParto} />
+            <div style={{ padding: '0 16px 24px' }}>
+              {!confirmando ? (
+                <button onClick={() => setConfirmando(true)} style={{
+                  width: '100%', padding: '12px', borderRadius: 12,
+                  border: '1px solid #fca5a5', background: '#fff1f2',
+                  color: '#dc2626', fontSize: 13, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>
+                  🗑 Desfazer registro de parto
+                </button>
+              ) : (
+                <div style={{ background: '#fff1f2', border: '1px solid #fca5a5', borderRadius: 12, padding: '16px' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: '#dc2626', marginBottom: 6 }}>Tem certeza?</div>
+                  <div style={{ fontSize: 13, color: '#7f1d1d', marginBottom: 14, lineHeight: 1.5 }}>
+                    Isso irá excluir o registro do parto, excluir o potro <strong>{potro?.nome || ''}</strong> do sistema
+                    e reverter <strong>{egua?.nome || 'a égua'}</strong> para a lista de gestantes.
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button onClick={() => setConfirmando(false)} style={{
+                      flex: 1, padding: '10px', borderRadius: 10,
+                      border: '1px solid var(--line)', background: 'var(--card)',
+                      color: 'var(--ink-3)', fontSize: 13, fontWeight: 600,
+                      cursor: 'pointer', fontFamily: 'var(--sans)',
+                    }}>Cancelar</button>
+                    <button onClick={handleDesfazer} style={{
+                      flex: 2, padding: '10px', borderRadius: 10,
+                      border: 'none', background: '#dc2626',
+                      color: '#fff', fontSize: 13, fontWeight: 700,
+                      cursor: 'pointer', fontFamily: 'var(--sans)',
+                    }}>Sim, desfazer parto</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

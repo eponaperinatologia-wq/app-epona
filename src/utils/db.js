@@ -43,17 +43,22 @@ export const fromDbRegistro = r => ({
   isAuto: !!r.is_auto, data: r.data,
 });
 
-export const fromDbProcedimento = r => ({
-  id: r.id, cavaloId: r.cavalo_id, servicoId: r.servico_id,
-  valorServico: Number(r.valor_servico) || 0,
-  descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
-  insumosAdicionais: r.insumos_adicionais || [],
-  motoboy: r.motoboy || { ativo: false, valor: 0, nome: '' },
-  laboratorio: r.laboratorio || '',
-  tubosSelecionados: r.tubos_selecionados || [],
-  examesSelecionados: r.exames_selecionados || [],
-  total: Number(r.total) || 0, hora: r.hora || '', nota: r.nota || '', data: r.data,
-});
+export const fromDbProcedimento = r => {
+  const extras = r.dados_extras || {};
+  const isExamesLab = !r.servico_id && (extras.examesSelecionados?.length > 0 || extras.laboratorio);
+  return {
+    id: r.id, cavaloId: r.cavalo_id,
+    servicoId: r.servico_id || (isExamesLab ? '__exames_lab__' : null),
+    valorServico: Number(r.valor_servico) || 0,
+    descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
+    insumosAdicionais: r.insumos_adicionais || [],
+    motoboy: extras.motoboy || { ativo: false, valor: 0, nome: '' },
+    laboratorio: extras.laboratorio || '',
+    tubosSelecionados: extras.tubosSelecionados || [],
+    examesSelecionados: extras.examesSelecionados || [],
+    total: Number(r.total) || 0, hora: r.hora || '', nota: r.nota || '', data: r.data,
+  };
+};
 
 export const fromDbParto = r => ({
   id: r.id, eguaId: r.egua_id, potroId: r.potro_id, data: r.data || '',
@@ -61,6 +66,8 @@ export const fromDbParto = r => ({
   pesoPotro: r.peso_potro, mamouColostro: !!r.mamou_colostro,
   horaPrimeiroLeite: r.hora_primeiro_leite || '', status: r.status || 'normal',
   obs: r.obs || '', insumosParto: r.insumos_parto || [],
+  // Todos os campos neonatais ficam no JSONB dados_neonatal
+  ...(r.dados_neonatal || {}),
 });
 
 export const fromDbMovimentacao = r => ({
@@ -89,6 +96,7 @@ export const fromDbFaturaFechada = r => ({
   mensalidades: Number(r.mensalidades) || 0,
   perfilNutricional: Number(r.perfil_nutricional) || 0,
   insumosAvulsos: Number(r.insumos_avulsos) || 0,
+  procedimentosAvulsos: Number(r.procedimentos_avulsos) || 0,
   linhas: r.linhas || [], fechadaEm: r.fechada_em, fechadaPor: r.fechada_por || '',
 });
 
@@ -99,7 +107,9 @@ export const toDbFaturaFechada = f => ({
   id: f.id, proprietario_id: f.proprietarioId,
   ano: f.ano, mes: f.mes, total: f.total,
   mensalidades: f.mensalidades, perfil_nutricional: f.perfilNutricional || 0,
-  insumos_avulsos: f.insumosAvulsos || 0, linhas: f.linhas || [],
+  insumos_avulsos: f.insumosAvulsos || 0,
+  procedimentos_avulsos: f.procedimentosAvulsos || 0,
+  linhas: f.linhas || [],
   fechada_por: f.fechadaPor || '',
 });
 
@@ -147,14 +157,17 @@ export const toDbRegistro = r => ({
 });
 
 export const toDbProcedimento = p => ({
-  id: p.id, cavalo_id: p.cavaloId, servico_id: p.servicoId,
+  id: p.id, cavalo_id: p.cavaloId,
+  servico_id: (p.servicoId === '__exames_lab__' || !p.servicoId) ? null : p.servicoId,
   valor_servico: p.valorServico || 0,
   descartaveis_obrigatorios: p.descartaveisObrigatorios || [],
   insumos_adicionais: p.insumosAdicionais || [],
-  motoboy: p.motoboy || { ativo: false, valor: 0, nome: '' },
-  laboratorio: p.laboratorio || '',
-  tubos_selecionados: p.tubosSelecionados || [],
-  exames_selecionados: p.examesSelecionados || [],
+  dados_extras: {
+    motoboy: p.motoboy || { ativo: false, valor: 0, nome: '' },
+    laboratorio: p.laboratorio || '',
+    tubosSelecionados: p.tubosSelecionados || [],
+    examesSelecionados: p.examesSelecionados || [],
+  },
   total: p.total || 0, hora: p.hora || '', nota: p.nota || '', data: p.data,
 });
 
@@ -164,6 +177,20 @@ export const toDbParto = p => ({
   peso_potro: p.pesoPotro || null, mamou_colostro: !!p.mamouColostro,
   hora_primeiro_leite: p.horaPrimeiroLeite || '', status: p.status || 'normal',
   obs: p.obs || '', insumos_parto: p.insumosParto || [],
+  dados_neonatal: {
+    hora: p.hora || '',
+    posicaoEsternal: p.posicaoEsternal ?? null, horaPosicaoEsternal: p.horaPosicaoEsternal || '',
+    reflexoSucao: p.reflexoSucao ?? null,       horaReflexoSucao: p.horaReflexoSucao || '',
+    levantou: p.levantou ?? null,               horaLevantou: p.horaLevantou || '',
+    mamou: p.mamou ?? null,                     horaMamou: p.horaMamou || '',
+    liberouMeconio: p.liberouMeconio ?? null,   horaLiberouMeconio: p.horaLiberouMeconio || '',
+    transicaoFezes: p.transicaoFezes ?? null,   horaTransicaoFezes: p.horaTransicaoFezes || '',
+    urinou: p.urinou ?? null,                   horaUrinou: p.horaUrinou || '',
+    altura: p.altura || '', peso: p.peso || '',
+    obsAprumo: p.obsAprumo || '', obsGerais: p.obsGerais || '',
+    insumosUsados: p.insumosUsados || [],
+    proprietarioId: p.proprietarioId || null,
+  },
 });
 
 export const toDbMovimentacao = m => ({
@@ -211,10 +238,10 @@ export const fromDbAtividade = r => ({
 
 export const toDbAtividade = a => ({
   id: a.id, tipo: a.tipo,
-  cavalo_id: a.cavaloId, insumo_id: a.insumoId,
-  qtd: a.qtd, motivo: a.motivo || '', usuario: a.usuario || '',
+  cavalo_id: a.cavaloId || null, insumo_id: a.insumoId || null,
+  qtd: a.qtd ?? null, motivo: a.motivo || '', usuario: a.usuario || '',
   autor: a.autor || '', texto: a.texto || '',
-  mes: a.mes, data: a.data, hora: a.hora || '',
+  mes: a.mes || null, data: a.data || null, hora: a.hora || '',
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
@@ -242,22 +269,31 @@ export async function fetchAll(table, mapper) {
   return mapper ? (data || []).map(mapper) : (data || []);
 }
 
-export const dbInsert = (table, row) =>
-  supabase.from(table).insert([row]).then(({ error }) => {
-    if (error) console.error(`insert ${table}:`, error.message);
-  });
+const notifyDbError = (op, table, msg) => {
+  console.error(`${op} ${table}:`, msg);
+  window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg } }));
+};
 
-export const dbUpdate = (table, id, changes) =>
-  supabase.from(table).update(changes).eq('id', id).then(({ error }) => {
-    if (error) console.error(`update ${table}:`, error.message);
-  });
+export const dbInsert = async (table, row) => {
+  const { error } = await supabase.from(table).insert([row]);
+  if (error) { notifyDbError('insert', table, error.message); return false; }
+  return true;
+};
 
-export const dbDelete = (table, id) =>
-  supabase.from(table).delete().eq('id', id).then(({ error }) => {
-    if (error) console.error(`delete ${table}:`, error.message);
-  });
+export const dbUpdate = async (table, id, changes) => {
+  const { error } = await supabase.from(table).update(changes).eq('id', id);
+  if (error) { notifyDbError('update', table, error.message); return false; }
+  return true;
+};
 
-export const dbUpsert = (table, row) =>
-  supabase.from(table).upsert([row]).then(({ error }) => {
-    if (error) console.error(`upsert ${table}:`, error.message);
-  });
+export const dbDelete = async (table, id) => {
+  const { error } = await supabase.from(table).delete().eq('id', id);
+  if (error) { notifyDbError('delete', table, error.message); return false; }
+  return true;
+};
+
+export const dbUpsert = async (table, row) => {
+  const { error } = await supabase.from(table).upsert([row]);
+  if (error) { notifyDbError('upsert', table, error.message); return false; }
+  return true;
+};

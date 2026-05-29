@@ -18,7 +18,20 @@
       "Bash(sips -z 192 192 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/icon-192.png)",
       "Bash(sips -z 512 512 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/icon-512.png)",
       "Bash(sips -z 180 180 /Users/carolinabatata/Downloads/app-epona/public/assets/logo-epona.png --out /Users/carolinabatata/Downloads/app-epona/public/apple-touch-icon.png)",
-      "Bash(npx vercel *)"
+      "Bash(npx vercel *)",
+      "Bash(npm i *)",
+      "Bash(git -C /Users/carolinabatata/app-epona status --porcelain)",
+      "Bash(xargs ls)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)",
+      "Bash(xargs cat)",
+      "Bash(xargs ls -la)",
+      "Bash(npx web-push *)",
+      "Bash(npx supabase *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(vercel --version)",
+      "Bash(git commit *)"
     ]
   }
 }

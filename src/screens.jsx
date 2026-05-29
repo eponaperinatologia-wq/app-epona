@@ -1,5 +1,5 @@
 // screens.jsx — All app screens for App Epona
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Icon, CATEGORIA_ICONS } from './icons';
 import { getEmpresa, saveEmpresa } from './utils/empresa';
 import { gerarPdfFatura, nomePdfFatura } from './utils/pdfFatura';
@@ -125,6 +125,31 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
+const calcDosesPeriodico = (p, ref) => {
+  const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
+  const fimMes = new Date(ref.ano, ref.mes, 0);
+  const today = new Date(); today.setHours(23, 59, 59, 999);
+  const isCurrentMonth = today.getFullYear() === ref.ano && today.getMonth() + 1 === ref.mes;
+  const fimEfetivo = isCurrentMonth ? new Date(Math.min(today.getTime(), fimMes.getTime())) : fimMes;
+  const dataInicio = p.dataInicio ? new Date(p.dataInicio + 'T00:00:00') : inicioMes;
+  const effectiveStart = new Date(Math.max(dataInicio.getTime(), inicioMes.getTime()));
+  if (effectiveStart > fimEfetivo) return 0;
+  if (p.frequencia === 'diario') {
+    return Math.max(0, Math.floor((fimEfetivo - effectiveStart) / (1000 * 60 * 60 * 24)) + 1);
+  }
+  const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 :
+    p.frequencia?.startsWith('cada') ? (parseInt(p.frequencia.replace('cada', '')) || 7) : 7;
+  let cursor = new Date(effectiveStart);
+  if (p.frequencia === 'semanal' || p.frequencia === 'quinzenal') {
+    const targetDay = p.diaSemana != null ? p.diaSemana : cursor.getDay();
+    const offset = (targetDay - cursor.getDay() + 7) % 7;
+    cursor.setDate(cursor.getDate() + offset);
+  }
+  let doses = 0;
+  while (cursor <= fimEfetivo) { doses++; cursor.setDate(cursor.getDate() + freqDias); }
+  return doses;
+};
+
 const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
@@ -132,7 +157,7 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const linhas = [];
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
-    if (oleoIns) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias });
+    if (oleoIns) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
@@ -273,13 +298,14 @@ const fmtDataHora = (dataStr, horaStr) => {
   const d = dataStr.split('-');
   return `${d[2]}/${d[1]} ${t}`;
 };
-const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
-  const cav = a.cavaloId && getCavalo(a.cavaloId);
+const ActivityRow = ({ a, first, currentUser, removeAtividade, insumos = [], cavalos = [] }) => {
+  const cav = a.cavaloId && (cavalos.find(c => c.id === a.cavaloId) || getCavalo(a.cavaloId));
   let icon, color, title, sub;
   if (a.tipo === 'insumo') {
-    const ins = getInsumo(a.insumoId);
-    const cat = ins ? getCategoria(ins.categoria) : null;
-    icon = cat ? CATEGORIA_ICONS[cat.id] : 'package'; color = cat?.cor || '#888';
+    const ins = insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId);
+    const cat = ins ? getCategoria(ins.categoria) : undefined;
+    icon = cat?.id ? CATEGORIA_ICONS[cat.id] : 'package';
+    color = cat?.cor || '#888';
     title = `${cav?.nome || a.cavaloId} · ${ins?.nome || a.insumoId}`;
     sub = `${a.qtd} ${ins?.unidade || 'un'} · ${a.usuario}`;
   } else if (a.tipo === 'entrada') {
@@ -302,20 +328,29 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
     icon = 'wheat'; color = '#3d6043';
     title = `Nutrição · ${cav?.nome || ''}`;
     sub = a.texto || `Atualizado por ${a.usuario}`;
+  } else if (a.tipo === 'gestacao') {
+    icon = 'heart'; color = '#7c3aed';
+    title = a.texto || `Acompanhamento gestacional · ${cav?.nome || ''}`;
+    sub = `Por ${a.usuario}`;
+  } else if (a.tipo === 'procedimento') {
+    icon = 'stethoscope'; color = '#0369a1';
+    const linhas = (a.texto || '').split('\n');
+    title = linhas[0] || 'Procedimento';
+    sub = linhas.slice(1).join('\n');
   }
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+      display: 'flex', alignItems: 'flex-start', gap: 12, padding: '12px 14px',
       borderTop: first ? 'none' : '1px solid var(--line)',
     }}>
       {cav ? <HorseAvatar cavalo={cav} size={36} /> : (
-        <div style={{ width: 36, height: 36, borderRadius: 36, background: color + '20', color, display: 'grid', placeItems: 'center' }}>
+        <div style={{ width: 36, height: 36, borderRadius: 36, background: color + '20', color, display: 'grid', placeItems: 'center', flexShrink: 0 }}>
           <Icon name={icon} size={18} />
         </div>
       )}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.4 }}>{sub}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500, lineHeight: 1.3 }}>{title}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.5, whiteSpace: 'pre-line' }}>{sub}</div>
       </div>
       <div style={{ textAlign: 'right', display: 'flex', alignItems: 'center', gap: 6 }}>
         <div>
@@ -325,7 +360,7 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
             fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
           }}>
             <Icon name={icon} size={10} />
-            <span>{a.tipo === 'insumo' ? (getCategoria(getInsumo(a.insumoId)?.categoria)?.nome || 'insumo') : a.tipo}</span>
+            <span>{a.tipo === 'insumo' ? (getCategoria((insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId))?.categoria)?.nome || 'insumo') : a.tipo}</span>
           </div>
         </div>
         {currentUser?.role === 'admin' && removeAtividade && (
@@ -357,7 +392,7 @@ const getDataFmt = () => {
   return `${DIAS_SEMANA[d.getDay()]} · ${d.getDate()} de ${MESES_HOME[d.getMonth()]}`;
 };
 
-const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed, removeAviso, removeAtividade }) => {
+const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed, removeAviso, removeAtividade, insumos = [] }) => {
   const hojeStr = new Date().toLocaleDateString('sv-SE');
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.filter(c => c.presente).length;
@@ -608,7 +643,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
               Sem atividade hoje ainda.
             </div>
           )}
-          {recentes.map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} />)}
+          {recentes.map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />)}
         </div>
       </div>
     </div>
@@ -618,7 +653,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
 // ─────────────────────────────────────────────────────────────
 // HISTÓRICO · Registro eterno de atividades
 // ─────────────────────────────────────────────────────────────
-const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, removeAtividade }) => {
+const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, removeAtividade, insumos = [], cavalos = [] }) => {
   const [filtro, setFiltro] = useState('todos');
   const tipos = [
     { id: 'todos', nome: 'Tudo' },
@@ -671,7 +706,7 @@ const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, remo
               letterSpacing: '0.08em', padding: '8px 4px 6px', fontWeight: 600,
             }}>{formatDia(dia)} · {grupos[dia].length}</div>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-              {grupos[dia].map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} />)}
+              {grupos[dia].map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />)}
             </div>
           </div>
         ))}
@@ -690,8 +725,8 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const [search, setSearch] = useState('');
 
-  const presentes = cavalos.filter(c => c.presente);
-  const ausentes = cavalos.filter(c => !c.presente);
+  const presentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const ausentes = cavalos.filter(c => !c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const filteredPresentes = presentes.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||

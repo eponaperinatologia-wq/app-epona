@@ -11,6 +11,7 @@ const { useState: useStateE } = React;
 const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, resolverAviso, addResposta, currentUser }) => {
   const [novo, setNovo] = useStateE('');
   const [urgente, setUrgente] = useStateE(false);
+  const [replyTexts, setReplyTexts] = useStateE({});
 
   const enviar = () => {
     if (!novo.trim()) return;
@@ -21,11 +22,6 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
       autor, avatar,
       data_entrada: new Date().toLocaleDateString('sv-SE'),
       tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto: novo.trim(), urgente,
-    });
-    addAtividade && addAtividade({
-      id: 'at' + Date.now(), tipo: 'aviso',
-      data: new Date().toLocaleDateString('sv-SE'), hora: new Date().toTimeString().slice(0, 5),
-      autor, texto: novo.trim(), urgente,
     });
     setNovo(''); setUrgente(false);
   };
@@ -193,11 +189,15 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
               {addResposta && (
                 <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
                   <input
+                    value={replyTexts[a.id] || ''}
+                    onChange={e => setReplyTexts(prev => ({ ...prev, [a.id]: e.target.value }))}
                     placeholder="Responder…"
                     onKeyDown={e => {
                       if (e.key === 'Enter') {
-                        addResposta(a.id, e.target.value);
-                        e.target.value = '';
+                        const txt = replyTexts[a.id] || '';
+                        if (!txt.trim()) return;
+                        addResposta(a.id, txt);
+                        setReplyTexts(prev => ({ ...prev, [a.id]: '' }));
                       }
                     }}
                     style={{
@@ -206,6 +206,20 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
                       background: 'var(--bg)', color: 'var(--ink)', fontFamily: 'var(--sans)',
                     }}
                   />
+                  <button
+                    onClick={() => {
+                      const txt = replyTexts[a.id] || '';
+                      if (!txt.trim()) return;
+                      addResposta(a.id, txt);
+                      setReplyTexts(prev => ({ ...prev, [a.id]: '' }));
+                    }}
+                    style={{
+                      padding: '6px 12px', borderRadius: 8, border: 'none',
+                      background: 'var(--accent)', color: '#fff',
+                      fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                      opacity: (replyTexts[a.id] || '').trim() ? 1 : 0.4,
+                    }}
+                  >Enviar</button>
                 </div>
               )}
             </div>
@@ -244,9 +258,9 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
   }, [novoCavaloPendente]);
 
   const cav = cavaloId && cavalos.find(c => c.id === cavaloId);
-  const cavalosVisiveis = tipo === 'saida'
+  const cavalosVisiveis = (tipo === 'saida'
     ? cavalos.filter(c => c.presente)
-    : cavalos;
+    : cavalos).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const cavalosFiltrados = cavalosVisiveis.filter(c =>
     c.nome.toLowerCase().includes(search.toLowerCase()) ||
     c.baia.toLowerCase().includes(search.toLowerCase())

@@ -9,7 +9,7 @@ import {
 import { TopBar, HorseAvatar } from './screens';
 
 // Cria registros para descartaveis automaticamente
-function addDescartaveis(addRegistro, insumoBase, cavaloId, qtdBase, insumos, hora, usuario) {
+function addDescartaveis(addRegistro, insumoBase, cavaloId, qtdBase, insumos, hora, usuario, data) {
   const ins = insumos.find(i => i.id === insumoBase) || getInsumo(insumoBase);
   if (!ins?.descartaveis?.length) return;
   ins.descartaveis.forEach(d => {
@@ -17,8 +17,8 @@ function addDescartaveis(addRegistro, insumoBase, cavaloId, qtdBase, insumos, ho
       id: 'r' + Date.now() + '_' + cavaloId + '_' + d.insumoId,
       cavaloId, insumoId: d.insumoId,
       qtd: d.qtd * qtdBase,
-      hora, usuario,
-      _auto: true,
+      hora, usuario, data,
+      isAuto: true,
     });
   });
 }
@@ -117,13 +117,13 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   }, [step, cavaloId, insumoId, qtd, search, catFilter]);
   const clearRegCavalo = () => sessionStorage.removeItem(REG_CAVALO_KEY);
 
-  const cav = cavaloId && getCavalo(cavaloId);
+  const cav = cavaloId && ((cavalos || CAVALOS).find(c => c.id === cavaloId));
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
 
   const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
   const cavalosFiltrados = cavalosDisponiveis.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    c.baia.toLowerCase().includes(search.toLowerCase())
+    (c.nome || '').toLowerCase().includes(search.toLowerCase()) ||
+    (c.baia || '').toLowerCase().includes(search.toLowerCase())
   );
 
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
@@ -132,10 +132,10 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
 
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, usuario: 'João T.' });
-    addDescartaveis(addRegistro, insumoId, cavaloId, qtd, insumos, hora, 'Sistema (auto)');
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
     const data = hoje.toLocaleDateString('sv-SE');
+    addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, data, usuario: 'João T.' });
+    addDescartaveis(addRegistro, insumoId, cavaloId, qtd, insumos, hora, 'Sistema (auto)', data);
     if (addAtividade) addAtividade({
       id: 'at_' + Date.now(), tipo: 'insumo',
       cavaloId, insumoId, qtd, usuario: 'João T.',
@@ -371,8 +371,8 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
     const data = hoje.toLocaleDateString('sv-SE');
     selectedCavalos.forEach(cid => {
-      addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, usuario: 'João T.' });
-      addDescartaveis(addRegistro, insumoId, cid, qtd, insumos, hora, 'Sistema (auto)');
+      addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, data, usuario: 'João T.' });
+      addDescartaveis(addRegistro, insumoId, cid, qtd, insumos, hora, 'Sistema (auto)', data);
       if (addAtividade) addAtividade({
         id: 'at_' + Date.now() + cid, tipo: 'insumo',
         cavaloId: cid, insumoId, qtd, usuario: 'João T.',
@@ -539,10 +539,10 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
   const registrarRapido = (cid) => {
     if (confirmados.has(cid)) return;
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId: insumoQuick, qtd: 1, hora, usuario: 'João T.' });
-    addDescartaveis(addRegistro, insumoQuick, cid, 1, insumos, hora, 'Sistema (auto)');
     const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
     const data = hoje.toLocaleDateString('sv-SE');
+    addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId: insumoQuick, qtd: 1, hora, data, usuario: 'João T.' });
+    addDescartaveis(addRegistro, insumoQuick, cid, 1, insumos, hora, 'Sistema (auto)', data);
     if (addAtividade) addAtividade({
       id: 'at_' + Date.now() + cid, tipo: 'insumo',
       cavaloId: cid, insumoId: insumoQuick, qtd: 1, usuario: 'João T.',
@@ -550,7 +550,8 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
     });
     const next = new Set(confirmados); next.add(cid);
     setConfirmados(next);
-    setToast(`${getCavalo(cid).nome} ✓`);
+    const cavNome = ((cavalos || CAVALOS).find(x => x.id === cid))?.nome || '?';
+    setToast(`${cavNome} ✓`);
     setTimeout(() => setToast(null), 800);
   };
 
@@ -608,7 +609,7 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
           Toque para registrar 1× {ins.nome}
         </div>
         {setor.cavalos.map(cid => {
-          const c = getCavalo(cid);
+          const c = (cavalos || CAVALOS).find(x => x.id === cid) || getCavalo(cid);
           const done = confirmados.has(cid);
           return (
             <button key={cid} onClick={() => registrarRapido(cid)} disabled={done} style={{

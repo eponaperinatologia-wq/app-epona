@@ -23,9 +23,9 @@ export const diasAteParto = dataCobricao => {
 };
 
 const mesDaGestacao = dataCobricao => {
-  if (!dataCobricao) return 1;
+  if (!dataCobricao) return 0;
   const diff = Math.floor((new Date() - new Date(dataCobricao+'T12:00:00')) / 86400000);
-  return Math.min(Math.max(Math.ceil(diff / 30), 1), 11);
+  return Math.min(Math.max(Math.floor(diff / 30), 0), 11);
 };
 
 const CAMPOS_ACOMP = [
@@ -75,7 +75,7 @@ const SexagemBadge = ({ sexagem }) => {
 // ─────────────────────────────────────────────────────────────
 // TELA PRINCIPAL — Gestação e Partos (2 sub-tabs)
 // ─────────────────────────────────────────────────────────────
-export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios }) {
+export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes }) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
 
@@ -83,13 +83,18 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
 
   const gestantes = useMemo(() => cavalos
     .filter(c => c.categoria === 'Gestante' || c.categorias?.includes('Gestante'))
-    .map(c => ({ ...c, _dias: diasAteParto(c.gestacao?.dataCobricao) }))
-    .sort((a, b) => (a._dias ?? 9999) - (b._dias ?? 9999))
+    .map(c => ({ ...c, _dias: diasAteParto(c.gestacao?.dataCobricao), _foraHaras: !!c.dataSaida || c.presente === false }))
+    .sort((a, b) => {
+      if (a._foraHaras !== b._foraHaras) return a._foraHaras ? 1 : -1;
+      return (a._dias ?? 9999) - (b._dias ?? 9999);
+    })
   , [cavalos]);
 
   const gestantesFiltradas = q
     ? gestantes.filter(c => c.nome.toLowerCase().includes(q) || proprietarios.find(p => p.id === c.proprietarioId)?.nome.toLowerCase().includes(q))
     : gestantes;
+
+  const gestantesDentro = gestantesFiltradas.filter(c => !c._foraHaras);
 
   const sortedPartos = useMemo(() => [...partos].sort((a,b) => (b.data+b.hora).localeCompare(a.data+a.hora)), [partos]);
 
@@ -102,43 +107,45 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
     : sortedPartos;
 
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-      <TopBar title="Gestação e Partos" onBack={() => setScreen('home')} />
-      <SubTabBar
-        tabs={[
-          { id:'gestacoes', label:`Gestações (${gestantesFiltradas.length})` },
-          { id:'partos', label:`Partos (${partosFiltrados.length})` },
-        ]}
-        active={subTab}
-        onChange={setSubTab}
-      />
-      <div style={{ padding:'8px 16px', borderBottom:'1px solid var(--line)' }}>
-        <div style={{
-          display:'flex', alignItems:'center', gap:10,
-          background:'var(--card)', border:'1px solid var(--line)',
-          borderRadius:12, padding:'9px 14px',
-        }}>
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
-          </svg>
-          <input
-            value={busca}
-            onChange={e => setBusca(e.target.value)}
-            placeholder="Buscar égua, potro ou proprietário…"
-            style={{
-              flex:1, border:'none', outline:'none', background:'transparent',
-              fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)',
-            }}
-          />
-          {busca && (
-            <button onClick={() => setBusca('')} style={{
-              background:'none', border:'none', padding:0, cursor:'pointer',
-              color:'var(--ink-3)', fontSize:16, lineHeight:1,
-            }}>×</button>
-          )}
+    <div>
+      <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg)' }}>
+        <TopBar title="Gestação e Partos" onBack={() => setScreen('home')} />
+        <SubTabBar
+          tabs={[
+            { id:'gestacoes', label:`Gestações (${gestantesDentro.length})` },
+            { id:'partos', label:`Partos (${partosFiltrados.length})` },
+          ]}
+          active={subTab}
+          onChange={setSubTab}
+        />
+        <div style={{ padding:'8px 16px', borderBottom:'1px solid var(--line)' }}>
+          <div style={{
+            display:'flex', alignItems:'center', gap:10,
+            background:'var(--card)', border:'1px solid var(--line)',
+            borderRadius:12, padding:'9px 14px',
+          }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink-3)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
+            </svg>
+            <input
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar égua, potro ou proprietário…"
+              style={{
+                flex:1, border:'none', outline:'none', background:'transparent',
+                fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)',
+              }}
+            />
+            {busca && (
+              <button onClick={() => setBusca('')} style={{
+                background:'none', border:'none', padding:0, cursor:'pointer',
+                color:'var(--ink-3)', fontSize:16, lineHeight:1,
+              }}>×</button>
+            )}
+          </div>
         </div>
       </div>
-      <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
+      <div style={{ paddingBottom:90 }}>
         {subTab === 'gestacoes' && (
           <GestaoesTab gestantes={gestantesFiltradas} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
         )}
@@ -152,6 +159,9 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
 
 // ── Lista de gestantes ────────────────────────────────────────
 function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
+  const dentro = gestantes.filter(c => !c._foraHaras);
+  const fora = gestantes.filter(c => c._foraHaras);
+
   if (gestantes.length === 0) return (
     <div style={{ textAlign:'center', padding:'48px 24px', color:'var(--ink-3)' }}>
       <div style={{ fontSize:32, marginBottom:12 }}>🐴</div>
@@ -160,64 +170,97 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     </div>
   );
 
+  const renderCard = (c, isGray) => {
+    const prop = proprietarios.find(p => p.id === c.proprietarioId);
+    const dias = c._dias;
+    const atrasada = !isGray && dias !== null && dias < 0;
+    const alerta = !isGray && dias !== null && dias >= 0 && dias <= 30;
+    const mes = mesDaGestacao(c.gestacao?.dataCobricao);
+    const pct = Math.round((mes / 11) * 100);
+    const sexagem = c.gestacao?.sexagem;
+
+    return (
+      <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
+        style={{
+          background: isGray ? '#f3f4f6' : 'var(--card)',
+          border: `1px solid ${isGray ? '#d1d5db' : (alerta || atrasada ? '#fca5a5' : 'var(--line)')}`,
+          borderRadius:14, marginBottom:10, overflow:'hidden', cursor:'pointer',
+          opacity: isGray ? 0.8 : 1,
+        }}>
+
+        {isGray && (
+          <div style={{ background:'#9ca3af', color:'#fff', padding:'6px 14px', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+            📤 Fora do haras
+          </div>
+        )}
+        {!isGray && atrasada && (
+          <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Gestação além da previsão · +{Math.abs(dias)}d
+          </div>
+        )}
+        {!isGray && alerta && !atrasada && (
+          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            🏥 Migrar para o piquete maternidade · {dias}d
+          </div>
+        )}
+
+        <div style={{ padding:'12px 14px' }}>
+          <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
+            <div style={{ width:44, height:44, borderRadius:12, background: isGray ? '#e5e7eb' : '#fdf4ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:22 }}>
+              🐴
+            </div>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:2 }}>
+                <span style={{ fontFamily:'var(--serif)', fontSize:16, color: isGray ? '#6b7280' : 'var(--ink)' }}>{c.nome}</span>
+                {!isGray && sexagem && <SexagemBadge sexagem={sexagem} />}
+                {isGray && sexagem && (
+                  <span style={{ fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:8, background:'#e5e7eb', color:'#6b7280', border:'1px solid #d1d5db' }}>
+                    {SEXAGEM_OPTIONS.find(o => o.value === sexagem)?.label || sexagem}
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize:12, color: isGray ? '#9ca3af' : 'var(--ink-2)', marginBottom:4 }}>{prop?.nome || '—'}</div>
+
+              {c.gestacao?.dataCobricao ? (
+                <>
+                  <div style={{ fontSize:11, color: isGray ? '#9ca3af' : 'var(--ink-3)', display:'flex', gap:10, flexWrap:'wrap', marginBottom:6 }}>
+                    <span>Cobrição: {fmtDate(c.gestacao.dataCobricao)}</span>
+                    <span>Previsão: {fmtDate(previsaoParto(c.gestacao.dataCobricao))}</span>
+                    {c.gestacao.pai && <span>Pai: {c.gestacao.pai}</span>}
+                  </div>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{ flex:1, height:5, background: isGray ? '#e5e7eb' : 'var(--soft)', borderRadius:3, overflow:'hidden' }}>
+                      <div style={{ height:'100%', width:`${pct}%`, background: isGray ? '#9ca3af' : (alerta ? '#dc2626' : 'var(--accent)'), borderRadius:3, transition:'width 0.3s' }} />
+                    </div>
+                    <span style={{ fontSize:11, fontWeight:700, color: isGray ? '#9ca3af' : (atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)'), whiteSpace:'nowrap' }}>
+                      {mes}°/11 · {dias !== null ? (dias > 0 ? `${dias}d` : dias === 0 ? 'hoje' : `+${Math.abs(dias)}d`) : '—'}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <div style={{ fontSize:11, color: isGray ? '#9ca3af' : 'var(--ink-3)', fontStyle:'italic' }}>Data de cobrição não cadastrada</div>
+              )}
+            </div>
+            <Icon name="chevron-right" size={16} color={isGray ? '#9ca3af' : 'var(--ink-3)'} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={{ padding:'14px 16px 0' }}>
-      {gestantes.map(c => {
-        const prop = proprietarios.find(p => p.id === c.proprietarioId);
-        const dias = c._dias;
-        const alerta = dias !== null && dias >= 0 && dias <= 30;
-        const mes = mesDaGestacao(c.gestacao?.dataCobricao);
-        const pct = Math.round((mes / 11) * 100);
-        const sexagem = c.gestacao?.sexagem;
-
-        return (
-          <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
-            style={{ background:'var(--card)', border:`1px solid ${alerta ? '#fca5a5' : 'var(--line)'}`, borderRadius:14, marginBottom:10, overflow:'hidden', cursor:'pointer' }}>
-
-            {alerta && (
-              <div style={{ background:'#dc2626', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
-                🏥 Migrar para o piquete maternidade · {dias}d
-              </div>
-            )}
-
-            <div style={{ padding:'12px 14px' }}>
-              <div style={{ display:'flex', alignItems:'flex-start', gap:12 }}>
-                <div style={{ width:44, height:44, borderRadius:12, background:'#fdf4ff', display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0, fontSize:22 }}>
-                  🐴
-                </div>
-                <div style={{ flex:1, minWidth:0 }}>
-                  <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:2 }}>
-                    <span style={{ fontFamily:'var(--serif)', fontSize:16, color:'var(--ink)' }}>{c.nome}</span>
-                    {sexagem && <SexagemBadge sexagem={sexagem} />}
-                  </div>
-                  <div style={{ fontSize:12, color:'var(--ink-2)', marginBottom:4 }}>{prop?.nome || '—'}</div>
-
-                  {c.gestacao?.dataCobricao ? (
-                    <>
-                      <div style={{ fontSize:11, color:'var(--ink-3)', display:'flex', gap:10, flexWrap:'wrap', marginBottom:6 }}>
-                        <span>Cobrição: {fmtDate(c.gestacao.dataCobricao)}</span>
-                        <span>Previsão: {fmtDate(previsaoParto(c.gestacao.dataCobricao))}</span>
-                        {c.gestacao.pai && <span>Pai: {c.gestacao.pai}</span>}
-                      </div>
-                      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                        <div style={{ flex:1, height:5, background:'var(--soft)', borderRadius:3, overflow:'hidden' }}>
-                          <div style={{ height:'100%', width:`${pct}%`, background: alerta ? '#dc2626' : 'var(--accent)', borderRadius:3, transition:'width 0.3s' }} />
-                        </div>
-                        <span style={{ fontSize:11, fontWeight:700, color: alerta ? '#dc2626' : 'var(--accent)', whiteSpace:'nowrap' }}>
-                          {mes}°/11 · {dias !== null ? (dias > 0 ? `${dias}d` : '🍼 Parir!') : '—'}
-                        </span>
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ fontSize:11, color:'var(--ink-3)', fontStyle:'italic' }}>Data de cobrição não cadastrada</div>
-                  )}
-                </div>
-                <Icon name="chevron-right" size={16} color="var(--ink-3)" />
-              </div>
+      {dentro.map(c => renderCard(c, false))}
+      {fora.length > 0 && (
+        <>
+          {dentro.length > 0 && (
+            <div style={{ fontSize:11, fontWeight:600, color:'#9ca3af', textTransform:'uppercase', letterSpacing:'0.05em', margin:'8px 0 10px', paddingTop:4, borderTop:'1px solid var(--line)' }}>
+              Fora do haras
             </div>
-          </div>
-        );
-      })}
+          )}
+          {fora.map(c => renderCard(c, true))}
+        </>
+      )}
     </div>
   );
 }
@@ -278,7 +321,7 @@ function PartosTab({ partos, cavalos, proprietarios, setScreen, setSelected }) {
 // ─────────────────────────────────────────────────────────────
 // DETALHE DA ÉGUA GESTANTE — 3 abas
 // ─────────────────────────────────────────────────────────────
-export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo, proprietarios, insumos }) {
+export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo, proprietarios, insumos, addAviso, addAtividade, currentUser }) {
   const c = cavalos.find(cv => cv.id === id);
   const [subTab, setSubTab] = useState('gestacao');
 
@@ -291,46 +334,56 @@ export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo
 
   const prop = proprietarios.find(p => p.id === c.proprietarioId);
   const dias = diasAteParto(c.gestacao?.dataCobricao);
+  const atrasada = dias !== null && dias < 0;
   const alerta = dias !== null && dias >= 0 && dias <= 30;
   const mes = mesDaGestacao(c.gestacao?.dataCobricao);
 
+  const diasLabel = dias === null ? null
+    : dias > 0 ? `${dias}d para parto`
+    : dias === 0 ? 'Parto hoje!'
+    : `+${Math.abs(dias)}d além`;
+
   return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100%' }}>
-      <TopBar
-        title={c.nome}
-        subtitle={prop?.nome || '—'}
-        onBack={() => setScreen('partos')}
-        action={dias !== null ? (
-          <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
-            background: alerta ? '#fef2f2' : 'var(--accent-soft)',
-            color: alerta ? '#dc2626' : 'var(--accent)',
-            border:`1px solid ${alerta ? '#fca5a5' : 'var(--accent)'}40`,
-          }}>
-            {dias > 0 ? `${dias}d para parto` : '🍼 Parto!'}
-          </span>
-        ) : null}
-      />
-
-      {alerta && (
-        <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, flexShrink:0 }}>
-          🏥 Migrar para o piquete maternidade
-        </div>
-      )}
-
-      <SubTabBar
-        tabs={[
-          { id:'gestacao', label:'Gestação' },
-          { id:'alimentacao', label:'Alimentação' },
-          { id:'acompanhamento', label:'Acompanhamento' },
-        ]}
-        active={subTab}
-        onChange={setSubTab}
-      />
-
-      <div style={{ flex:1, overflowY:'auto', paddingBottom:90 }}>
+    <div>
+      <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg)' }}>
+        <TopBar
+          title={c.nome}
+          subtitle={prop?.nome || '—'}
+          onBack={() => setScreen('partos')}
+          action={diasLabel ? (
+            <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
+              background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
+              color: atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)',
+              border:`1px solid ${atrasada ? '#ddd6fe' : alerta ? '#fca5a5' : 'var(--accent)'}40`,
+            }}>
+              {diasLabel}
+            </span>
+          ) : null}
+        />
+        {atrasada && (
+          <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
+            ⚠️ Gestação além da previsão · +{Math.abs(dias)} dias
+          </div>
+        )}
+        {alerta && !atrasada && (
+          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
+            🏥 Migrar para o piquete maternidade
+          </div>
+        )}
+        <SubTabBar
+          tabs={[
+            { id:'gestacao', label:'Gestação' },
+            { id:'alimentacao', label:'Alimentação' },
+            { id:'acompanhamento', label:'Acompanhamento' },
+          ]}
+          active={subTab}
+          onChange={setSubTab}
+        />
+      </div>
+      <div style={{ paddingBottom:90 }}>
         {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} />}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
-        {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} />}
+        {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />}
       </div>
     </div>
   );
@@ -398,12 +451,12 @@ function GestacaoTab({ c, updateCavalo, mes }) {
         <div style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'14px', marginBottom:14 }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:8 }}>
             <span style={{ fontSize:13, fontWeight:700, color:'var(--ink)' }}>Mês {mes} de 11</span>
-            <span style={{ fontSize:13, fontWeight:700, color: dias !== null && dias <= 30 ? '#dc2626' : 'var(--accent)' }}>
-              {dias !== null ? (dias > 0 ? `${dias} dias para o parto` : '🍼 Data de parto!') : '—'}
+            <span style={{ fontSize:13, fontWeight:700, color: dias !== null && dias < 0 ? '#7c3aed' : dias !== null && dias <= 30 ? '#dc2626' : 'var(--accent)' }}>
+              {dias !== null ? (dias > 0 ? `${dias} dias para o parto` : dias === 0 ? '🍼 Parto hoje!' : `+${Math.abs(dias)} dias além`) : '—'}
             </span>
           </div>
           <div style={{ height:8, background:'var(--soft)', borderRadius:4, overflow:'hidden' }}>
-            <div style={{ height:'100%', width:`${Math.round((mes/11)*100)}%`, background: dias !== null && dias <= 30 ? '#dc2626' : 'var(--accent)', borderRadius:4 }} />
+            <div style={{ height:'100%', width:`${Math.round((mes/11)*100)}%`, background: dias !== null && dias < 0 ? '#7c3aed' : dias !== null && dias <= 30 ? '#dc2626' : 'var(--accent)', borderRadius:4 }} />
           </div>
         </div>
       )}
@@ -415,20 +468,27 @@ function GestacaoTab({ c, updateCavalo, mes }) {
           <GestacaoLabel t="Data de cobrição" />
           <input type="date" value={dataCobricao} onChange={e => setDataCobricao(e.target.value)} style={inputStyle} />
         </div>
-        <div style={{ marginBottom:10 }}>
-          <GestacaoLabel t="Pai do produto (garanhão)" />
-          <input value={pai} onChange={e => setPai(e.target.value)} placeholder="Nome do garanhão…" style={inputStyle} />
-        </div>
-        <div style={{ padding:'10px 0', borderTop:'1px solid var(--line)', display:'flex', justifyContent:'space-between' }}>
-          <span style={{ fontSize:12, color:'var(--ink-3)' }}>{c.categorias?.includes('Receptora') ? 'Receptora' : 'Mãe (égua)'}</span>
-          <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{c.nome}</span>
-        </div>
-        {c.categorias?.includes('Receptora') && g.mae && (
-          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
-            <span style={{ fontSize:12, color:'var(--ink-3)' }}>Mãe biológica (doadora)</span>
-            <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{g.mae}</span>
+        <div style={{ marginBottom:12 }}>
+          <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>Garanhão (pai)</div>
+              <input value={pai} onChange={e => setPai(e.target.value)} placeholder="Nome do garanhão…" style={{ ...inputStyle, textAlign:'center' }} />
+            </div>
+            <div style={{ fontSize:22, fontWeight:900, color:'var(--ink-3)', flexShrink:0, marginTop:24 }}>×</div>
+            <div style={{ flex:1 }}>
+              <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>Mãe Biológica</div>
+              <div style={{ ...inputStyle, textAlign:'center', background:'var(--soft)', color:'var(--ink)', fontWeight:600 }}>
+                {c.categorias?.includes('Receptora') ? (g.mae || '—') : c.nome}
+              </div>
+            </div>
           </div>
-        )}
+          {c.categorias?.includes('Receptora') && (
+            <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0 0', marginTop:8, borderTop:'1px solid var(--line)' }}>
+              <span style={{ fontSize:12, color:'var(--ink-3)' }}>Receptora (portadora)</span>
+              <span style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{c.nome}</span>
+            </div>
+          )}
+        </div>
         {previsao && (
           <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
             <span style={{ fontSize:12, color:'var(--ink-3)' }}>Previsão de parto (330 dias)</span>
@@ -525,18 +585,29 @@ function AlimentacaoTab({ c, insumos }) {
 }
 
 // ── Aba Acompanhamento ────────────────────────────────────────
-function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
+function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, currentUser }) {
   const [expandido, setExpandido] = useState(mesAtual);
   const g = c.gestacao || {};
   const acomp = g.acompanhamento || {};
 
-  const salvarMes = (mes, dados) => {
+  const salvarMes = (mes, dados, sexagem) => {
     const novoAcomp = { ...acomp, [mes]: dados };
-    updateCavalo(c.id, { gestacao: { ...g, acompanhamento: novoAcomp } });
-  };
-
-  const salvarSexagem = (sexagem) => {
-    updateCavalo(c.id, { gestacao: { ...g, sexagem } });
+    const novaGestacao = { ...g, acompanhamento: novoAcomp };
+    if (mes === 4 && sexagem !== undefined) novaGestacao.sexagem = sexagem;
+    updateCavalo(c.id, { gestacao: novaGestacao });
+    if (addAtividade) {
+      const agora = new Date();
+      const hora = agora.toTimeString().slice(0, 5);
+      const data = agora.toLocaleDateString('sv-SE');
+      const mesRef = agora.getFullYear() + '-' + String(agora.getMonth() + 1).padStart(2, '0');
+      addAtividade({
+        id: 'at_' + Date.now(), tipo: 'gestacao',
+        cavaloId: c.id,
+        usuario: currentUser?.nome || 'Usuário',
+        texto: `Feito acompanhamento gestacional de ${c.nome}`,
+        data, hora, mes: mesRef,
+      });
+    }
   };
 
   const temDados = (mes) => {
@@ -551,7 +622,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
         Acompanhamento mensal da gestação. Mês atual estimado: <strong>Mês {mesAtual}</strong>.
       </div>
 
-      {Array.from({ length:11 }, (_, i) => i + 1).map(mes => (
+      {Array.from({ length:12 }, (_, i) => i).map(mes => (
         <MesAcompanhamento
           key={mes}
           mes={mes}
@@ -561,15 +632,14 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual }) {
           expandido={expandido === mes}
           temDados={temDados(mes)}
           onToggle={() => setExpandido(expandido === mes ? null : mes)}
-          onSalvar={dados => salvarMes(mes, dados)}
-          onSalvarSexagem={salvarSexagem}
+          onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
         />
       ))}
     </div>
   );
 }
 
-function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar, onSalvarSexagem }) {
+function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar }) {
   const [form, setForm] = useState({ ...ACOMP_VAZIO, ...dados });
   const [sexagem, setSexagem] = useState(sexagemAtual);
   const [saved, setSaved] = useState(false);
@@ -577,8 +647,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   const is4 = mes === 4;
 
   const handleSalvar = () => {
-    onSalvar(form);
-    if (is4) onSalvarSexagem(sexagem);
+    onSalvar(form, is4 ? sexagem : undefined);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
