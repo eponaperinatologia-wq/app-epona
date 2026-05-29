@@ -74,6 +74,51 @@ const calcDias = (cavalo, ref, movimentacoes) => {
   return { dias: Math.min(dias, diasTotais), total: diasTotais, parcial: true };
 };
 
+const calcDiasItem = (cav, ref, movimentacoes, dataInicio, dataFim) => {
+  if (!dataInicio && !dataFim) return calcDias(cav, ref, movimentacoes).dias;
+  const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
+  const fimMes = new Date(ref.ano, ref.mes, 0);
+  const today = new Date(); today.setHours(23, 59, 59, 999);
+  const rangeS = dataInicio ? new Date(dataInicio + 'T00:00:00') : inicioMes;
+  const rangeE = dataFim ? new Date(dataFim + 'T00:00:00') : fimMes;
+  const efStart = rangeS > inicioMes ? rangeS : inicioMes;
+  const efEndRaw = rangeE < fimMes ? rangeE : fimMes;
+  const efEnd = new Date(Math.min(efEndRaw.getTime(), today.getTime()));
+  if (efEnd < efStart) return 0;
+  const cavaloId = cav.id;
+  const cavMovs = (movimentacoes || [])
+    .filter(m => m.cavaloId === cavaloId)
+    .map(m => ({ ...m, d: new Date(m.data) }))
+    .sort((a, b) => a.d - b.d);
+  const antes = cavMovs.filter(m => m.d < efStart);
+  const dentroPeriodo = cavMovs.filter(m => m.d >= efStart && m.d <= efEnd);
+  let presente;
+  if (cav.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < efStart)) {
+    presente = new Date(cav.dataEntrada + 'T00:00:00') < efStart;
+  } else {
+    presente = antes.length > 0 ? antes[antes.length - 1].tipo === 'entrada' : true;
+  }
+  if (dentroPeriodo.length === 0) {
+    if (!presente) return 0;
+    let contStart = new Date(efStart);
+    if (cav.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < efStart)) {
+      const ent = new Date(cav.dataEntrada + 'T00:00:00');
+      if (ent > efStart) contStart = ent;
+    }
+    if (contStart > efEnd) return 0;
+    return Math.max(0, Math.floor((efEnd - contStart) / 86400000) + 1);
+  }
+  let dias = 0;
+  let cursor = new Date(efStart);
+  for (const m of dentroPeriodo) {
+    if (presente) dias += Math.max(0, Math.floor((m.d - cursor) / 86400000) + (m.tipo === 'saida' ? 1 : 0));
+    presente = m.tipo === 'entrada';
+    cursor = new Date(m.d);
+  }
+  if (presente) dias += Math.max(0, Math.floor((efEnd - cursor) / 86400000) + 1);
+  return dias;
+};
+
 const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   const { dias, total, parcial } = calcDias(cav, ref, movimentacoes);
   const valorBase = cav.mensalidade || 0;
@@ -92,14 +137,16 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins) continue;
-    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * dias });
+    const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
+    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins) continue;
     const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
-    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * dias });
+    const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
+    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * diasEfetivos });
   }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
@@ -231,10 +278,10 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
   let icon, color, title, sub;
   if (a.tipo === 'insumo') {
     const ins = getInsumo(a.insumoId);
-    const cat = getCategoria(ins.categoria);
-    icon = CATEGORIA_ICONS[cat.id]; color = cat.cor;
-    title = `${cav?.nome || a.cavaloId} · ${ins.nome}`;
-    sub = `${a.qtd} ${ins.unidade} · ${a.usuario}`;
+    const cat = ins ? getCategoria(ins.categoria) : null;
+    icon = cat ? CATEGORIA_ICONS[cat.id] : 'package'; color = cat?.cor || '#888';
+    title = `${cav?.nome || a.cavaloId} · ${ins?.nome || a.insumoId}`;
+    sub = `${a.qtd} ${ins?.unidade || 'un'} · ${a.usuario}`;
   } else if (a.tipo === 'entrada') {
     icon = 'plus'; color = '#3d6043';
     title = `Entrada · ${cav?.nome || a.cavaloId}`;
@@ -278,7 +325,7 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade }) => {
             fontSize: 9, color, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 600,
           }}>
             <Icon name={icon} size={10} />
-            <span>{a.tipo === 'insumo' ? getCategoria(getInsumo(a.insumoId).categoria).nome : a.tipo}</span>
+            <span>{a.tipo === 'insumo' ? (getCategoria(getInsumo(a.insumoId)?.categoria)?.nome || 'insumo') : a.tipo}</span>
           </div>
         </div>
         {currentUser?.role === 'admin' && removeAtividade && (
@@ -831,11 +878,12 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
             <NutritionRow
               icon="package" color="#b45309"
               nome="Óleo de soja" qtd={`${c.nutricao.oleoMlDia} ml`}
-              valor={formatBRL(c.nutricao.oleoMlDia * getInsumo('i_oleo').valorVenda) + ' / dia'}
+              valor={formatBRL(c.nutricao.oleoMlDia * (getInsumo('i_oleo')?.valorVenda ?? 0)) + ' / dia'}
             />
           )}
           {(c.nutricao?.suplementos || []).map(s => {
-            const ins = getInsumo(s.insumoId);
+            const ins = (insumos || []).find(i => i.id === s.insumoId) || getInsumo(s.insumoId);
+            if (!ins) return null;
             return (
               <NutritionRow key={s.insumoId}
                 icon="suplemento" color="#7c2d12"
@@ -873,8 +921,9 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
             </div>
           )}
           {meusRegistros.map((r, i) => {
-            const ins = getInsumo(r.insumoId);
-            const cat = getCategoria(ins.categoria);
+            const ins = (insumos || []).find(x => x.id === r.insumoId) || getInsumo(r.insumoId);
+            if (!ins) return null;
+            const cat = getCategoria(ins.categoria) || { cor: '#888', id: 'outro' };
             const editing = editRegQtd === r.id;
             return (
               <div key={r.id} style={{
@@ -1411,7 +1460,7 @@ const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCav
 // ─────────────────────────────────────────────────────────────
 // EDITAR CAVALO
 // ─────────────────────────────────────────────────────────────
-const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, addAtividade, currentUser }) => {
+const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, deleteCavalo, proprietarios = PROPRIETARIOS, addAviso, addAtividade, currentUser, insumos: insumosProp = INSUMOS }) => {
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (pid) => proprietarios.find(p => p.id === pid);
   const prop = getProprietarioLocal(c.proprietarioId);
@@ -1466,6 +1515,8 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [novoPerFreq, setNovoPerFreq] = useState('semanal');
   const [novoPerDia, setNovoPerDia] = useState(1);
   const [novoPerTurno, setNovoPerTurno] = useState('manha');
+  const [novoPerDataInicio, setNovoPerDataInicio] = useState('');
+  const [novoPerDataFim, setNovoPerDataFim] = useState('');
   const [showPerForm, setShowPerForm] = useState(false);
   const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
   const FREQ_OPTIONS = [
@@ -1493,18 +1544,25 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtd) || 1 } : s));
   const handleToggleSupTurno = (insumoId, turno) =>
     setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
+  const handleUpdateSuplementoDatas = (insumoId, field, value) =>
+    setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [field]: value || undefined } : s));
 
   const handleAddPeriodico = () => {
     if (!novoPerInsumoId || !novoPerQtd) return;
-    setPeriodicos(prev => [...prev, {
+    const entry = {
       insumoId: novoPerInsumoId,
       qtd: parseFloat(novoPerQtd) || 0,
       frequencia: novoPerFreq,
       diaSemana: novoPerDia,
       turno: novoPerTurno,
-    }]);
+    };
+    if (novoPerDataInicio) entry.dataInicio = novoPerDataInicio;
+    if (novoPerDataFim) entry.dataFim = novoPerDataFim;
+    setPeriodicos(prev => [...prev, entry]);
     setNovoPerInsumoId('');
     setNovoPerQtd('');
+    setNovoPerDataInicio('');
+    setNovoPerDataFim('');
     setShowPerForm(false);
   };
   const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
@@ -1631,11 +1689,19 @@ Suplementos: ${supNomes}` : ''}`;
             {periodicos.length > 0 && (
               <div style={{ marginBottom: 8 }}>
                 {periodicos.map((p, idx) => {
-                  const ins = INSUMOS.find(i => i.id === p.insumoId);
+                  const ins = insumosProp.find(i => i.id === p.insumoId);
+                  const fmtData = (d) => d ? d.split('-').reverse().join('/') : null;
                   return (
                     <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 13 }}>
-                      <span style={{ flex: 1, color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
-                      <span style={{ color: 'var(--ink-2)' }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label}{p.frequencia === 'diario' || p.frequencia?.startsWith('cada') ? '' : ` · ${DIAS_SEMANA[p.diaSemana]}`} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
+                      <div style={{ flex: 1 }}>
+                        <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{ins?.nome || p.insumoId}</span>
+                        <span style={{ color: 'var(--ink-2)', marginLeft: 6 }}>{p.qtd}{ins?.unidade ? ` ${ins.unidade}` : ''} · {FREQ_OPTIONS.find(f => f.value === p.frequencia)?.label}{p.frequencia === 'diario' || p.frequencia?.startsWith('cada') ? '' : ` · ${DIAS_SEMANA[p.diaSemana]}`} · {TURNO_OPTIONS.find(t => t.value === p.turno)?.label}</span>
+                        {(p.dataInicio || p.dataFim) && (
+                          <span style={{ display: 'block', fontSize: 11, color: 'var(--accent)', marginTop: 1 }}>
+                            📅 {fmtData(p.dataInicio) || 'início'} → {fmtData(p.dataFim) || 'sem fim'}
+                          </span>
+                        )}
+                      </div>
                       <button onClick={() => handleRemovePeriodico(idx)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, padding: 0 }}>×</button>
                     </div>
                   );
@@ -1656,7 +1722,7 @@ Suplementos: ${supNomes}` : ''}`;
                   fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
                 }}>
                   <option value="">Selecionar insumo…</option>
-                  {INSUMOS.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
+                  {insumosProp.filter(i => i.categoria === 'suplemento' || i.categoria === 'medicamento' || i.categoria === 'racao').map(i => (
                     <option key={i.id} value={i.id}>{i.nome}</option>
                   ))}
                 </select>
@@ -1664,7 +1730,7 @@ Suplementos: ${supNomes}` : ''}`;
                   <input type="number" step="0.1" value={novoPerQtd} onChange={e => setNovoPerQtd(e.target.value)}
                     placeholder="Dose"
                     style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
-                  {novoPerInsumoId && (() => { const i = INSUMOS.find(x => x.id === novoPerInsumoId); return <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>{i?.unidade || 'un'}</span>; })()}
+                  {novoPerInsumoId && (() => { const i = insumosProp.find(x => x.id === novoPerInsumoId); return <span style={{ fontSize: 11, color: 'var(--ink-3)', alignSelf: 'center' }}>{i?.unidade || 'un'}</span>; })()}
                   <select value={novoPerFreq} onChange={e => setNovoPerFreq(e.target.value)} style={{
                     border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px',
                     fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none',
@@ -1687,11 +1753,23 @@ Suplementos: ${supNomes}` : ''}`;
                   </select>
                 </div>
                 <div style={{ display: 'flex', gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Data início (opc.)</div>
+                    <input type="date" value={novoPerDataInicio} onChange={e => setNovoPerDataInicio(e.target.value)}
+                      style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Data fim (opc.)</div>
+                    <input type="date" value={novoPerDataFim} onChange={e => setNovoPerDataFim(e.target.value)}
+                      style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 13, color: 'var(--ink)', background: 'var(--bg)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={handleAddPeriodico} disabled={!novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0} style={{
                     flex: 1, background: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'var(--ink-1)' : 'var(--accent)', color: '#fff', border: 'none', borderRadius: 8,
                     padding: '8px', fontSize: 13, fontWeight: 600, cursor: !novoPerInsumoId || !novoPerQtd || parseFloat(novoPerQtd) <= 0 ? 'not-allowed' : 'pointer', fontFamily: 'var(--sans)',
                   }}>Adicionar</button>
-                  <button onClick={() => setShowPerForm(false)} style={{
+                  <button onClick={() => { setShowPerForm(false); setNovoPerDataInicio(''); setNovoPerDataFim(''); }} style={{
                     background: 'none', border: '1px solid var(--line)', borderRadius: 8,
                     padding: '8px 16px', fontSize: 13, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)',
                   }}>Cancelar</button>
@@ -1974,7 +2052,7 @@ Suplementos: ${supNomes}` : ''}`;
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
+              {insumosProp.filter(i => i.categoria === 'suplemento').map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
@@ -2008,6 +2086,20 @@ Suplementos: ${supNomes}` : ''}`;
                             ({(sup.qtdDia / 2).toFixed(1)} {i.unidade || 'un'}/trato)
                           </span>
                         )}
+                      </div>
+                    )}
+                    {sup && (
+                      <div style={{ display: 'flex', gap: 8, paddingLeft: 32, marginTop: 4 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 2 }}>Início</div>
+                          <input type="date" value={sup.dataInicio || ''} onChange={e => handleUpdateSuplementoDatas(i.id, 'dataInicio', e.target.value)}
+                            style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', background: 'transparent' }} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 2 }}>Fim (opc.)</div>
+                          <input type="date" value={sup.dataFim || ''} onChange={e => handleUpdateSuplementoDatas(i.id, 'dataFim', e.target.value)}
+                            style={{ width: '100%', border: '1px solid var(--line)', borderRadius: 6, padding: '4px 6px', fontSize: 12, color: 'var(--ink)', outline: 'none', background: 'transparent' }} />
+                        </div>
                       </div>
                     )}
                   </div>
