@@ -3093,8 +3093,10 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser }) => {
+const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento }) => {
   const [shareOpen, setShareOpen] = useState(false);
+  const [editRegId, setEditRegId] = useState(null);
+  const [editQtd, setEditQtd] = useState('');
   const empresa = getEmpresa();
 
   const findInsumo = (iid) => insumos.find(i => i.id === iid);
@@ -3127,7 +3129,21 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
   });
   const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
-  const total = mensTotal + perfilTotal + insumosTotal;
+
+  const procLinhas = procedimentos.filter(pr => {
+    if (!cavIds.has(pr.cavaloId)) return false;
+    if (!pr.data) return false;
+    const d = new Date(pr.data);
+    return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+  }).map(pr => {
+    const cav = cavalos.find(c => c.id === pr.cavaloId);
+    const sv = servicos.find(s => s.id === pr.servicoId);
+    const share = shareCount(cav || {});
+    return { proc: pr, cav, sv, share, total: (pr.total || 0) / share };
+  });
+  const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
+
+  const total = mensTotal + perfilTotal + insumosTotal + procedimentosTotal;
 
   const mesNome = MESES[ref.mes - 1];
   const mesAno = `${String(ref.mes).padStart(2, '0')} / ${ref.ano}`;
@@ -3143,16 +3159,18 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
         return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor };
       })),
       ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total })),
+      ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.sv?.nome || 'Procedimento', data: l.proc.data, valor: l.total })),
     ];
     addFaturaFechada({
       id: `ff_${id}_${ref.ano}_${ref.mes}`,
       proprietarioId: id, ano: ref.ano, mes: ref.mes,
       total, mensalidades: mensTotal, perfilNutricional: perfilTotal, insumosAvulsos: insumosTotal,
+      procedimentosAvulsos: procedimentosTotal,
       linhas, fechadaPor: currentUser?.nome || '',
     });
   };
 
-  const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, mensTotal, perfilTotal, insumosTotal, total, empresa });
+  const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, procLinhas, mensTotal, perfilTotal, insumosTotal, procedimentosTotal, total, empresa });
   const fileName = nomePdfFatura(p, ref, mesNome);
   const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
   const summary = [
@@ -3164,6 +3182,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     `Mensalidades: ${BRL(mensTotal)}`,
     perfilTotal > 0 ? `Óleo & suplementos: ${BRL(perfilTotal)}` : null,
     `Insumos avulsos: ${BRL(insumosTotal)}`,
+    procedimentosTotal > 0 ? `Procedimentos: ${BRL(procedimentosTotal)}` : null,
     `*Total: ${BRL(total)}*`,
   ].filter(l => l !== null).join('\n');
 
@@ -3238,18 +3257,74 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
 
           <SectionTitle>Insumos avulsos</SectionTitle>
           {insumosLinhas.length === 0 && <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', padding: '6px 0' }}>Sem insumos avulsos este mês.</div>}
-          {insumosLinhas.map(l => (
-            <TableRow
-              key={l.reg.id}
-              left={<>
-                {l.ins?.nome || '—'}
-                {l.ins?.injetavel && <span style={{ marginLeft: 6, fontSize: 8, padding: '1px 4px', borderRadius: 3, background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.06em', verticalAlign: 'middle' }}>INJ</span>}
-                {l.ins?.descartaveis?.length > 0 && !l.ins?.injetavel && <span style={{ marginLeft: 6, fontSize: 8, padding: '1px 4px', borderRadius: 3, background: '#f0f4ff', color: '#3b4fc3', fontWeight: 700, letterSpacing: '0.06em', verticalAlign: 'middle' }}>DESC</span>}
-              </>}
-              sub={`${l.cav?.nome || '—'} · ${l.reg.qtd} ${l.ins?.unidade || ''}`}
-              right={formatBRL(l.total)}
-            />
+          {insumosLinhas.map(l => {
+            const editing = editRegId === l.reg.id;
+            return (
+              <div key={l.reg.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink)' }}>
+                    {l.ins?.nome || '—'}
+                    {l.ins?.injetavel && <span style={{ marginLeft: 6, fontSize: 8, padding: '1px 4px', borderRadius: 3, background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.06em', verticalAlign: 'middle' }}>INJ</span>}
+                    {l.ins?.descartaveis?.length > 0 && !l.ins?.injetavel && <span style={{ marginLeft: 6, fontSize: 8, padding: '1px 4px', borderRadius: 3, background: '#f0f4ff', color: '#3b4fc3', fontWeight: 700, letterSpacing: '0.06em', verticalAlign: 'middle' }}>DESC</span>}
+                  </div>
+                  {editing ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                      <input
+                        type="number" min="0.01" step="0.01"
+                        value={editQtd}
+                        onChange={e => setEditQtd(e.target.value)}
+                        style={{ width: 64, border: '1px solid var(--accent)', borderRadius: 6, padding: '2px 6px', fontSize: 12, fontFamily: 'var(--sans)' }}
+                        autoFocus
+                      />
+                      <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{l.ins?.unidade || ''}</span>
+                      <button onClick={() => { const q = parseFloat(editQtd); if (q > 0 && updateRegistro) updateRegistro(l.reg.id, { qtd: q }); setEditRegId(null); }} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontFamily: 'var(--sans)', fontWeight: 600 }}>OK</button>
+                      <button onClick={() => setEditRegId(null)} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 6, background: 'var(--soft)', color: 'var(--ink-2)', border: '1px solid var(--line)', fontFamily: 'var(--sans)' }}>×</button>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                      {l.cav?.nome || '—'} ·{' '}
+                      {!faturaExistente && updateRegistro
+                        ? <span onClick={() => { setEditRegId(l.reg.id); setEditQtd(String(l.reg.qtd)); }} style={{ cursor: 'pointer', textDecoration: 'underline dotted', color: 'var(--accent)' }}>{l.reg.qtd} {l.ins?.unidade || ''}</span>
+                        : `${l.reg.qtd} ${l.ins?.unidade || ''}`
+                      }
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+                  <span style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(l.total)}</span>
+                  {!faturaExistente && deleteRegistro && (
+                    <button onClick={() => { if (window.confirm(`Remover ${l.ins?.nome || 'item'}?`)) deleteRegistro(l.reg.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {!faturaExistente && (
+            <button onClick={() => setScreen('registrar')} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
+              + Registrar insumo
+            </button>
+          )}
+
+          {procLinhas.length > 0 && <SectionTitle>Procedimentos veterinários</SectionTitle>}
+          {procLinhas.map(l => (
+            <div key={l.proc.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.sv?.nome || 'Procedimento'}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{l.cav?.nome || '—'} · {l.proc.data || ''}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+                <span style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(l.total)}</span>
+                {!faturaExistente && deleteProcedimento && (
+                  <button onClick={() => { if (window.confirm(`Remover ${l.sv?.nome || 'procedimento'}?`)) deleteProcedimento(l.proc.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
+                )}
+              </div>
+            </div>
           ))}
+          {!faturaExistente && (
+            <button onClick={() => setScreen('registrarProcedimento')} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
+              + Registrar procedimento
+            </button>
+          )}
 
           {/* totais */}
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)', fontFamily: 'var(--sans)' }}>
@@ -3264,6 +3339,11 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
               <span>Insumos avulsos</span><span>{formatBRL(insumosTotal)}</span>
             </div>
+            {procedimentosTotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
+                <span>Procedimentos</span><span>{formatBRL(procedimentosTotal)}</span>
+              </div>
+            )}
             <div style={{
               display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
               padding: '10px 0 0', borderTop: '1px solid var(--ink)', marginTop: 6,

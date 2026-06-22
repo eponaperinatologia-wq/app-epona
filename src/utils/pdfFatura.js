@@ -4,8 +4,8 @@ const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
 
 export function gerarPdfFatura({
   proprietario, ref, mesNome,
-  propMens, propPerfil, insumosLinhas,
-  mensTotal, perfilTotal, insumosTotal, total,
+  propMens, propPerfil, insumosLinhas, procLinhas = [],
+  mensTotal, perfilTotal, insumosTotal, procedimentosTotal = 0, total,
   empresa = {},
 }) {
   const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
@@ -138,6 +138,15 @@ export function gerarPdfFatura({
   }
   y += 4;
 
+  // ── Procedimentos veterinários ────────────────────────────────
+  if (procLinhas.length > 0) {
+    section('Procedimentos veterinários');
+    procLinhas.forEach(l =>
+      row(l.sv?.nome || 'Procedimento', `${l.cav?.nome || '—'} · ${l.proc.data || ''}`, BRL(l.total))
+    );
+    y += 4;
+  }
+
   // ── Totais ────────────────────────────────────────────────────
   doc.setDrawColor(42, 40, 32);
   doc.setLineWidth(0.4);
@@ -156,6 +165,7 @@ export function gerarPdfFatura({
   totRow('Mensalidades', BRL(mensTotal));
   if (perfilTotal > 0) totRow('Óleo & Suplementos', BRL(perfilTotal));
   totRow('Insumos avulsos', BRL(insumosTotal));
+  if (procedimentosTotal > 0) totRow('Procedimentos', BRL(procedimentosTotal));
   y += 2;
   doc.setLineWidth(0.3);
   hLine(y);
