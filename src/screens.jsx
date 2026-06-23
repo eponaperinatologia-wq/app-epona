@@ -7,7 +7,7 @@ import {
   CAVALOS, PROPRIETARIOS, INSUMOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS,
   AVISOS, ATIVIDADES, CATEGORIAS_SERVICOS, SERVICOS,
   getCavalo, getInsumo, getCategoria, idade, formatBRL,
-  consumoDiarioCavalo,
+  consumoDiarioCavalo, norm,
 } from './data';
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -729,12 +729,12 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
   const ausentes = cavalos.filter(c => !c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const filteredPresentes = presentes.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    c.baia.toLowerCase().includes(search.toLowerCase())
+    norm(c.nome).includes(norm(search)) ||
+    norm(c.baia).includes(norm(search))
   );
   const filteredAusentes = ausentes.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    c.baia.toLowerCase().includes(search.toLowerCase())
+    norm(c.nome).includes(norm(search)) ||
+    norm(c.baia).includes(norm(search))
   );
 
   const renderCavalo = (c) => {
@@ -1271,7 +1271,7 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
   const [busca, setBusca] = useState('');
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
   const filtered = (filtro === 'all' ? insumos : insumos.filter(i => i.categoria === filtro))
-    .filter(i => !busca.trim() || i.nome.toLowerCase().includes(busca.trim().toLowerCase()));
+    .filter(i => !busca.trim() || norm(i.nome).includes(norm(busca.trim())));
 
   return (
     <div style={{ paddingBottom: 90 }}>
@@ -1519,7 +1519,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [propSearch, setPropSearch] = useState('');
   const sortedProprietarios = [...proprietarios].sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const filteredProprietarios = propSearch.trim()
-    ? sortedProprietarios.filter(p => p.nome.toLowerCase().includes(propSearch.toLowerCase()))
+    ? sortedProprietarios.filter(p => norm(p.nome).includes(norm(propSearch)))
     : sortedProprietarios;
   const [categorias, setCategorias] = useState(new Set(c.categorias || (c.categoria ? [c.categoria] : [])));
   const [dataCobricao, setDataCobricao] = useState(c.gestacao?.dataCobricao || c.dataCobertura || '');

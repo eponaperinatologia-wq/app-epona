@@ -4,7 +4,7 @@ import React from 'react';
 import { Icon, CATEGORIA_ICONS } from './icons';
 import {
   CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, SETORES,
-  getCavalo, getInsumo, getCategoria, formatBRL,
+  getCavalo, getInsumo, getCategoria, formatBRL, norm,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
 
@@ -122,13 +122,13 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
 
   const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
   const cavalosFiltrados = cavalosDisponiveis.filter(c =>
-    (c.nome || '').toLowerCase().includes(search.toLowerCase()) ||
-    (c.baia || '').toLowerCase().includes(search.toLowerCase())
+    norm(c.nome).includes(norm(search)) ||
+    norm(c.baia).includes(norm(search))
   );
 
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
-    .filter(i => !search || i.nome.toLowerCase().includes(search.toLowerCase()));
+    .filter(i => !search || norm(i.nome).includes(norm(search)));
 
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -357,7 +357,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
-    .filter(i => !search || i.nome.toLowerCase().includes(search.toLowerCase()));
+    .filter(i => !search || norm(i.nome).includes(norm(search)));
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
 
   const toggleCav = (id) => {

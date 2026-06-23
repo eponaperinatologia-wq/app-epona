@@ -495,6 +495,8 @@ const cobrancaPerfilMes = (cavaloId, ref, movs, insumos) => {
 
 const PARTOS = [];
 
+const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
 export {
   PROPRIETARIOS, CAVALOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS, INSUMOS, DESCARTAVEIS_INJETAVEL,
   CATEGORIAS_SERVICOS, SERVICOS, EXAMES_LABORATORIAIS,
@@ -502,4 +504,5 @@ export {
   FUNCIONARIOS, ESCALA_VAZIA, EVENTOS, PARTOS,
   getCavalo, getProprietario, getInsumo, getCategoria, idade, formatBRL,
   diasNoMes, proporcaoMensalidade, findInsumo, consumoDiarioCavalo, cobrancaPerfilMes,
+  norm,
 };

@@ -1,6 +1,7 @@
 // nutricional.jsx — Lista nutricional compacta, agrupada por baia/piquete, com busca e trato por horário
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
+import { norm } from './data';
 import { TopBar, HorseAvatar } from './screens';
 
 // ─────────────────────────────────────────────────────────────
@@ -314,12 +315,12 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
   // Filtrar + agrupar por baia/piquete
   const groups = useMemo(() => {
     const presentes = cavalos.filter(c => c.presente);
-    const q = busca.trim().toLowerCase();
+    const q = busca.trim();
     const filtered = q
       ? presentes.filter(c =>
-          c.nome.toLowerCase().includes(q) ||
-          (c.baia || '').toLowerCase().includes(q) ||
-          (c.piquete ? String(c.piquete).toLowerCase().includes(q) : false)
+          norm(c.nome).includes(norm(q)) ||
+          norm(c.baia).includes(norm(q)) ||
+          norm(String(c.piquete || '')).includes(norm(q))
         )
       : presentes;
 

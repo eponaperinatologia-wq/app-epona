@@ -1,7 +1,7 @@
 // extra-screens.jsx — Avisos, Movimentação (entrada/saída) e Novo Cavalo
 import React from 'react';
 import { Icon } from './icons';
-import { getCavalo, getProprietario, formatBRL, PROPRIETARIOS } from './data';
+import { getCavalo, getProprietario, formatBRL, PROPRIETARIOS, norm } from './data';
 import { TopBar, HorseAvatar, fmtDataHora } from './screens';
 const { useState: useStateE } = React;
 
@@ -262,8 +262,8 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
     ? cavalos.filter(c => c.presente)
     : cavalos).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const cavalosFiltrados = cavalosVisiveis.filter(c =>
-    c.nome.toLowerCase().includes(search.toLowerCase()) ||
-    c.baia.toLowerCase().includes(search.toLowerCase())
+    norm(c.nome).includes(norm(search)) ||
+    norm(c.baia).includes(norm(search))
   );
 
   const confirmar = () => {

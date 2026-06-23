@@ -1,6 +1,7 @@
 // gestacao.jsx — Gestação e Partos: gestantes, detalhe e acompanhamento mensal
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
+import { norm } from './data';
 import { TopBar } from './screens';
 
 // ── Helpers ───────────────────────────────────────────────────
@@ -91,7 +92,7 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
   , [cavalos]);
 
   const gestantesFiltradas = q
-    ? gestantes.filter(c => c.nome.toLowerCase().includes(q) || proprietarios.find(p => p.id === c.proprietarioId)?.nome.toLowerCase().includes(q))
+    ? gestantes.filter(c => norm(c.nome).includes(norm(q)) || proprietarios.find(p => p.id === c.proprietarioId)?.nome && norm(proprietarios.find(p => p.id === c.proprietarioId).nome).includes(norm(q)))
     : gestantes;
 
   const gestantesDentro = gestantesFiltradas.filter(c => !c._foraHaras);
@@ -102,7 +103,7 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
     ? sortedPartos.filter(pt => {
         const egua = cavalos.find(c => c.id === pt.eguaId);
         const potro = cavalos.find(c => c.id === pt.potroId);
-        return (egua?.nome || '').toLowerCase().includes(q) || (potro?.nome || '').toLowerCase().includes(q);
+        return norm(egua?.nome).includes(norm(q)) || norm(potro?.nome).includes(norm(q));
       })
     : sortedPartos;
 
