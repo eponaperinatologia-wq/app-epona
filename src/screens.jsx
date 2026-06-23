@@ -2909,7 +2909,7 @@ const FaturasScreen = ({ setScreen, setSelected, registros, insumos = [], propri
   const getFaturaFechada = (propId) => faturasFechadas.find(f => f.proprietarioId === propId && f.ano === ref.ano && f.mes === ref.mes);
 
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
-  const faturas = proprietarios.map(p => {
+  const faturas = [...proprietarios].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
     const ff = getFaturaFechada(p.id);
     const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
     if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
@@ -3139,7 +3139,8 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     const cav = cavalos.find(c => c.id === pr.cavaloId);
     const sv = servicos.find(s => s.id === pr.servicoId);
     const share = shareCount(cav || {});
-    return { proc: pr, cav, sv, share, total: (pr.total || 0) / share };
+    const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
+    return { proc: pr, cav, sv, nomeSv, share, total: (pr.total || 0) / share };
   });
   const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
 
@@ -3159,7 +3160,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
         return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor };
       })),
       ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total })),
-      ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.sv?.nome || 'Procedimento', data: l.proc.data, valor: l.total })),
+      ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total })),
     ];
     addFaturaFechada({
       id: `ff_${id}_${ref.ano}_${ref.mes}`,
@@ -3309,13 +3310,13 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
           {procLinhas.map(l => (
             <div key={l.proc.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.sv?.nome || 'Procedimento'}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.nomeSv}</div>
                 <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{l.cav?.nome || '—'} · {l.proc.data || ''}</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
                 <span style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(l.total)}</span>
                 {!faturaExistente && deleteProcedimento && (
-                  <button onClick={() => { if (window.confirm(`Remover ${l.sv?.nome || 'procedimento'}?`)) deleteProcedimento(l.proc.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
+                  <button onClick={() => { if (window.confirm(`Remover ${l.nomeSv}?`)) deleteProcedimento(l.proc.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
                 )}
               </div>
             </div>

@@ -142,7 +142,7 @@ export function gerarPdfFatura({
   if (procLinhas.length > 0) {
     section('Procedimentos veterinários');
     procLinhas.forEach(l =>
-      row(l.sv?.nome || 'Procedimento', `${l.cav?.nome || '—'} · ${l.proc.data || ''}`, BRL(l.total))
+      row(l.nomeSv || l.sv?.nome || 'Procedimento', `${l.cav?.nome || '—'} · ${l.proc.data || ''}`, BRL(l.total))
     );
     y += 4;
   }

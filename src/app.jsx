@@ -496,11 +496,15 @@ const loadAllData = async () => {
       const dataCobricao = new Date(c.gestacao.dataCobricao + 'T00:00:00');
       const diasDeGestacao = Math.floor((Date.now() - dataCobricao.getTime()) / (1000 * 60 * 60 * 24));
       if (diasDeGestacao < 300) continue;
-      const jaExiste = avisos.some(a => a.tipo === 'maternidade' && a.cavaloId === c.id && !a.resolvido);
+      const avisoId = 'av_mat_' + c.id + '_' + c.gestacao.dataCobricao;
+      const jaExiste = avisos.some(a =>
+        a.id === avisoId ||
+        (a.tipo === 'maternidade' && a.cavaloId === c.id && !a.resolvido)
+      );
       if (jaExiste) continue;
       const texto = `A égua ${c.nome} completou ${diasDeGestacao} dias de gestação e deve ser transferida para o piquete maternidade.`;
       const novoAviso = {
-        id: 'av_mat_' + c.id + '_' + hoje,
+        id: avisoId,
         autor: 'Sistema', avatar: '🏥',
         tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
         texto, urgente: true, resolvido: false, resolvidoPor: '',
