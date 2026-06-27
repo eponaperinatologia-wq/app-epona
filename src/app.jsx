@@ -329,7 +329,7 @@ const loadAllData = async () => {
     let lancamentoId = null;
 
     if (data.tipo !== 'ajuste' && (data.valorTotal || 0) > 0) {
-      const lancId = 'lan_ec_' + ecId;
+      const lancId = 'lan_' + ecId;
       lancamentoId = lancId;
       const dataLan = data.pago ? data.data : (data.dataVencimento || data.data);
       const lancamento = {
