@@ -1387,7 +1387,7 @@ const CadMensalidadesScreen = ({ setScreen }) => (
         background: 'var(--accent-soft)', border: '1px solid #b8c8b0', borderRadius: 12,
         padding: '12px 14px', marginBottom: 12, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
       }}>
-        A mensalidade <strong style={{ color: 'var(--ink)' }}>já inclui ração e feno</strong>. Óleo, suplementos e insumos avulsos são cobrados à parte.
+        A mensalidade <strong style={{ color: 'var(--ink)' }}>já inclui Nutrição Base (ração, feno, sal mineral)</strong>. Óleo, suplementos e insumos avulsos são cobrados à parte.
       </div>
       {CAVALOS.map(c => (
         <div key={c.id} style={{

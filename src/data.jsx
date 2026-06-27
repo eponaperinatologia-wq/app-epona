@@ -172,11 +172,12 @@ const CAVALOS = [
 const TAXA_INJETAVEL = 3.50;
 
 const CATEGORIAS_INSUMOS = [
-  { id: 'medicamento', nome: 'Medicamento', cor: '#991b1b' },
-  { id: 'descartavel', nome: 'Descartável', cor: '#4b5563' },
-  { id: 'suplemento',  nome: 'Suplemento',  cor: '#7c2d12' },
-  { id: 'oleo',        nome: 'Óleo',        cor: '#b45309' },
-  { id: 'racao',       nome: 'Ração',       cor: '#a16207' },
+  { id: 'nutricao_base', nome: 'Nutrição Base', cor: '#92400e', incluidoMensalidade: true },
+  { id: 'racao',         nome: 'Ração',         cor: '#a16207', incluidoMensalidade: true },
+  { id: 'suplemento',    nome: 'Suplemento',    cor: '#7c2d12' },
+  { id: 'oleo',          nome: 'Óleo',          cor: '#b45309' },
+  { id: 'medicamento',   nome: 'Medicamento',   cor: '#991b1b' },
+  { id: 'descartavel',   nome: 'Descartável',   cor: '#4b5563' },
 ];
 
 const CATEGORIAS_SERVICOS = [

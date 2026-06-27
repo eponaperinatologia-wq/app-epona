@@ -146,10 +146,15 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
         <Field label="Categoria">
           <select value={categoria} onChange={e => setCategoria(e.target.value)} style={inputSt}>
             {CATEGORIAS_INSUMOS.map(c => (
-              <option key={c.id} value={c.id}>{c.nome}</option>
+              <option key={c.id} value={c.id}>{c.nome}{c.incluidoMensalidade ? ' · incluso na mensalidade' : ''}</option>
             ))}
           </select>
         </Field>
+        {(categoria === 'nutricao_base' || categoria === 'racao') && (
+          <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#78350f', marginTop: -6 }}>
+            Incluso na mensalidade · não cobrado à parte nas faturas. Use para controle de consumo e estoque.
+          </div>
+        )}
 
         <Field label="Fornecedor (opcional)">
           <input
