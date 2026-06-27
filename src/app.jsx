@@ -130,9 +130,40 @@ const loadAllData = async () => {
     setCompras(comprasData || []);
     setAtividades(atividadesData || []);
     setRecorrencias(recorrenciasData || []);
-    setEstoqueCompras(estoqueComprasData || []);
+
+    // Migração: cria saídas para compras de estoque que ainda não têm lancamento vinculado
+    const today = new Date().toISOString().slice(0, 10);
+    const comprasSemLan = (estoqueComprasData || []).filter(c =>
+      c.tipo !== 'ajuste' && (c.valorTotal || 0) > 0 && !c.lancamentoId
+    );
+    const lansEstoque = comprasSemLan.map(c => {
+      const ins = (insumosData || []).find(i => i.id === c.insumoId);
+      const lancId = 'lan_' + c.id;
+      const dataLan = c.pago ? c.data : (c.dataVencimento || c.data || today);
+      return {
+        id: lancId, tipo: 'saida', valor: c.valorTotal,
+        data: dataLan, quem: c.fornecedor || '',
+        motivo: `${c.qtd} ${c.unidade || ins?.unidade || 'un'} de ${ins?.nome || c.insumoId}`,
+        categoria: 'Compra de Insumo',
+        pago: c.pago || false, pagoEm: c.pago ? c.data : null, recorrenciaId: null,
+        _ecId: c.id,
+      };
+    });
+    if (lansEstoque.length > 0) {
+      lansEstoque.forEach(l => {
+        const { _ecId, ...lan } = l;
+        dbInsertIgnore('financeiro_lancamentos', toDbLancamento(lan));
+        dbUpdate('estoque_compras', _ecId, { lancamento_id: lan.id });
+      });
+    }
+    setEstoqueCompras((estoqueComprasData || []).map(c => {
+      const lan = lansEstoque.find(l => l._ecId === c.id);
+      return lan ? { ...c, lancamentoId: lan.id } : c;
+    }));
+
     const novosLans = _gerarLansRecorrentes(recorrenciasData || [], lancamentosData || []);
-    setLancamentos([...(lancamentosData || []), ...novosLans]);
+    const lansEstoqueLimpos = lansEstoque.map(({ _ecId, ...l }) => l);
+    setLancamentos([...(lancamentosData || []), ...novosLans, ...lansEstoqueLimpos]);
     if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
   } catch (err) {
