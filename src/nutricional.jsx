@@ -49,8 +49,6 @@ const isPeriodicoHoje = (p) => {
   return false;
 };
 
-const ORDEM_KEY = 'nutricional_ordem';
-
 // ─────────────────────────────────────────────────────────────
 // Chip colorido inline
 // ─────────────────────────────────────────────────────────────
@@ -327,13 +325,10 @@ const PiqueteHeader = ({ label, count, expanded, onToggle, onMoveUp, onMoveDown,
 // ─────────────────────────────────────────────────────────────
 // Tela principal
 // ─────────────────────────────────────────────────────────────
-export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso }) {
+export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso, nutricaoOrdem = [], updateNutricaoOrdem }) {
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
-  const [ordemGrupos, setOrdemGrupos] = useState(() => {
-    try { return JSON.parse(localStorage.getItem(ORDEM_KEY) || '[]'); }
-    catch { return []; }
-  });
+  const [ordemGrupos, setOrdemGrupos] = useState(nutricaoOrdem);
   const trato = getTratoAtual();
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
 
@@ -389,8 +384,8 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
     if (newIdx < 0 || newIdx >= keys.length) return;
     const next = [...keys];
     [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
-    localStorage.setItem(ORDEM_KEY, JSON.stringify(next));
     setOrdemGrupos(next);
+    updateNutricaoOrdem?.(next);
   };
 
   const temBusca = busca.trim().length > 0;

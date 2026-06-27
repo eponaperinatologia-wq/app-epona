@@ -72,6 +72,7 @@ function AppEpona() {
   const [recorrencias, setRecorrencias] = useState([]);
   const [estoqueCompras, setEstoqueCompras] = useState([]);
   const [empresaInfo, setEmpresaInfo] = useState({});
+  const [nutricaoOrdem, setNutricaoOrdem] = useState([]);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -168,6 +169,7 @@ const loadAllData = async () => {
     setLancamentos([...(lancamentosData || []), ...novosLans, ...lansEstoqueLimpos]);
     if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
+    setNutricaoOrdem(configResult?.data?.nutricao_ordem || []);
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
   }
@@ -353,6 +355,12 @@ const loadAllData = async () => {
   const deleteRecorrencia = (id) => {
     setRecorrencias(prev => prev.filter(r => r.id !== id));
     dbDelete('lancamentos_recorrentes', id);
+  };
+
+  // ── Ordem dos grupos de nutrição ─────────────────────────
+  const updateNutricaoOrdem = (ordem) => {
+    setNutricaoOrdem(ordem);
+    dbUpdate('configuracoes', 'global', { nutricao_ordem: ordem });
   };
 
   // ── Estoque de compras CRUD ───────────────────────────────
@@ -844,7 +852,7 @@ const loadAllData = async () => {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
   } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
-  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} />;
+  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalos} proprietarios={proprietarios} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} updateCavalo={updateCavalo} insumos={insumos} addRegistro={addRegistro} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalos} setCavalos={setCavalos} proprietarios={proprietarios} />;
