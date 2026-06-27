@@ -275,8 +275,8 @@ export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 
-export async function fetchAll(table, mapper) {
-  const { data, error } = await supabase.from(table).select('*');
+export async function fetchAll(table, mapper, limit = 2000) {
+  const { data, error } = await supabase.from(table).select('*').limit(limit);
   if (error) { console.error(`fetchAll ${table}:`, error.message); return []; }
   return mapper ? (data || []).map(mapper) : (data || []);
 }
@@ -307,5 +307,12 @@ export const dbDelete = async (table, id) => {
 export const dbUpsert = async (table, row) => {
   const { error } = await supabase.from(table).upsert([row]);
   if (error) { notifyDbError('upsert', table, error.message); return false; }
+  return true;
+};
+
+// Insert silently ignoring PK conflict — used for auto-generated avisos
+export const dbInsertIgnore = async (table, row) => {
+  const { error } = await supabase.from(table).upsert([row], { onConflict: 'id', ignoreDuplicates: true });
+  if (error) { notifyDbError('insert', table, error.message); return false; }
   return true;
 };

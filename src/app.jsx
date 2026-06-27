@@ -22,7 +22,7 @@ import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
 import { supabase } from './utils/supabase';
 import {
-  fetchAll, dbInsert, dbUpdate, dbDelete,
+  fetchAll, dbInsert, dbInsertIgnore, dbUpdate, dbDelete,
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
@@ -103,7 +103,7 @@ const loadAllData = async () => {
       fetchAll('movimentacoes', fromDbMovimentacao),
       fetchAll('procedimentos', fromDbProcedimento),
       fetchAll('faturas_fechadas', fromDbFaturaFechada),
-      fetchAll('avisos', fromDbAviso),
+      fetchAll('avisos', fromDbAviso, 5000),
       fetchAll('lista_compras', fromDbListaCompra),
       fetchAll('atividades', fromDbAtividade),
       fetchAll('financeiro_lancamentos', fromDbLancamento),
@@ -502,17 +502,18 @@ const loadAllData = async () => {
         }
         const ins = insumos.find(i => i.id === p.insumoId);
         const texto = `📅 ${ins?.nome || p.insumoId} para ${c.nome} (${p.qtd} ${ins?.unidade || 'un'})`;
-        const jaExiste = avisos.some(a => a.texto === texto && a.data_entrada === hoje);
+        const avisoId = `av_per_${hoje}_${c.id}_${(p.insumoId || 'x').replace(/[^a-zA-Z0-9]/g, '_')}`;
+        const jaExiste = avisos.some(a => a.id === avisoId || (a.texto === texto && a.data_entrada === hoje));
         if (!jaExiste) {
           const novoAviso = {
-            id: 'av_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6),
+            id: avisoId,
             autor: 'Sistema', avatar: '⚙️', tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }), texto,
             urgente: false, resolvido: false, resolvidoPor: '',
             tipo: 'periodico', cavaloId: c.id,
             data_entrada: hoje, respostas: [],
           };
-          setAvisos(prev => [novoAviso, ...prev]);
-          dbInsert('avisos', toDbAviso(novoAviso));
+          setAvisos(prev => prev.some(a => a.id === avisoId) ? prev : [novoAviso, ...prev]);
+          dbInsertIgnore('avisos', toDbAviso(novoAviso));
         }
       }
     }
@@ -541,7 +542,7 @@ const loadAllData = async () => {
       };
       setAvisos(prev => {
         if (prev.some(a => a.id === novoAviso.id)) return prev;
-        dbInsert('avisos', toDbAviso(novoAviso));
+        dbInsertIgnore('avisos', toDbAviso(novoAviso));
         sendPush('🏥 Alerta maternidade', texto, 'all');
         return [novoAviso, ...prev];
       });
