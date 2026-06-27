@@ -238,6 +238,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
               🚫 NÃO COMER RAÇÃO AGORA
             </Chip>
           )}
+          {(n.fenoKgDia || 0) > 0 && <Chip cor="#92400e">🌾 Feno {fmtNum(n.fenoKgDia)} kg/dia</Chip>}
           {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtNum(oleoTrato)} ml</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">

@@ -6,7 +6,7 @@ import {
   HomeScreen, CavalosScreen, CavaloDetalheScreen, EditarCavaloScreen, AddCavaloScreen,
   ProprietarioScreen,
   CadastrosScreen, CadProprietariosScreen, CadInsumosScreen, CadMensalidadesScreen, CadCavalosScreen, CadEmpresaScreen,
-  FaturasScreen, FaturaDetalheScreen,
+  FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
   HistoricoScreen,
   TabBar, OperacionalTabBar,
 } from './screens';
@@ -26,6 +26,7 @@ import {
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
+  fromDbLancamento, toDbLancamento,
   fromDbAviso, toDbAviso,
   fromDbListaCompra, toDbListaCompra,
   fromDbAtividade, toDbAtividade,
@@ -65,6 +66,7 @@ function AppEpona() {
   const [servicos, setServicos] = useState([]);
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
+  const [lancamentos, setLancamentos] = useState([]);
   const [empresaInfo, setEmpresaInfo] = useState({});
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
@@ -88,7 +90,7 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, configResult
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, configResult
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -104,6 +106,7 @@ const loadAllData = async () => {
       fetchAll('avisos', fromDbAviso),
       fetchAll('lista_compras', fromDbListaCompra),
       fetchAll('atividades', fromDbAtividade),
+      fetchAll('financeiro_lancamentos', fromDbLancamento),
       supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
     ]);
     setCavalos(cavalosData || []);
@@ -120,6 +123,7 @@ const loadAllData = async () => {
     setAvisos(avisosData || []);
     setCompras(comprasData || []);
     setAtividades(atividadesData || []);
+    setLancamentos(lancamentosData || []);
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
@@ -228,6 +232,11 @@ const loadAllData = async () => {
         if (et === 'INSERT') setFaturasFechadas(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaFechada(n)]);
         if (et === 'UPDATE') setFaturasFechadas(prev => prev.map(f => f.id === n.id ? fromDbFaturaFechada(n) : f));
         if (et === 'DELETE') setFaturasFechadas(prev => prev.filter(f => f.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'financeiro_lancamentos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setLancamentos(prev => prev.some(l => l.id === n.id) ? prev : [...prev, fromDbLancamento(n)]);
+        if (et === 'UPDATE') setLancamentos(prev => prev.map(l => l.id === n.id ? fromDbLancamento(n) : l));
+        if (et === 'DELETE') setLancamentos(prev => prev.filter(l => l.id !== o.id));
       })
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -424,6 +433,21 @@ const loadAllData = async () => {
     const newProc = { id: 'proc_' + Date.now(), ...data };
     setProcedimentos(prev => [...prev, newProc]);
     dbInsert('procedimentos', toDbProcedimento(newProc));
+  };
+
+  // ── Lançamentos financeiros ───────────────────────────────────
+  const addLancamento = (data) => {
+    const novo = { id: 'lan_' + Date.now(), ...data };
+    setLancamentos(prev => [...prev, novo]);
+    dbInsert('financeiro_lancamentos', toDbLancamento(novo));
+  };
+  const updateLancamento = (id, changes) => {
+    setLancamentos(prev => prev.map(l => l.id === id ? { ...l, ...changes } : l));
+    dbUpdate('financeiro_lancamentos', id, toDbLancamento({ ...lancamentos.find(l => l.id === id), ...changes }));
+  };
+  const deleteLancamento = (id) => {
+    setLancamentos(prev => prev.filter(l => l.id !== id));
+    dbDelete('financeiro_lancamentos', id);
   };
 
   // ── Avisos ────────────────────────────────────────────────────
@@ -629,7 +653,7 @@ const loadAllData = async () => {
     if (tab === 'home' && !['historico'].includes(screen)) setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
-    if (tab === 'faturas' && !['faturaDetalhe'].includes(screen)) setScreen('faturas');
+    if (tab === 'faturas' && !['faturaDetalhe', 'consumo'].includes(screen)) setScreen('faturas');
     if (tab === 'nutricional' && !['editarCavalo', 'cavaloDetalhe'].includes(screen)) setScreen('nutricional');
     if (tab === 'avisos')    setScreen('avisos');
     if (tab === 'equipe')    setScreen('planner');
@@ -651,7 +675,7 @@ const loadAllData = async () => {
     if (s === 'home' || s === 'historico') setTab('home');
     if (s === 'cavalos' || s === 'addCavalo' || s === 'cavaloDetalhe' || s === 'editarCavalo') setTab('cavalos');
     if (s === 'cadastros' || s.startsWith('cad') || s === 'addInsumo' || s === 'editarInsumo' || s === 'cadEmpresa') setTab('cadastros');
-    if (s === 'faturas' || s === 'faturaDetalhe') setTab('faturas');
+    if (s === 'faturas' || s === 'faturaDetalhe' || s === 'consumo') setTab('faturas');
     if (s === 'avisos') setTab('avisos');
     if (s === 'nutricional') setTab('nutricional');
     if (s === 'compras') setTab('compras');
@@ -690,7 +714,8 @@ const loadAllData = async () => {
   else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FaturasScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} currentUser={currentUser} />;
+  else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} />;
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
@@ -709,7 +734,7 @@ const loadAllData = async () => {
   }
 
   const isOperacional = currentUser?.role === 'operacional';
-  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (

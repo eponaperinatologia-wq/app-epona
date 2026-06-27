@@ -244,6 +244,18 @@ export const toDbAtividade = a => ({
   mes: a.mes || null, data: a.data || null, hora: a.hora || '',
 });
 
+export const fromDbLancamento = r => ({
+  id: r.id, tipo: r.tipo, valor: Number(r.valor) || 0,
+  data: r.data, quem: r.quem || '', motivo: r.motivo || '',
+  categoria: r.categoria || '', pago: !!r.pago, pagoEm: r.pago_em || null,
+});
+
+export const toDbLancamento = l => ({
+  id: l.id, tipo: l.tipo, valor: l.valor, data: l.data,
+  quem: l.quem || '', motivo: l.motivo || '', categoria: l.categoria || '',
+  pago: !!l.pago, pago_em: l.pagoEm || null,
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };

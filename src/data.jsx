@@ -49,7 +49,7 @@ const PROPRIETARIOS = [
   { id: 'p44', nome: 'Yasmin Omais',                        telefone: '+55 (67) 99262-5682', email: '', cavalos: ['c115'] },
 ];
 
-const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, suplementos: [], racaoBlock: { manha: false, tarde: false } };
+const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, fenoKgDia: 0, suplementos: [], racaoBlock: { manha: false, tarde: false } };
 
 const CAVALOS = [
   { id: 'c1',   nome: 'Wheeny Jhenny',            pelagem: '', sexo: 'F', categoria: '', nascimento: '', proprietarioIds: ['p1'],  baia: '', piquete: '', mensalidade: 1950, obs: '', nutricao: { ...NUTRICAO_VAZIO } },
@@ -447,8 +447,8 @@ const findInsumo = (id, insumos) => {
   return getInsumo(id);
 };
 
-const consumoDiarioCavalo = (cavaloId, insumos) => {
-  const cav = getCavalo(cavaloId);
+const consumoDiarioCavalo = (cavaloId, insumos, cavalosLive) => {
+  const cav = cavalosLive ? cavalosLive.find(c => c.id === cavaloId) : getCavalo(cavaloId);
   if (!cav || !cav.nutricao) return [];
   const linhas = [];
   if (cav.nutricao.oleoMlDia > 0) {
