@@ -638,7 +638,7 @@ const loadAllData = async () => {
       const avisoId = 'av_mat_' + c.id + '_' + c.gestacao.dataCobricao;
       const jaExiste = avisos.some(a =>
         a.id === avisoId ||
-        (a.tipo === 'maternidade' && a.cavaloId === c.id && !a.resolvido)
+        (a.tipo === 'maternidade' && a.cavaloId === c.id)
       );
       if (jaExiste) continue;
       const texto = `A égua ${c.nome} completou ${diasDeGestacao} dias de gestação e deve ser transferida para o piquete maternidade.`;
