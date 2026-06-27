@@ -18,6 +18,7 @@ import { NutricionalScreen } from './nutricional';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
+import { VeterinariaScreen } from './veterinaria';
 import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
 import { supabase } from './utils/supabase';
@@ -33,6 +34,9 @@ import {
   fromDbListaCompra, toDbListaCompra,
   fromDbAtividade, toDbAtividade,
   fromDbConfiguracao, toDbConfiguracao,
+  fromDbProtocoloVacinacao, toDbProtocoloVacinacao,
+  fromDbCampanhaVacinacao, toDbCampanhaVacinacao,
+  fromDbVacinacaoAnimal, toDbVacinacaoAnimal,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
@@ -73,6 +77,9 @@ function AppEpona() {
   const [estoqueCompras, setEstoqueCompras] = useState([]);
   const [empresaInfo, setEmpresaInfo] = useState({});
   const [nutricaoOrdem, setNutricaoOrdem] = useState([]);
+  const [protocolosVacinacao, setProtocolosVacinacao] = useState([]);
+  const [campanhasVacinacao, setCampanhasVacinacao] = useState([]);
+  const [vacinacoesAnimais, setVacinacoesAnimais] = useState([]);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -95,7 +102,8 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
+      protocolosVacData, campanhasVacData, vacinacoesAnimaisData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -114,7 +122,10 @@ const loadAllData = async () => {
       fetchAll('financeiro_lancamentos', fromDbLancamento),
       fetchAll('lancamentos_recorrentes', fromDbRecorrencia),
       fetchAll('estoque_compras', fromDbEstoqueCompra),
-      supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
+      supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null })),
+      fetchAll('protocolos_vacinacao', fromDbProtocoloVacinacao),
+      fetchAll('campanhas_vacinacao', fromDbCampanhaVacinacao),
+      fetchAll('vacinacoes_animais', fromDbVacinacaoAnimal),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -131,6 +142,9 @@ const loadAllData = async () => {
     setCompras(comprasData || []);
     setAtividades(atividadesData || []);
     setRecorrencias(recorrenciasData || []);
+    setProtocolosVacinacao(protocolosVacData || []);
+    setCampanhasVacinacao(campanhasVacData || []);
+    setVacinacoesAnimais(vacinacoesAnimaisData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -203,7 +217,7 @@ const loadAllData = async () => {
           if (savedSession) {
             try {
               const { screen: savedScreen, tab: savedTab, fluxo: savedFluxo, selected: savedSelected } = JSON.parse(savedSession);
-              if (savedTab && ['home','cavalos','cadastros','faturas','nutricional','avisos','equipe','partos','compras'].includes(savedTab)) setTab(savedTab);
+              if (savedTab && ['home','cavalos','cadastros','faturas','nutricional','avisos','equipe','partos','compras','veterinaria'].includes(savedTab)) setTab(savedTab);
               if (savedFluxo) setFluxo(savedFluxo);
               if (savedSelected) setSelected(savedSelected);
               if (savedScreen && validateScreen(savedScreen, parsedUser)) setScreen(savedScreen);
@@ -355,6 +369,37 @@ const loadAllData = async () => {
   const deleteRecorrencia = (id) => {
     setRecorrencias(prev => prev.filter(r => r.id !== id));
     dbDelete('lancamentos_recorrentes', id);
+  };
+
+  // ── Vacinação CRUD ───────────────────────────────────────
+  const addProtocoloVacinacao = (p) => {
+    setProtocolosVacinacao(prev => [...prev, p]);
+    dbInsert('protocolos_vacinacao', toDbProtocoloVacinacao(p));
+  };
+  const updateProtocoloVacinacao = (id, data) => {
+    setProtocolosVacinacao(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+    dbUpdate('protocolos_vacinacao', id, toDbProtocoloVacinacao({ id, ...data }));
+  };
+  const deleteProtocoloVacinacao = (id) => {
+    setProtocolosVacinacao(prev => prev.filter(p => p.id !== id));
+    dbDelete('protocolos_vacinacao', id);
+  };
+  const addCampanhaVacinacao = (c) => {
+    setCampanhasVacinacao(prev => [...prev, c]);
+    dbInsert('campanhas_vacinacao', toDbCampanhaVacinacao(c));
+  };
+  const updateCampanhaVacinacao = (id, data) => {
+    setCampanhasVacinacao(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    dbUpdate('campanhas_vacinacao', id, toDbCampanhaVacinacao({ id, ...data }));
+  };
+  const deleteCampanhaVacinacao = (id) => {
+    setCampanhasVacinacao(prev => prev.filter(c => c.id !== id));
+    setVacinacoesAnimais(prev => prev.filter(v => v.campanhaId !== id));
+    dbDelete('campanhas_vacinacao', id);
+  };
+  const upsertVacinacaoAnimal = (v) => {
+    setVacinacoesAnimais(prev => prev.some(x => x.id === v.id) ? prev.map(x => x.id === v.id ? v : x) : [...prev, v]);
+    dbUpsert('vacinacoes_animais', toDbVacinacaoAnimal(v));
   };
 
   // ── Ordem dos grupos de nutrição ─────────────────────────
@@ -877,7 +922,7 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
-  else if (screen === 'partos') content = <GestacaoPartosScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} />;
+  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} protocolosVacinacao={protocolosVacinacao} campanhasVacinacao={campanhasVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} addCampanhaVacinacao={addCampanhaVacinacao} updateCampanhaVacinacao={updateCampanhaVacinacao} deleteCampanhaVacinacao={deleteCampanhaVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} addProcedimento={addProcedimento} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} />;
@@ -890,7 +935,7 @@ const loadAllData = async () => {
   }
 
   const isOperacional = currentUser?.role === 'operacional';
-  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (

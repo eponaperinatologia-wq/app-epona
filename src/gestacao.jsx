@@ -76,7 +76,7 @@ const SexagemBadge = ({ sexagem }) => {
 // ─────────────────────────────────────────────────────────────
 // TELA PRINCIPAL — Gestação e Partos (2 sub-tabs)
 // ─────────────────────────────────────────────────────────────
-export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes }) {
+export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, embutida }) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
 
@@ -110,7 +110,7 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
   return (
     <div>
       <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg)' }}>
-        <TopBar title="Gestação e Partos" onBack={() => setScreen('home')} />
+        {!embutida && <TopBar title="Gestação e Partos" onBack={() => setScreen('home')} />}
         <SubTabBar
           tabs={[
             { id:'gestacoes', label:`Gestações (${gestantesDentro.length})` },

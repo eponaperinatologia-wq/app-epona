@@ -230,7 +230,7 @@ const TabBar = ({ tab, setTab, role = 'admin' }) => {
   const adminTabs = [
     { id: 'home', label: 'Hoje', icon: 'home' },
     { id: 'cavalos', label: 'Cavalos', icon: 'horse' },
-    { id: 'partos', label: 'Gestação', icon: 'heart' },
+    { id: 'partos', label: 'Veterinária', icon: 'stethoscope' },
     { id: 'cadastros', label: 'Cadastros', icon: 'package' },
     { id: 'nutricional', label: 'Nutrição', icon: 'wheat' },
     { id: 'faturas', label: 'Financeiro', icon: 'doc' },
@@ -239,7 +239,7 @@ const TabBar = ({ tab, setTab, role = 'admin' }) => {
   const vetTabs = [
     { id: 'home', label: 'Hoje', icon: 'home' },
     { id: 'cavalos', label: 'Cavalos', icon: 'horse' },
-    { id: 'partos', label: 'Gestação', icon: 'heart' },
+    { id: 'partos', label: 'Veterinária', icon: 'stethoscope' },
     { id: 'cadastros', label: 'Cadastros', icon: 'package' },
     { id: 'nutricional', label: 'Nutrição', icon: 'wheat' },
     { id: 'compras', label: 'Compras', icon: 'cart' },

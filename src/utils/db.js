@@ -296,6 +296,39 @@ export const toDbEstoqueCompra = c => ({
   tipo: c.tipo || 'compra',
 });
 
+export const fromDbProtocoloVacinacao = r => ({
+  id: r.id, nome: r.nome, insumoId: r.insumo_id || null,
+  intervaloDias: Number(r.intervalo_dias) || 365,
+  tipo: r.tipo || 'geral', descricao: r.descricao || '',
+  ativo: r.ativo !== false,
+});
+export const toDbProtocoloVacinacao = p => ({
+  id: p.id, nome: p.nome, insumo_id: p.insumoId || null,
+  intervalo_dias: p.intervaloDias || 365,
+  tipo: p.tipo || 'geral', descricao: p.descricao || '',
+  ativo: p.ativo !== false,
+});
+
+export const fromDbCampanhaVacinacao = r => ({
+  id: r.id, protocoloId: r.protocolo_id || null,
+  data: r.data || '', proximaData: r.proxima_data || null,
+  obs: r.obs || '', status: r.status || 'pendente',
+});
+export const toDbCampanhaVacinacao = c => ({
+  id: c.id, protocolo_id: c.protocoloId || null,
+  data: c.data, proxima_data: c.proximaData || null,
+  obs: c.obs || '', status: c.status || 'pendente',
+});
+
+export const fromDbVacinacaoAnimal = r => ({
+  id: r.id, campanhaId: r.campanha_id || null, cavaloId: r.cavalo_id || null,
+  feito: !!r.feito, feitoPor: r.feito_por || '', feitoEm: r.feito_em || null,
+});
+export const toDbVacinacaoAnimal = v => ({
+  id: v.id, campanha_id: v.campanhaId, cavalo_id: v.cavaloId,
+  feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };
