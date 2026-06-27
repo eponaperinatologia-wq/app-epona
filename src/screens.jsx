@@ -3228,7 +3228,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
             cursor: 'pointer', transition: 'all 0.15s',
           }}>{t.label}</button>
         ))}
-        {isAdmin && (
+        {(isAdmin || currentUser?.role === 'vet') && (
           <button onClick={() => setScreen('consumo')} style={{
             border: 'none', background: 'none', padding: '10px 8px',
             fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 400,
@@ -3267,21 +3267,43 @@ const consumoDiarioCavaloLive = (cav, insumos) => {
   const n = cav.nutricao;
   const findIns = id => (insumos || []).find(i => i.id === id);
   const linhas = [];
+
+  // Ração
+  if (n.racaoId) {
+    const racao = findIns(n.racaoId);
+    if (racao) {
+      const kgDia = (n.racaoKgManha || 0) + (n.racaoKgTarde || 0) + (n.comeAlmoco ? (n.racaoKgAlmoco || 0) : 0);
+      if (kgDia > 0) linhas.push({ insumoId: racao.id, nome: racao.nome, qtdDia: kgDia, unidade: racao.unidade || 'kg', valorUnit: racao.valorVenda || 0 });
+    }
+  }
+
+  // Feno
+  if ((n.fenoKgDia || 0) > 0) {
+    const feno = (insumos || []).find(i => norm(i.nome).includes('feno'));
+    if (feno) linhas.push({ insumoId: feno.id, nome: feno.nome, qtdDia: n.fenoKgDia, unidade: feno.unidade || 'kg', valorUnit: feno.valorVenda || 0 });
+  }
+
+  // Óleo
   if ((n.oleoMlDia || 0) > 0) {
-    const oleo = findIns('i_oleo') || (insumos || []).find(i => (i.nome || '').toLowerCase().includes('leo'));
+    const oleo = findIns('i_oleo') || (insumos || []).find(i => norm(i.nome).includes('leo'));
     if (oleo) linhas.push({ insumoId: oleo.id, nome: oleo.nome, qtdDia: n.oleoMlDia, unidade: oleo.unidade || 'ml', valorUnit: oleo.valorVenda || 0 });
   }
+
+  // Suplementos
   for (const s of (n.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins) continue;
     linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade || 'un', valorUnit: ins.valorVenda || 0 });
   }
+
+  // Periódicos
   for (const p of (n.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins) continue;
     const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia: p.qtd / freqDias, unidade: ins.unidade || 'un', valorUnit: ins.valorVenda || 0 });
   }
+
   return linhas;
 };
 

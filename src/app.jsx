@@ -442,8 +442,12 @@ const loadAllData = async () => {
     dbInsert('financeiro_lancamentos', toDbLancamento(novo));
   };
   const updateLancamento = (id, changes) => {
-    setLancamentos(prev => prev.map(l => l.id === id ? { ...l, ...changes } : l));
-    dbUpdate('financeiro_lancamentos', id, toDbLancamento({ ...lancamentos.find(l => l.id === id), ...changes }));
+    setLancamentos(prev => {
+      const updated = prev.map(l => l.id === id ? { ...l, ...changes } : l);
+      const full = updated.find(l => l.id === id);
+      if (full) dbUpdate('financeiro_lancamentos', id, toDbLancamento(full));
+      return updated;
+    });
   };
   const deleteLancamento = (id) => {
     setLancamentos(prev => prev.filter(l => l.id !== id));
