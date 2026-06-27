@@ -131,14 +131,17 @@ const loadAllData = async () => {
     setAtividades(atividadesData || []);
     setRecorrencias(recorrenciasData || []);
 
-    // Migração: cria saídas para compras de estoque que ainda não têm lancamento vinculado
+    // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
+    const lancamentosIds = new Set((lancamentosData || []).map(l => l.id));
     const comprasSemLan = (estoqueComprasData || []).filter(c =>
-      c.tipo !== 'ajuste' && (c.valorTotal || 0) > 0 && !c.lancamentoId
+      c.tipo !== 'ajuste' && (c.valorTotal || 0) > 0 &&
+      (!c.lancamentoId || !lancamentosIds.has(c.lancamentoId))
     );
+    console.log('[EPONA] loadAllData estoque_compras:', estoqueComprasData?.length, '| lancamentos no DB:', lancamentosData?.length, '| comprasSemLan:', comprasSemLan.length, comprasSemLan.map(c => ({ id: c.id, tipo: c.tipo, valor: c.valorTotal, lancId: c.lancamentoId })));
     const lansEstoque = comprasSemLan.map(c => {
       const ins = (insumosData || []).find(i => i.id === c.insumoId);
-      const lancId = 'lan_' + c.id;
+      const lancId = c.lancamentoId || ('lan_' + c.id);
       const dataLan = c.pago ? c.data : (c.dataVencimento || c.data || today);
       return {
         id: lancId, tipo: 'saida', valor: c.valorTotal,
@@ -146,14 +149,13 @@ const loadAllData = async () => {
         motivo: `${c.qtd} ${c.unidade || ins?.unidade || 'un'} de ${ins?.nome || c.insumoId}`,
         categoria: 'Compra de Insumo',
         pago: c.pago || false, pagoEm: c.pago ? c.data : null, recorrenciaId: null,
-        _ecId: c.id,
+        _ecId: c.id, _novoId: !c.lancamentoId,
       };
     });
     if (lansEstoque.length > 0) {
-      lansEstoque.forEach(l => {
-        const { _ecId, ...lan } = l;
+      lansEstoque.forEach(({ _ecId, _novoId, ...lan }) => {
         dbInsertIgnore('financeiro_lancamentos', toDbLancamento(lan));
-        dbUpdate('estoque_compras', _ecId, { lancamento_id: lan.id });
+        if (_novoId) dbUpdate('estoque_compras', _ecId, { lancamento_id: lan.id });
       });
     }
     setEstoqueCompras((estoqueComprasData || []).map(c => {
@@ -162,7 +164,7 @@ const loadAllData = async () => {
     }));
 
     const novosLans = _gerarLansRecorrentes(recorrenciasData || [], lancamentosData || []);
-    const lansEstoqueLimpos = lansEstoque.map(({ _ecId, ...l }) => l);
+    const lansEstoqueLimpos = lansEstoque.map(({ _ecId, _novoId, ...l }) => l);
     setLancamentos([...(lancamentosData || []), ...novosLans, ...lansEstoqueLimpos]);
     if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
