@@ -297,16 +297,16 @@ export const toDbEstoqueCompra = c => ({
 });
 
 export const fromDbProtocoloVacinacao = r => ({
-  id: r.id, nome: r.nome, insumoId: r.insumo_id || null,
-  intervaloDias: Number(r.intervalo_dias) || 365,
-  tipo: r.tipo || 'geral', descricao: r.descricao || '',
+  id: r.id, nome: r.nome,
+  tipo: r.tipo || 'gestante', descricao: r.descricao || '',
   ativo: r.ativo !== false,
+  doses: r.doses || [],
 });
 export const toDbProtocoloVacinacao = p => ({
-  id: p.id, nome: p.nome, insumo_id: p.insumoId || null,
-  intervalo_dias: p.intervaloDias || 365,
-  tipo: p.tipo || 'geral', descricao: p.descricao || '',
+  id: p.id, nome: p.nome,
+  tipo: p.tipo || 'gestante', descricao: p.descricao || '',
   ativo: p.ativo !== false,
+  doses: p.doses || [],
 });
 
 export const fromDbCampanhaVacinacao = r => ({
@@ -321,11 +321,13 @@ export const toDbCampanhaVacinacao = c => ({
 });
 
 export const fromDbVacinacaoAnimal = r => ({
-  id: r.id, campanhaId: r.campanha_id || null, cavaloId: r.cavalo_id || null,
+  id: r.id, protocoloId: r.protocolo_id || null, doseIdx: r.dose_idx ?? null,
+  cavaloId: r.cavalo_id || null, dataPrevista: r.data_prevista || null,
   feito: !!r.feito, feitoPor: r.feito_por || '', feitoEm: r.feito_em || null,
 });
 export const toDbVacinacaoAnimal = v => ({
-  id: v.id, campanha_id: v.campanhaId, cavalo_id: v.cavaloId,
+  id: v.id, protocolo_id: v.protocoloId, dose_idx: v.doseIdx ?? null,
+  cavalo_id: v.cavaloId, data_prevista: v.dataPrevista || null,
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
 });
 
