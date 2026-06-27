@@ -2305,7 +2305,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   };
   const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!nome.trim()) { setErro('Nome do cavalo é obrigatório'); return; }
     if (selectedProprietarios.length === 0) { setErro('Selecione pelo menos um proprietário'); return; }
     if (!sexo) { setErro('Sexo é obrigatório'); return; }
@@ -2346,7 +2346,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       }
     };
 
-    const newId = addCavalo(novoCavaloData);
+    const newId = await addCavalo(novoCavaloData);
     if (pendingEntradaCavalo && setNovoCavaloPendente) {
       setNovoCavaloPendente({ id: newId, dataEntrada: new Date().toISOString().split('T')[0] });
       setPendingEntradaCavalo(false);
