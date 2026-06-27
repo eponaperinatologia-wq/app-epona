@@ -27,6 +27,8 @@ import {
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbLancamento, toDbLancamento,
+  fromDbRecorrencia, toDbRecorrencia,
+  fromDbEstoqueCompra, toDbEstoqueCompra,
   fromDbAviso, toDbAviso,
   fromDbListaCompra, toDbListaCompra,
   fromDbAtividade, toDbAtividade,
@@ -67,6 +69,8 @@ function AppEpona() {
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
   const [lancamentos, setLancamentos] = useState([]);
+  const [recorrencias, setRecorrencias] = useState([]);
+  const [estoqueCompras, setEstoqueCompras] = useState([]);
   const [empresaInfo, setEmpresaInfo] = useState({});
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
@@ -90,7 +94,7 @@ function AppEpona() {
 const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
-      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, configResult
+      registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -107,6 +111,8 @@ const loadAllData = async () => {
       fetchAll('lista_compras', fromDbListaCompra),
       fetchAll('atividades', fromDbAtividade),
       fetchAll('financeiro_lancamentos', fromDbLancamento),
+      fetchAll('lancamentos_recorrentes', fromDbRecorrencia),
+      fetchAll('estoque_compras', fromDbEstoqueCompra),
       supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null }))
     ]);
     setCavalos(cavalosData || []);
@@ -123,7 +129,11 @@ const loadAllData = async () => {
     setAvisos(avisosData || []);
     setCompras(comprasData || []);
     setAtividades(atividadesData || []);
-    setLancamentos(lancamentosData || []);
+    setRecorrencias(recorrenciasData || []);
+    setEstoqueCompras(estoqueComprasData || []);
+    const novosLans = _gerarLansRecorrentes(recorrenciasData || [], lancamentosData || []);
+    setLancamentos([...(lancamentosData || []), ...novosLans]);
+    if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
@@ -238,6 +248,16 @@ const loadAllData = async () => {
         if (et === 'UPDATE') setLancamentos(prev => prev.map(l => l.id === n.id ? fromDbLancamento(n) : l));
         if (et === 'DELETE') setLancamentos(prev => prev.filter(l => l.id !== o.id));
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'lancamentos_recorrentes' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setRecorrencias(prev => prev.some(r => r.id === n.id) ? prev : [...prev, fromDbRecorrencia(n)]);
+        if (et === 'UPDATE') setRecorrencias(prev => prev.map(r => r.id === n.id ? fromDbRecorrencia(n) : r));
+        if (et === 'DELETE') setRecorrencias(prev => prev.filter(r => r.id !== o.id));
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque_compras' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEstoqueCompras(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbEstoqueCompra(n)]);
+        if (et === 'UPDATE') setEstoqueCompras(prev => prev.map(c => c.id === n.id ? fromDbEstoqueCompra(n) : c));
+        if (et === 'DELETE') setEstoqueCompras(prev => prev.filter(c => c.id !== o.id));
+      })
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -249,6 +269,84 @@ const loadAllData = async () => {
       sessionStorage.setItem('epona_session', JSON.stringify({ screen, tab, fluxo, selected }));
     } catch (e) {}
   }, [screen, tab, fluxo, selected, currentUser]);
+
+  // ── Recorrência: helper puro (não usa state) ─────────────
+  const _gerarDatasRec = (rec, hoje) => {
+    const datas = [];
+    const ini = new Date(rec.dataInicio + 'T00:00:00');
+    const limite = new Date((rec.dataFim && rec.dataFim < hoje ? rec.dataFim : hoje) + 'T00:00:00');
+    if (rec.frequencia === 'mensal') {
+      let a = ini.getFullYear(), m = ini.getMonth();
+      for (let i = 0; i < 360; i++) {
+        const d = new Date(a, m, rec.diaMes || 1);
+        if (d > limite) break;
+        if (d >= ini) datas.push(d.toISOString().split('T')[0]);
+        m++; if (m > 11) { m = 0; a++; }
+      }
+    } else {
+      const iv = rec.frequencia === 'quinzenal' ? 14 : 7;
+      let d = new Date(ini);
+      while (d <= limite) { datas.push(d.toISOString().split('T')[0]); d = new Date(d.getTime() + iv * 86400000); }
+    }
+    return datas;
+  };
+
+  const _gerarLansRecorrentes = (recs, lans) => {
+    const hoje = new Date().toISOString().split('T')[0];
+    const novos = [];
+    for (const rec of recs) {
+      if (!rec.ativo) continue;
+      for (const data of _gerarDatasRec(rec, hoje)) {
+        const id = `lan_rec_${rec.id}_${data}`;
+        if (!lans.some(l => l.id === id)) {
+          novos.push({ id, tipo: rec.tipo, valor: rec.valor, data, quem: rec.quem || '', motivo: rec.descricao || '', categoria: rec.categoria || '', pago: false, pagoEm: null, recorrenciaId: rec.id });
+        }
+      }
+    }
+    return novos;
+  };
+
+  // ── Recorrências CRUD ─────────────────────────────────────
+  const addRecorrencia = (data) => {
+    const nova = { id: 'rec_' + Date.now(), ...data };
+    setRecorrencias(prev => [...prev, nova]);
+    dbInsert('lancamentos_recorrentes', toDbRecorrencia(nova));
+    setLancamentos(prev => {
+      const novos = _gerarLansRecorrentes([nova], prev);
+      if (novos.length > 0) novos.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
+      return [...prev, ...novos];
+    });
+  };
+  const deleteRecorrencia = (id) => {
+    setRecorrencias(prev => prev.filter(r => r.id !== id));
+    dbDelete('lancamentos_recorrentes', id);
+  };
+
+  // ── Estoque de compras CRUD ───────────────────────────────
+  const addEstoqueCompra = (data) => {
+    const lancId = 'lan_ec_' + Date.now();
+    const ecId = 'ec_' + (Date.now() + 1);
+    const ins = insumos.find(i => i.id === data.insumoId);
+    const lancamento = {
+      id: lancId, tipo: 'saida', valor: data.valorTotal, data: data.data,
+      quem: data.fornecedor || '', motivo: `${data.qtd} ${data.unidade || ins?.unidade || 'un'} de ${ins?.nome || data.insumoId}`,
+      categoria: 'Compra de Insumo', pago: true, pagoEm: data.data, recorrenciaId: null,
+    };
+    const novaCompra = { ...data, id: ecId, lancamentoId: lancId };
+    setEstoqueCompras(prev => [...prev, novaCompra]);
+    setLancamentos(prev => [...prev, lancamento]);
+    dbInsert('estoque_compras', toDbEstoqueCompra(novaCompra));
+    dbInsert('financeiro_lancamentos', toDbLancamento(lancamento));
+  };
+  const deleteEstoqueCompra = (id) => {
+    const compra = estoqueCompras.find(c => c.id === id);
+    setEstoqueCompras(prev => prev.filter(c => c.id !== id));
+    dbDelete('estoque_compras', id);
+    if (compra?.lancamentoId) {
+      setLancamentos(prev => prev.filter(l => l.id !== compra.lancamentoId));
+      dbDelete('financeiro_lancamentos', compra.lancamentoId);
+    }
+  };
 
   // ── Avisos periódicos + maternidade ──────────────────────
   useEffect(() => {
@@ -719,7 +817,7 @@ const loadAllData = async () => {
   else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} currentUser={currentUser} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} />;
   else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} />;
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;

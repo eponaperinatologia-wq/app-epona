@@ -248,12 +248,46 @@ export const fromDbLancamento = r => ({
   id: r.id, tipo: r.tipo, valor: Number(r.valor) || 0,
   data: r.data, quem: r.quem || '', motivo: r.motivo || '',
   categoria: r.categoria || '', pago: !!r.pago, pagoEm: r.pago_em || null,
+  recorrenciaId: r.recorrencia_id || null,
 });
 
 export const toDbLancamento = l => ({
   id: l.id, tipo: l.tipo, valor: l.valor, data: l.data,
   quem: l.quem || '', motivo: l.motivo || '', categoria: l.categoria || '',
   pago: !!l.pago, pago_em: l.pagoEm || null,
+  recorrencia_id: l.recorrenciaId || null,
+});
+
+export const fromDbRecorrencia = r => ({
+  id: r.id, tipo: r.tipo, valor: Number(r.valor) || 0,
+  descricao: r.descricao || '', categoria: r.categoria || '', quem: r.quem || '',
+  frequencia: r.frequencia || 'mensal', diaMes: r.dia_mes || 1,
+  dataInicio: r.data_inicio || '', dataFim: r.data_fim || null,
+  ativo: r.ativo !== false,
+});
+
+export const toDbRecorrencia = r => ({
+  id: r.id, tipo: r.tipo, valor: r.valor,
+  descricao: r.descricao || '', categoria: r.categoria || '', quem: r.quem || '',
+  frequencia: r.frequencia || 'mensal', dia_mes: r.diaMes || 1,
+  data_inicio: r.dataInicio, data_fim: r.dataFim || null,
+  ativo: r.ativo !== false,
+});
+
+export const fromDbEstoqueCompra = r => ({
+  id: r.id, insumoId: r.insumo_id, data: r.data || '',
+  qtd: Number(r.qtd) || 0, unidade: r.unidade || 'un',
+  valorUnit: Number(r.valor_unit) || 0, valorTotal: Number(r.valor_total) || 0,
+  fornecedor: r.fornecedor || '', obs: r.obs || '',
+  lancamentoId: r.lancamento_id || null,
+});
+
+export const toDbEstoqueCompra = c => ({
+  id: c.id, insumo_id: c.insumoId, data: c.data,
+  qtd: c.qtd, unidade: c.unidade,
+  valor_unit: c.valorUnit, valor_total: c.valorTotal,
+  fornecedor: c.fornecedor || '', obs: c.obs || '',
+  lancamento_id: c.lancamentoId || null,
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────

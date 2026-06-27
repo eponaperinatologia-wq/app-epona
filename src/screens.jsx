@@ -3082,14 +3082,91 @@ const LancamentoForm = ({ tipo, onSave, onCancel, initial }) => {
   );
 };
 
-const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento }) => {
+const RecorrenciaForm = ({ tipo, onSave, onCancel, initial }) => {
+  const [valor, setValor] = useState(String(initial?.valor || ''));
+  const [descricao, setDescricao] = useState(initial?.descricao || '');
+  const [categoria, setCategoria] = useState(initial?.categoria || '');
+  const [quem, setQuem] = useState(initial?.quem || '');
+  const [frequencia, setFrequencia] = useState(initial?.frequencia || 'mensal');
+  const [diaMes, setDiaMes] = useState(String(initial?.diaMes || '5'));
+  const [dataInicio, setDataInicio] = useState(initial?.dataInicio || new Date().toLocaleDateString('sv-SE'));
+  const [dataFim, setDataFim] = useState(initial?.dataFim || '');
+
+  const cor = tipo === 'entrada' ? '#16a34a' : '#dc2626';
+  const inp = { width: '100%', border: '1px solid var(--line)', borderRadius: 8, padding: '8px 10px', fontSize: 14, color: 'var(--ink)', outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--sans)', background: 'var(--bg)' };
+
+  const handleSave = () => {
+    if (!valor || !dataInicio) return;
+    onSave({ tipo, valor: parseFloat(valor) || 0, descricao, categoria, quem, frequencia, diaMes: parseInt(diaMes) || 1, dataInicio, dataFim: dataFim || null, ativo: true });
+  };
+
+  return (
+    <div style={{ background: 'var(--card)', border: `1px solid ${cor}40`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: cor, marginBottom: 12 }}>↻ {tipo === 'entrada' ? 'Recebimento Recorrente' : 'Pagamento Recorrente'}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Valor (R$) *</div>
+          <input type="number" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Frequência</div>
+          <select value={frequencia} onChange={e => setFrequencia(e.target.value)} style={{ ...inp, cursor: 'pointer' }}>
+            <option value="mensal">Mensal</option>
+            <option value="quinzenal">Quinzenal</option>
+            <option value="semanal">Semanal</option>
+          </select>
+        </div>
+      </div>
+      {frequencia === 'mensal' && (
+        <div style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Dia do mês (1–28)</div>
+          <input type="number" min="1" max="28" value={diaMes} onChange={e => setDiaMes(e.target.value)} style={inp} />
+        </div>
+      )}
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Descrição</div>
+        <input type="text" value={descricao} onChange={e => setDescricao(e.target.value)} placeholder={tipo === 'entrada' ? 'Ex: Parcela embrião, Mensalidade barraca…' : 'Ex: Salário Pedro, Conta de luz…'} style={inp} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>{tipo === 'entrada' ? 'Quem paga' : 'Pagar para'}</div>
+          <input type="text" value={quem} onChange={e => setQuem(e.target.value)} style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Categoria</div>
+          <input type="text" value={categoria} onChange={e => setCategoria(e.target.value)} placeholder="Ex: Pessoal, Utilidades…" style={inp} />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Início *</div>
+          <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Fim (vazio = sem fim)</div>
+          <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} style={inp} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={handleSave} style={{ flex: 1, background: cor, color: '#fff', border: 'none', borderRadius: 10, padding: '10px', fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Salvar</button>
+        <button onClick={onCancel} style={{ flex: 1, background: 'var(--soft)', color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px', fontSize: 14, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+      </div>
+    </div>
+  );
+};
+
+const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia }) => {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [showRecForm, setShowRecForm] = useState(false);
+
   const lista = [...(lancamentos || [])].filter(l => l.tipo === tipo).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const listaRec = (recorrencias || []).filter(r => r.tipo === tipo && r.ativo);
   const total = lista.reduce((s, l) => s + l.valor, 0);
   const pendentes = lista.filter(l => !l.pago).reduce((s, l) => s + l.valor, 0);
   const cor = tipo === 'entrada' ? '#16a34a' : '#dc2626';
   const pagoLabel = tipo === 'entrada' ? 'Recebido' : 'Pago';
+  const fmtFreq = r => r.frequencia === 'mensal' ? `todo dia ${r.diaMes}` : r.frequencia === 'quinzenal' ? 'quinzenal' : 'semanal';
 
   return (
     <div style={{ padding: '12px 20px 0' }}>
@@ -3109,10 +3186,9 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
       {(showForm && !editId) && (
         <LancamentoForm tipo={tipo} onCancel={() => setShowForm(false)} onSave={data => { addLancamento(data); setShowForm(false); }} />
       )}
-
       {!showForm && (
         <button onClick={() => setShowForm(true)} style={{ width: '100%', background: cor + '12', border: `1px dashed ${cor}60`, borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 600, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10 }}>
-          + Novo lançamento
+          + Novo lançamento avulso
         </button>
       )}
 
@@ -3124,7 +3200,10 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
             <div style={{ background: 'var(--card)', border: `1px solid ${l.pago ? 'var(--line)' : cor + '50'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 8, height: 8, borderRadius: 4, background: l.pago ? '#9ca3af' : cor, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{l.motivo || '—'}</div>
+                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                  {l.motivo || '—'}
+                  {l.recorrenciaId && <span style={{ fontSize: 10, color: 'var(--ink-3)', background: 'var(--soft)', borderRadius: 6, padding: '1px 5px', fontWeight: 400 }}>↻</span>}
+                </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
                   {l.data} {l.quem ? `· ${l.quem}` : ''} {l.categoria ? `· ${l.categoria}` : ''}
                 </div>
@@ -3133,7 +3212,7 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: l.pago ? 'var(--ink-2)' : cor }}>{formatBRL(l.valor)}</div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                  <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>
+                  {!l.recorrenciaId && <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
                   <button onClick={() => { if (window.confirm('Excluir este lançamento?')) deleteLancamento(l.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
                 </div>
               </div>
@@ -3141,20 +3220,67 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
           )}
         </div>
       ))}
-
       {lista.length === 0 && !showForm && (
-        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento registrado</div>
+        <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento avulso</div>
       )}
+
+      {/* ── Recorrências ── */}
+      <div style={{ borderTop: '1px solid var(--line)', marginTop: 16, paddingTop: 14, paddingBottom: 20 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>↻ Recorrências</div>
+          {!showRecForm && (
+            <button onClick={() => setShowRecForm(true)} style={{ background: cor + '12', border: `1px solid ${cor}40`, borderRadius: 8, padding: '4px 10px', fontSize: 12, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 600 }}>+ Nova</button>
+          )}
+        </div>
+        {showRecForm && <RecorrenciaForm tipo={tipo} onCancel={() => setShowRecForm(false)} onSave={data => { addRecorrencia(data); setShowRecForm(false); }} />}
+        {listaRec.length === 0 && !showRecForm && (
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '4px 0' }}>Nenhuma recorrência cadastrada</div>
+        )}
+        {listaRec.map(r => (
+          <div key={r.id} style={{ background: cor + '08', border: `1px solid ${cor}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ fontSize: 16, color: cor }}>↻</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{r.descricao || '—'}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                {formatBRL(r.valor)} · {fmtFreq(r)} · desde {r.dataInicio}{r.dataFim ? ` até ${r.dataFim}` : ' · sem fim'}
+              </div>
+            </div>
+            <button onClick={() => { if (window.confirm('Excluir recorrência? Os lançamentos gerados são mantidos.')) deleteRecorrencia(r.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+          </div>
+        ))}
+      </div>
     </div>
   );
 };
 
-const ResumoSubScreen = ({ lancamentos }) => {
+const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], registros = [], insumos = [], movimentacoes = [], faturasFechadas = [], faturaRef }) => {
   const hoje = new Date();
+  const ref = faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
+  const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
+
   const meses6 = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(hoje.getFullYear(), hoje.getMonth() - (5 - i), 1);
     return { ano: d.getFullYear(), mes: d.getMonth() + 1, label: ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][d.getMonth()] };
   });
+
+  const faturamentoMes = useMemo(() => {
+    return proprietarios.map(prop => {
+      const faturaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ref.ano && f.mes === ref.mes);
+      if (faturaFechada) return { propId: prop.id, total: faturaFechada.total || 0 };
+      const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id));
+      const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
+      const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
+      const regTotal = (registros || []).filter(r => (r.proprietarioId === prop.id || (cavalosObj.find(c => c.id === r.cavaloId))) && r.mes === ref.mes && r.ano === ref.ano)
+        .reduce((s, r) => {
+          const cav = cavalos.find(c => c.id === r.cavaloId);
+          const share = shareCount(cav || {});
+          return s + ((insumos.find(i => i.id === r.insumoId)?.valorVenda ?? 0) * r.qtd) / share;
+        }, 0);
+      return { propId: prop.id, total: mensalidades + perfilTotal + regTotal };
+    });
+  }, [proprietarios, cavalos, registros, insumos, movimentacoes, faturasFechadas, ref]);
+
+  const totalFaturamento = faturamentoMes.reduce((s, f) => s + f.total, 0);
 
   const porMes = meses6.map(m => {
     const entradas = (lancamentos || []).filter(l => l.tipo === 'entrada' && l.data?.startsWith(`${m.ano}-${String(m.mes).padStart(2, '0')}`)).reduce((s, l) => s + l.valor, 0);
@@ -3162,32 +3288,40 @@ const ResumoSubScreen = ({ lancamentos }) => {
     return { ...m, entradas, saidas };
   });
 
-  const totalEntradas = (lancamentos || []).filter(l => l.tipo === 'entrada' && !l.pago).reduce((s, l) => s + l.valor, 0);
-  const totalSaidas = (lancamentos || []).filter(l => l.tipo === 'saida' && !l.pago).reduce((s, l) => s + l.valor, 0);
-  const saldo = totalEntradas - totalSaidas;
+  const totalAReceber = (lancamentos || []).filter(l => l.tipo === 'entrada' && !l.pago).reduce((s, l) => s + l.valor, 0);
+  const totalAPagar = (lancamentos || []).filter(l => l.tipo === 'saida' && !l.pago).reduce((s, l) => s + l.valor, 0);
+  const saldo = totalAReceber - totalAPagar;
   const maxVal = Math.max(1, ...porMes.map(m => Math.max(m.entradas, m.saidas)));
 
   return (
     <div style={{ padding: '12px 20px 0' }}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
+      <div style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 14, padding: 14, marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: 'var(--accent)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Faturamento clientes</div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--accent)', marginTop: 4 }}>{formatBRL(totalFaturamento)}</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+          {['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][ref.mes - 1]}/{ref.ano} · {proprietarios.length} proprietários
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 14, padding: 14 }}>
           <div style={{ fontSize: 11, color: '#15803d', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>A Receber</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: '#16a34a', marginTop: 4 }}>{formatBRL(totalEntradas)}</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: '#16a34a', marginTop: 4 }}>{formatBRL(totalAReceber)}</div>
           <div style={{ fontSize: 11, color: '#15803d', marginTop: 2 }}>entradas pendentes</div>
         </div>
         <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 14, padding: 14 }}>
           <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>A Pagar</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: '#dc2626', marginTop: 4 }}>{formatBRL(totalSaidas)}</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: '#dc2626', marginTop: 4 }}>{formatBRL(totalAPagar)}</div>
           <div style={{ fontSize: 11, color: '#dc2626', marginTop: 2 }}>saídas pendentes</div>
         </div>
       </div>
       <div style={{ background: saldo >= 0 ? '#f0fdf4' : '#fef2f2', border: `1px solid ${saldo >= 0 ? '#bbf7d0' : '#fecaca'}`, borderRadius: 14, padding: 14, marginBottom: 20 }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Saldo projetado</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Saldo projetado (lançamentos)</div>
         <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: saldo >= 0 ? '#16a34a' : '#dc2626', marginTop: 4 }}>{formatBRL(saldo)}</div>
       </div>
 
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 10 }}>Últimos 6 meses</div>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 12px' }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 10 }}>Últimos 6 meses (lançamentos)</div>
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 12px', marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', height: 100 }}>
           {porMes.map(m => (
             <div key={`${m.ano}-${m.mes}`} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
@@ -3208,31 +3342,221 @@ const ResumoSubScreen = ({ lancamentos }) => {
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, currentUser }) => {
+// ─────────────────────────────────────────────────────────────
+// ESTOQUE · Compras de insumos e nível de estoque
+// ─────────────────────────────────────────────────────────────
+const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const [insumoId, setInsumoId] = useState('');
+  const [data, setData] = useState(hoje);
+  const [qtd, setQtd] = useState('');
+  const [valorUnit, setValorUnit] = useState('');
+  const [fornecedor, setFornecedor] = useState('');
+  const [obs, setObs] = useState('');
+
+  const insumoSel = insumos.find(i => i.id === insumoId);
+  const unidade = insumoSel?.unidade || 'un';
+  const valorTotal = (parseFloat(qtd) || 0) * (parseFloat(valorUnit) || 0);
+
+  const handleInsumoChange = (id) => {
+    setInsumoId(id);
+    const ins = insumos.find(i => i.id === id);
+    if (ins?.valorCompra) setValorUnit(String(ins.valorCompra));
+  };
+
+  const handleSave = () => {
+    if (!insumoId || !data || !(parseFloat(qtd) > 0)) return;
+    onSave({
+      insumoId, data,
+      qtd: parseFloat(qtd),
+      unidade,
+      valorUnit: parseFloat(valorUnit) || 0,
+      valorTotal,
+      fornecedor: fornecedor.trim(),
+      obs: obs.trim(),
+    });
+  };
+
+  const inp = { border: '1px solid var(--line)', borderRadius: 10, padding: '9px 12px', fontSize: 14, fontFamily: 'var(--sans)', background: 'var(--bg)', color: 'var(--ink)', width: '100%', boxSizing: 'border-box', outline: 'none' };
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Registrar compra</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Insumo *</div>
+          <select value={insumoId} onChange={e => handleInsumoChange(e.target.value)} style={{ ...inp }}>
+            <option value="">Selecionar insumo…</option>
+            {insumos.slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '')).map(i => (
+              <option key={i.id} value={i.id}>{i.nome}</option>
+            ))}
+          </select>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Data *</div>
+            <input type="date" value={data} onChange={e => setData(e.target.value)} style={inp} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Qtd ({unidade}) *</div>
+            <input type="number" min="0" step="any" value={qtd} onChange={e => setQtd(e.target.value)} placeholder="0" style={inp} />
+          </div>
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Valor unit. (R$)</div>
+            <input type="number" min="0" step="0.01" value={valorUnit} onChange={e => setValorUnit(e.target.value)} placeholder="0,00" style={inp} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Total calculado</div>
+            <div style={{ ...inp, color: 'var(--ink-2)', background: 'var(--soft)' }}>{formatBRL(valorTotal)}</div>
+          </div>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Fornecedor</div>
+          <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} placeholder="Nome do fornecedor" style={inp} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Observações</div>
+          <input value={obs} onChange={e => setObs(e.target.value)} placeholder="Opcional" style={inp} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+          <button onClick={onCancel} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 10, padding: '10px 0', fontFamily: 'var(--sans)', fontSize: 14, background: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>Cancelar</button>
+          <button onClick={handleSave} disabled={!insumoId || !data || !(parseFloat(qtd) > 0)} style={{ flex: 2, border: 'none', borderRadius: 10, padding: '10px 0', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 700, background: 'var(--accent)', color: '#fff', cursor: 'pointer', opacity: (!insumoId || !data || !(parseFloat(qtd) > 0)) ? 0.5 : 1 }}>Salvar compra</button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra }) => {
+  const [showForm, setShowForm] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+
+  const presentes = cavalos.filter(c => c.presente !== false);
+  const hoje = new Date();
+
+  const estoquePorInsumo = useMemo(() => {
+    return insumos.map(ins => {
+      const compras = estoqueCompras.filter(c => c.insumoId === ins.id);
+      const totalComprado = compras.reduce((s, c) => s + (c.qtd || 0), 0);
+      if (totalComprado === 0 && compras.length === 0) return null;
+
+      const consumoDias = presentes.reduce((linhas, cav) => {
+        const l = consumoDiarioCavaloLive(cav, insumos);
+        return linhas.concat(l.filter(x => x.insumoId === ins.id));
+      }, []);
+      const qtdDiaTotal = consumoDias.reduce((s, l) => s + l.qtdDia, 0);
+
+      const primeiraCompra = compras.reduce((min, c) => (!min || c.data < min) ? c.data : min, null);
+      const diasDecorridos = primeiraCompra ? Math.max(0, Math.floor((hoje - new Date(primeiraCompra + 'T00:00:00')) / 86400000)) : 0;
+      const consumoAcumulado = qtdDiaTotal * diasDecorridos;
+      const estoqueAtual = Math.max(0, totalComprado - consumoAcumulado);
+      const diasRestantes = qtdDiaTotal > 0 ? Math.floor(estoqueAtual / qtdDiaTotal) : null;
+
+      return { ins, compras, totalComprado, qtdDiaTotal, estoqueAtual, diasRestantes };
+    }).filter(Boolean);
+  }, [insumos, estoqueCompras, presentes]);
+
+  const corEstoque = (dias) => {
+    if (dias === null) return '#2563eb';
+    if (dias < 7) return '#dc2626';
+    if (dias < 14) return '#d97706';
+    return '#16a34a';
+  };
+  const bgEstoque = (dias) => {
+    if (dias === null) return '#eff6ff';
+    if (dias < 7) return '#fef2f2';
+    if (dias < 14) return '#fffbeb';
+    return '#f0fdf4';
+  };
+
+  return (
+    <div style={{ padding: '12px 16px 0' }}>
+      {!showForm && (
+        <button onClick={() => setShowForm(true)} style={{ width: '100%', border: '1px dashed var(--accent)', borderRadius: 12, padding: '11px 0', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 600, color: 'var(--accent)', background: 'var(--accent-soft)', cursor: 'pointer', marginBottom: 14 }}>
+          + Registrar compra
+        </button>
+      )}
+      {showForm && (
+        <CompraForm insumos={insumos} onCancel={() => setShowForm(false)} onSave={data => { addEstoqueCompra(data); setShowForm(false); }} />
+      )}
+
+      {estoquePorInsumo.length === 0 && !showForm && (
+        <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma compra registrada</div>
+      )}
+
+      {estoquePorInsumo.map(({ ins, compras, totalComprado, qtdDiaTotal, estoqueAtual, diasRestantes }) => (
+        <div key={ins.id} style={{ background: bgEstoque(diasRestantes), border: `1px solid ${corEstoque(diasRestantes)}30`, borderRadius: 14, marginBottom: 10, overflow: 'hidden' }}>
+          <div onClick={() => setExpandedId(expandedId === ins.id ? null : ins.id)} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 5, background: corEstoque(diasRestantes), flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{ins.nome}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                {estoqueAtual % 1 === 0 ? estoqueAtual : estoqueAtual.toFixed(1)} {ins.unidade || 'un'} em estoque
+                {qtdDiaTotal > 0 && ` · ${qtdDiaTotal % 1 === 0 ? qtdDiaTotal : qtdDiaTotal.toFixed(2)} ${ins.unidade || 'un'}/dia`}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              {diasRestantes !== null ? (
+                <div style={{ fontSize: 13, fontWeight: 700, color: corEstoque(diasRestantes) }}>
+                  {diasRestantes}d
+                </div>
+              ) : (
+                <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>sem consumo</div>
+              )}
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>{expandedId === ins.id ? '▲' : '▼'}</div>
+            </div>
+          </div>
+          {expandedId === ins.id && (
+            <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Histórico de compras</div>
+              {compras.slice().sort((a, b) => b.data.localeCompare(a.data)).map(c => (
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 13, color: 'var(--ink)' }}>{c.qtd} {c.unidade} {c.fornecedor ? `· ${c.fornecedor}` : ''}</div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{c.data}{c.valorTotal > 0 ? ` · ${formatBRL(c.valorTotal)}` : ''}</div>
+                  </div>
+                  <button onClick={() => { if (window.confirm('Excluir compra? O lançamento financeiro vinculado também será removido.')) deleteEstoqueCompra(c.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                </div>
+              ))}
+              {compras.length === 0 && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Nenhuma compra</div>}
+            </div>
+          )}
+        </div>
+      ))}
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', padding: '8px 0 12px' }}>
+        Estoque visual · não bloqueia registros ou faturas
+      </div>
+    </div>
+  );
+};
+
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
-    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'resumo', label: 'Resumo' }]
+    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'estoque', label: 'Estoque' }, { id: 'resumo', label: 'Resumo' }]
     : [{ id: 'faturas', label: 'Faturas' }];
 
   return (
     <div style={{ paddingBottom: 90 }}>
       <TopBar title="Financeiro" />
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)', padding: '0 16px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)', padding: '0 16px', overflowX: 'auto', flexShrink: 0, WebkitOverflowScrolling: 'touch' }}>
         {subTabs.map(t => (
           <button key={t.id} onClick={() => setSubTab(t.id)} style={{
-            flex: 1, border: 'none', background: 'none', padding: '10px 6px',
+            flexShrink: 0, border: 'none', background: 'none', padding: '10px 10px',
             fontFamily: 'var(--sans)', fontSize: 13, fontWeight: subTab === t.id ? 700 : 400,
             color: subTab === t.id ? 'var(--accent)' : 'var(--ink-3)',
             borderBottom: subTab === t.id ? '2px solid var(--accent)' : '2px solid transparent',
-            cursor: 'pointer', transition: 'all 0.15s',
+            cursor: 'pointer', transition: 'all 0.15s', whiteSpace: 'nowrap',
           }}>{t.label}</button>
         ))}
         {(isAdmin || currentUser?.role === 'vet') && (
           <button onClick={() => setScreen('consumo')} style={{
-            border: 'none', background: 'none', padding: '10px 8px',
+            flexShrink: 0, border: 'none', background: 'none', padding: '10px 8px',
             fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 400,
-            color: 'var(--ink-3)', cursor: 'pointer',
+            color: 'var(--ink-3)', cursor: 'pointer', whiteSpace: 'nowrap',
           }}>Consumo ›</button>
         )}
       </div>
@@ -3240,13 +3564,16 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} />
       )}
       {subTab === 'entradas' && isAdmin && (
-        <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} />
+        <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
       )}
       {subTab === 'saidas' && isAdmin && (
-        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} />
+        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
+      )}
+      {subTab === 'estoque' && isAdmin && (
+        <EstoqueSubScreen cavalos={cavalos} insumos={insumos} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} />
       )}
       {subTab === 'resumo' && isAdmin && (
-        <ResumoSubScreen lancamentos={lancamentos} />
+        <ResumoSubScreen lancamentos={lancamentos} proprietarios={proprietarios} cavalos={cavalos} registros={registros} insumos={insumos} movimentacoes={movimentacoes} faturasFechadas={faturasFechadas} faturaRef={faturaRef} />
       )}
     </div>
   );
