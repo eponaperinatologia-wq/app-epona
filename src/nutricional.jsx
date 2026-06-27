@@ -49,6 +49,8 @@ const isPeriodicoHoje = (p) => {
   return false;
 };
 
+const ORDEM_KEY = 'nutricional_ordem';
+
 // ─────────────────────────────────────────────────────────────
 // Chip colorido inline
 // ─────────────────────────────────────────────────────────────
@@ -247,7 +249,6 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           ))}
           {periodicosHoje.map(p => {
             const ins = insumos.find(i => i.id === p.insumoId);
-            const hoje = new Date();
             const turnoAgora = getTratoAtual();
             const mostraAgora = p.turno === 'ambos' || p.turno === turnoAgora;
             if (!mostraAgora) return null;
@@ -264,37 +265,63 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
 };
 
 // ─────────────────────────────────────────────────────────────
-// Header de um grupo de baia/piquete
+// Header de um grupo — div container com área de toggle e botões de ordem
 // ─────────────────────────────────────────────────────────────
-const PiqueteHeader = ({ label, count, expanded, onToggle }) => (
-  <button
-    onClick={onToggle}
-    style={{
-      width: '100%', border: 'none', cursor: 'pointer',
-      background: 'linear-gradient(90deg, var(--accent), #2a4330)',
-      padding: '10px 16px',
-      display: 'flex', alignItems: 'center', gap: 10,
-      textAlign: 'left', fontFamily: 'var(--sans)',
-    }}
-  >
-    <Icon name="wheat" size={15} color="rgba(255,255,255,0.8)" />
-    <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '0.03em' }}>
-      {label}
-    </span>
-    <span style={{
-      background: 'rgba(255,255,255,0.2)', borderRadius: 10,
-      padding: '2px 8px', fontSize: 11, color: '#fff', fontWeight: 600,
-    }}>
-      {count} {count === 1 ? 'animal' : 'animais'}
-    </span>
-    <div style={{
-      transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
-      transition: 'transform 0.2s',
-      color: 'rgba(255,255,255,0.8)',
-    }}>
-      <Icon name="chevron-down" size={16} color="rgba(255,255,255,0.8)" />
-    </div>
-  </button>
+const PiqueteHeader = ({ label, count, expanded, onToggle, onMoveUp, onMoveDown, canMoveUp, canMoveDown, podeEditar, temBusca }) => (
+  <div style={{
+    display: 'flex', alignItems: 'stretch',
+    background: 'linear-gradient(90deg, var(--accent), #2a4330)',
+  }}>
+    {/* Botões de reordenação — só para admin/vet quando não há busca ativa */}
+    {podeEditar && !temBusca && (
+      <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '0 2px 0 6px', gap: 0, flexShrink: 0 }}>
+        <button
+          onClick={e => { e.stopPropagation(); onMoveUp(); }}
+          disabled={!canMoveUp}
+          style={{
+            background: 'none', border: 'none', padding: '3px 6px', lineHeight: 1,
+            fontSize: 13, color: canMoveUp ? '#fff' : 'rgba(255,255,255,0.25)',
+            cursor: canMoveUp ? 'pointer' : 'default',
+          }}
+        >▲</button>
+        <button
+          onClick={e => { e.stopPropagation(); onMoveDown(); }}
+          disabled={!canMoveDown}
+          style={{
+            background: 'none', border: 'none', padding: '3px 6px', lineHeight: 1,
+            fontSize: 13, color: canMoveDown ? '#fff' : 'rgba(255,255,255,0.25)',
+            cursor: canMoveDown ? 'pointer' : 'default',
+          }}
+        >▼</button>
+      </div>
+    )}
+    {/* Área clicável de toggle */}
+    <button
+      onClick={onToggle}
+      style={{
+        flex: 1, border: 'none', cursor: 'pointer', background: 'transparent',
+        padding: '10px 16px', display: 'flex', alignItems: 'center', gap: 10,
+        textAlign: 'left', fontFamily: 'var(--sans)',
+      }}
+    >
+      <Icon name="wheat" size={15} color="rgba(255,255,255,0.8)" />
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '0.03em' }}>
+        {label}
+      </span>
+      <span style={{
+        background: 'rgba(255,255,255,0.2)', borderRadius: 10,
+        padding: '2px 8px', fontSize: 11, color: '#fff', fontWeight: 600,
+      }}>
+        {count} {count === 1 ? 'animal' : 'animais'}
+      </span>
+      <div style={{
+        transform: expanded ? 'rotate(180deg)' : 'rotate(0deg)',
+        transition: 'transform 0.2s',
+      }}>
+        <Icon name="chevron-down" size={16} color="rgba(255,255,255,0.8)" />
+      </div>
+    </button>
+  </div>
 );
 
 // ─────────────────────────────────────────────────────────────
@@ -303,7 +330,12 @@ const PiqueteHeader = ({ label, count, expanded, onToggle }) => (
 export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso }) {
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
+  const [ordemGrupos, setOrdemGrupos] = useState(() => {
+    try { return JSON.parse(localStorage.getItem(ORDEM_KEY) || '[]'); }
+    catch { return []; }
+  });
   const trato = getTratoAtual();
+  const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
 
   const togglePiquete = (key) => {
     setColapsados(prev => {
@@ -313,7 +345,15 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
     });
   };
 
-  // Filtrar + agrupar por baia/piquete
+  const defaultSort = (a, b) => {
+    if (a === '__sem__') return 1;
+    if (b === '__sem__') return -1;
+    const na = parseInt(a), nb = parseInt(b);
+    if (!isNaN(na) && !isNaN(nb)) return na - nb;
+    return a.localeCompare(b, 'pt');
+  };
+
+  // Filtrar + agrupar por baia/piquete, respeitando ordem salva
   const groups = useMemo(() => {
     const presentes = cavalos.filter(c => c.presente);
     const q = busca.trim();
@@ -333,16 +373,25 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
       map[k].push(c);
     });
 
-    return Object.keys(map)
-      .sort((a, b) => {
-        if (a === '__sem__') return 1;
-        if (b === '__sem__') return -1;
-        const na = parseInt(a), nb = parseInt(b);
-        if (!isNaN(na) && !isNaN(nb)) return na - nb;
-        return a.localeCompare(b, 'pt');
-      })
-      .map(k => ({ key: k, cavalos: map[k] }));
-  }, [cavalos, busca]);
+    const allKeys = Object.keys(map);
+    const ordered = [
+      ...ordemGrupos.filter(k => allKeys.includes(k)),
+      ...allKeys.filter(k => !ordemGrupos.includes(k)).sort(defaultSort),
+    ];
+
+    return ordered.map(k => ({ key: k, cavalos: map[k] }));
+  }, [cavalos, busca, ordemGrupos]);
+
+  const moverGrupo = (key, dir) => {
+    const keys = groups.map(g => g.key);
+    const idx = keys.indexOf(key);
+    const newIdx = idx + dir;
+    if (newIdx < 0 || newIdx >= keys.length) return;
+    const next = [...keys];
+    [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+    localStorage.setItem(ORDEM_KEY, JSON.stringify(next));
+    setOrdemGrupos(next);
+  };
 
   const temBusca = busca.trim().length > 0;
   const totalFiltrado = groups.reduce((acc, g) => acc + g.cavalos.length, 0);
@@ -421,7 +470,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
           </div>
         )}
 
-        {groups.map(g => {
+        {groups.map((g, gIdx) => {
           const label = g.key === '__sem__' ? 'Sem local definido' : g.key;
           const expanded = temBusca || !colapsados.has(g.key);
 
@@ -438,6 +487,12 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
                 count={g.cavalos.length}
                 expanded={expanded}
                 onToggle={() => togglePiquete(g.key)}
+                podeEditar={podeEditar}
+                temBusca={temBusca}
+                canMoveUp={gIdx > 0}
+                canMoveDown={gIdx < groups.length - 1}
+                onMoveUp={() => moverGrupo(g.key, -1)}
+                onMoveDown={() => moverGrupo(g.key, 1)}
               />
 
               {expanded && g.cavalos.map((c, idx) => (
