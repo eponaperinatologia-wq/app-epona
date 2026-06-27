@@ -280,6 +280,9 @@ export const fromDbEstoqueCompra = r => ({
   valorUnit: Number(r.valor_unit) || 0, valorTotal: Number(r.valor_total) || 0,
   fornecedor: r.fornecedor || '', obs: r.obs || '',
   lancamentoId: r.lancamento_id || null,
+  pago: r.pago || false,
+  dataVencimento: r.data_vencimento || null,
+  tipo: r.tipo || 'compra',
 });
 
 export const toDbEstoqueCompra = c => ({
@@ -288,6 +291,9 @@ export const toDbEstoqueCompra = c => ({
   valor_unit: c.valorUnit, valor_total: c.valorTotal,
   fornecedor: c.fornecedor || '', obs: c.obs || '',
   lancamento_id: c.lancamentoId || null,
+  pago: c.pago || false,
+  data_vencimento: c.dataVencimento || null,
+  tipo: c.tipo || 'compra',
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────

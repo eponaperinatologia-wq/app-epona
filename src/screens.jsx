@@ -3347,12 +3347,15 @@ const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], regist
 // ─────────────────────────────────────────────────────────────
 const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
   const hoje = new Date().toISOString().slice(0, 10);
+  const [tipo, setTipo] = useState('compra');
   const [insumoId, setInsumoId] = useState('');
   const [data, setData] = useState(hoje);
   const [qtd, setQtd] = useState('');
   const [valorUnit, setValorUnit] = useState('');
   const [fornecedor, setFornecedor] = useState('');
   const [obs, setObs] = useState('');
+  const [pago, setPago] = useState(false);
+  const [dataVencimento, setDataVencimento] = useState('');
 
   const insumoSel = insumos.find(i => i.id === insumoId);
   const unidade = insumoSel?.unidade || 'un';
@@ -3367,13 +3370,16 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
   const handleSave = () => {
     if (!insumoId || !data || !(parseFloat(qtd) > 0)) return;
     onSave({
+      tipo,
       insumoId, data,
       qtd: parseFloat(qtd),
       unidade,
-      valorUnit: parseFloat(valorUnit) || 0,
-      valorTotal,
+      valorUnit: tipo === 'ajuste' ? 0 : (parseFloat(valorUnit) || 0),
+      valorTotal: tipo === 'ajuste' ? 0 : valorTotal,
       fornecedor: fornecedor.trim(),
       obs: obs.trim(),
+      pago: tipo === 'compra' ? pago : false,
+      dataVencimento: (tipo === 'compra' && !pago && dataVencimento) ? dataVencimento : null,
     });
   };
 
@@ -3381,7 +3387,27 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
 
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Registrar compra</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Registrar entrada no estoque</div>
+
+      {/* Toggle tipo */}
+      <div style={{ display: 'flex', background: 'var(--soft)', borderRadius: 10, padding: 3, marginBottom: 14 }}>
+        {[{ id: 'compra', label: 'Nova compra' }, { id: 'ajuste', label: 'Saldo existente' }].map(t => (
+          <button key={t.id} onClick={() => setTipo(t.id)} style={{
+            flex: 1, border: 'none', borderRadius: 8, padding: '7px 0',
+            fontFamily: 'var(--sans)', fontSize: 13, fontWeight: tipo === t.id ? 700 : 400,
+            background: tipo === t.id ? 'var(--card)' : 'transparent',
+            color: tipo === t.id ? 'var(--ink)' : 'var(--ink-3)',
+            cursor: 'pointer', transition: 'all 0.15s',
+            boxShadow: tipo === t.id ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+          }}>{t.label}</button>
+        ))}
+      </div>
+      {tipo === 'ajuste' && (
+        <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', marginBottom: 12, fontSize: 12, color: '#92400e' }}>
+          Use para registrar o que você já tem hoje. Não gera lançamento financeiro.
+        </div>
+      )}
+
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Insumo *</div>
@@ -3394,7 +3420,9 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Data *</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>
+              {tipo === 'ajuste' ? 'Data do inventário *' : 'Data de entrada *'}
+            </div>
             <input type="date" value={data} onChange={e => setData(e.target.value)} style={inp} />
           </div>
           <div>
@@ -3402,27 +3430,45 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
             <input type="number" min="0" step="any" value={qtd} onChange={e => setQtd(e.target.value)} placeholder="0" style={inp} />
           </div>
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Valor unit. (R$)</div>
-            <input type="number" min="0" step="0.01" value={valorUnit} onChange={e => setValorUnit(e.target.value)} placeholder="0,00" style={inp} />
+
+        {tipo === 'compra' && (<>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Valor unit. (R$)</div>
+              <input type="number" min="0" step="0.01" value={valorUnit} onChange={e => setValorUnit(e.target.value)} placeholder="0,00" style={inp} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Total</div>
+              <div style={{ ...inp, color: 'var(--ink-2)', background: 'var(--soft)' }}>{formatBRL(valorTotal)}</div>
+            </div>
           </div>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Total calculado</div>
-            <div style={{ ...inp, color: 'var(--ink-2)', background: 'var(--soft)' }}>{formatBRL(valorTotal)}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Fornecedor</div>
+            <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} placeholder="Nome do fornecedor" style={inp} />
           </div>
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Fornecedor</div>
-          <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} placeholder="Nome do fornecedor" style={inp} />
-        </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--soft)', borderRadius: 10, cursor: 'pointer' }} onClick={() => setPago(v => !v)}>
+            <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${pago ? '#16a34a' : 'var(--line)'}`, background: pago ? '#16a34a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+              {pago && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
+            </div>
+            <span style={{ fontSize: 14, color: 'var(--ink)', userSelect: 'none' }}>Já pago</span>
+          </div>
+          {!pago && (
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Vencimento do pagamento</div>
+              <input type="date" value={dataVencimento} onChange={e => setDataVencimento(e.target.value)} style={inp} />
+            </div>
+          )}
+        </>)}
+
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Observações</div>
           <input value={obs} onChange={e => setObs(e.target.value)} placeholder="Opcional" style={inp} />
         </div>
         <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
           <button onClick={onCancel} style={{ flex: 1, border: '1px solid var(--line)', borderRadius: 10, padding: '10px 0', fontFamily: 'var(--sans)', fontSize: 14, background: 'none', color: 'var(--ink-2)', cursor: 'pointer' }}>Cancelar</button>
-          <button onClick={handleSave} disabled={!insumoId || !data || !(parseFloat(qtd) > 0)} style={{ flex: 2, border: 'none', borderRadius: 10, padding: '10px 0', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 700, background: 'var(--accent)', color: '#fff', cursor: 'pointer', opacity: (!insumoId || !data || !(parseFloat(qtd) > 0)) ? 0.5 : 1 }}>Salvar compra</button>
+          <button onClick={handleSave} disabled={!insumoId || !data || !(parseFloat(qtd) > 0)} style={{ flex: 2, border: 'none', borderRadius: 10, padding: '10px 0', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 700, background: 'var(--accent)', color: '#fff', cursor: 'pointer', opacity: (!insumoId || !data || !(parseFloat(qtd) > 0)) ? 0.5 : 1 }}>
+            {tipo === 'ajuste' ? 'Registrar saldo' : 'Salvar compra'}
+          </button>
         </div>
       </div>
     </div>
@@ -3512,12 +3558,25 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
             <div style={{ borderTop: '1px solid var(--line)', padding: '10px 14px' }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Histórico de compras</div>
               {compras.slice().sort((a, b) => b.data.localeCompare(a.data)).map(c => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 10, paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid var(--line)' }}>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, color: 'var(--ink)' }}>{c.qtd} {c.unidade} {c.fornecedor ? `· ${c.fornecedor}` : ''}</div>
-                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{c.data}{c.valorTotal > 0 ? ` · ${formatBRL(c.valorTotal)}` : ''}</div>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, paddingBottom: 8, marginBottom: 8, borderBottom: '1px solid var(--line)' }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      {c.qtd % 1 === 0 ? c.qtd : c.qtd.toFixed(2)} {c.unidade}
+                      {c.fornecedor ? ` · ${c.fornecedor}` : ''}
+                      {c.tipo === 'ajuste' && <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a', borderRadius: 5, padding: '1px 5px' }}>saldo inicial</span>}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                      {c.data}{c.valorTotal > 0 ? ` · ${formatBRL(c.valorTotal)}` : ''}
+                    </div>
+                    {c.tipo !== 'ajuste' && c.valorTotal > 0 && (
+                      c.pago
+                        ? <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>✓ Pago em {c.data}</div>
+                        : <div style={{ fontSize: 11, color: c.dataVencimento && c.dataVencimento < new Date().toISOString().slice(0,10) ? '#dc2626' : '#d97706', marginTop: 1 }}>
+                            {c.dataVencimento ? `Vence ${c.dataVencimento}` : 'Pagamento pendente'}
+                          </div>
+                    )}
                   </div>
-                  <button onClick={() => { if (window.confirm('Excluir compra? O lançamento financeiro vinculado também será removido.')) deleteEstoqueCompra(c.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                  <button onClick={() => { if (window.confirm('Excluir esta entrada? O lançamento financeiro vinculado também será removido.')) deleteEstoqueCompra(c.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)', flexShrink: 0 }}>×</button>
                 </div>
               ))}
               {compras.length === 0 && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Nenhuma compra</div>}

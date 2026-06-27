@@ -324,19 +324,31 @@ const loadAllData = async () => {
 
   // ── Estoque de compras CRUD ───────────────────────────────
   const addEstoqueCompra = (data) => {
-    const lancId = 'lan_ec_' + Date.now();
-    const ecId = 'ec_' + (Date.now() + 1);
+    const ecId = 'ec_' + Date.now();
     const ins = insumos.find(i => i.id === data.insumoId);
-    const lancamento = {
-      id: lancId, tipo: 'saida', valor: data.valorTotal, data: data.data,
-      quem: data.fornecedor || '', motivo: `${data.qtd} ${data.unidade || ins?.unidade || 'un'} de ${ins?.nome || data.insumoId}`,
-      categoria: 'Compra de Insumo', pago: true, pagoEm: data.data, recorrenciaId: null,
-    };
-    const novaCompra = { ...data, id: ecId, lancamentoId: lancId };
+    let lancamentoId = null;
+
+    if (data.tipo !== 'ajuste' && (data.valorTotal || 0) > 0) {
+      const lancId = 'lan_ec_' + ecId;
+      lancamentoId = lancId;
+      const dataLan = data.pago ? data.data : (data.dataVencimento || data.data);
+      const lancamento = {
+        id: lancId, tipo: 'saida', valor: data.valorTotal,
+        data: dataLan,
+        quem: data.fornecedor || '',
+        motivo: `${data.qtd} ${data.unidade || ins?.unidade || 'un'} de ${ins?.nome || data.insumoId}`,
+        categoria: 'Compra de Insumo',
+        pago: data.pago || false,
+        pagoEm: data.pago ? data.data : null,
+        recorrenciaId: null,
+      };
+      setLancamentos(prev => [...prev, lancamento]);
+      dbInsert('financeiro_lancamentos', toDbLancamento(lancamento));
+    }
+
+    const novaCompra = { ...data, id: ecId, lancamentoId };
     setEstoqueCompras(prev => [...prev, novaCompra]);
-    setLancamentos(prev => [...prev, lancamento]);
     dbInsert('estoque_compras', toDbEstoqueCompra(novaCompra));
-    dbInsert('financeiro_lancamentos', toDbLancamento(lancamento));
   };
   const deleteEstoqueCompra = (id) => {
     const compra = estoqueCompras.find(c => c.id === id);
