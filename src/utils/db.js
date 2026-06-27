@@ -255,7 +255,7 @@ export const toDbLancamento = l => ({
   id: l.id, tipo: l.tipo, valor: l.valor, data: l.data,
   quem: l.quem || '', motivo: l.motivo || '', categoria: l.categoria || '',
   pago: !!l.pago, pago_em: l.pagoEm || null,
-  recorrencia_id: l.recorrenciaId || null,
+  ...(l.recorrenciaId ? { recorrencia_id: l.recorrenciaId } : {}),
 });
 
 export const fromDbRecorrencia = r => ({

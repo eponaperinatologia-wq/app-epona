@@ -2232,6 +2232,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [racaoKgAlmoco, setRacaoKgAlmoco] = useState('0');
   const [oleoMlManha, setOleoMlManha] = useState('25');
   const [oleoMlTarde, setOleoMlTarde] = useState('25');
+  const [fenoKgDia, setFenoKgDia] = useState('0');
   const [suplementos, setSuplementos] = useState([]);
   const [periodicos, setPeriodicos] = useState([]);
   const [novoPerInsumoId, setNovoPerInsumoId] = useState('');
@@ -2341,6 +2342,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         oleoMlManha: parseFloat(oleoMlManha) || 0,
         oleoMlTarde: parseFloat(oleoMlTarde) || 0,
         oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
+        fenoKgDia: parseFloat(fenoKgDia) || 0,
         suplementos: suplementos.filter(s => s.qtdDia > 0),
         periodicos,
       }
@@ -2690,6 +2692,13 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
             </FormField>
           </div>
+        </div>
+
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+          <FormField label="🌾 Feno (kg/dia)">
+            <input type="number" step="0.5" min="0" value={fenoKgDia} onChange={e => setFenoKgDia(e.target.value)}
+              style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+          </FormField>
         </div>
 
         <div style={{ marginBottom: 12 }}>
