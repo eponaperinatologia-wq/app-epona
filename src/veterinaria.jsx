@@ -95,7 +95,7 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   for (const prot of protocolos) {
     if (!prot.ativo) continue;
     if (prot.subtipo === 'opg') continue;
-    if (prot.tipo === 'unico') {
+    if (prot.eventoUnico || prot.tipo === 'unico') {
       const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
       for (const cavalo of alvo) {
         const feito = (vermifugacoesAnimais || []).some(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id);
@@ -169,7 +169,7 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
     if (!prot.ativo) continue;
 
     // Evento único OPG
-    if (prot.tipo === 'unico' && prot.subtipo === 'opg') {
+    if ((prot.eventoUnico || prot.tipo === 'unico') && prot.subtipo === 'opg') {
       const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
       for (const cavalo of alvo) {
         const feito = (opgs || []).some(o => o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.aplicado);
@@ -1203,7 +1203,7 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
   const insumo = insumos.find(i => i.id === protocolo.insumoId);
   const intervOpt = INTERVALO_OPTIONS.find(o => o.value === protocolo.intervaloDias);
   const isPotroEtapas = protocolo.tipo === 'potro' && (protocolo.etapas||[]).length > 0;
-  const isUnico = protocolo.tipo === 'unico';
+  const isUnico = !!protocolo.eventoUnico || protocolo.tipo === 'unico';
   return (
     <div style={{ background:'var(--card)', border:`1px solid ${cor}30`, borderRadius:14, marginBottom:10, overflow:'hidden' }}>
       <button onClick={()=>setOpen(o=>!o)} style={{ width:'100%', background:'none', border:'none', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, textAlign:'left', cursor:'pointer' }}>
@@ -1214,7 +1214,8 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
           <div style={{ fontSize:14, fontWeight:700, color:'var(--ink)' }}>{protocolo.nome}</div>
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
             {protocolo.subtipo==='opg' && !isPotroEtapas && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
-            {isUnico ? 'Evento único' : (TIPO_LABELS[protocolo.tipo]||'Tropa geral')}
+            {isUnico && <span style={{ fontSize:10, background:'#fff7ed', color:'#9a3412', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>EVENTO ÚNICO</span>}
+            {TIPO_LABELS[protocolo.tipo]||'Tropa geral'}
             {isPotroEtapas
               ? ` · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
               : isUnico
@@ -1296,13 +1297,14 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
 // ─── ProtocoloVermForm ────────────────────────────────────────
 function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
-  const [tipo, setTipo] = useState(initial?.tipo||'geral');
+  const [tipo, setTipo] = useState(initial?.tipo === 'unico' ? 'geral' : (initial?.tipo || 'geral'));
   const [subtipo, setSubtipo] = useState(initial?.subtipo||'vermifugacao');
   const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
   const [servicoId, setServicoId] = useState(initial?.servicoId||'');
   const [laboratorio, setLaboratorio] = useState(initial?.laboratorio||'');
   const [intervaloDias, setIntervaloDias] = useState(initial?.intervaloDias||90);
   const [observacoes, setObservacoes] = useState(initial?.observacoes||'');
+  const [eventoUnico, setEventoUnico] = useState(!!initial?.eventoUnico || initial?.tipo === 'unico');
   const [dataFixa, setDataFixa] = useState(initial?.dataFixa||'');
   const [animaisAlvo, setAnimaisAlvo] = useState(initial?.animaisAlvo||[]);
   const [animalSearch, setAnimalSearch] = useState('');
@@ -1314,7 +1316,6 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const cavalosPresentes = (cavalos||[]).filter(c=>c.presente).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const cavalosFiltrados = animalSearch.trim() ? cavalosPresentes.filter(c=>c.nome.toLowerCase().includes(animalSearch.trim().toLowerCase())) : cavalosPresentes;
   const isPotro = tipo === 'potro';
-  const isUnico = tipo === 'unico';
   const addEtapa = () => setEtapas(e=>[...e,{diasDesdeNascimento:0,subtipo:'vermifugacao',insumoId:'',servicoId:'',laboratorio:'',label:''}]);
   const removeEtapa = i => setEtapas(e=>e.filter((_,idx)=>idx!==i));
   const updateEtapa = (i,field,val) => setEtapas(e=>e.map((e2,idx)=>idx===i?{...e2,[field]:val}:e2));
@@ -1323,17 +1324,17 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const clearAnimais = () => setAnimaisAlvo([]);
   const canSave = nome.trim() && (
     isPotro ? etapas.length>0 :
-    isUnico ? (dataFixa && animaisAlvo.length>0) :
+    eventoUnico ? (dataFixa && animaisAlvo.length>0) :
     intervaloDias>0
   );
 
   const handleSave = () => {
     if (isPotro) {
-      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas, observacoes, ativo:true });
-    } else if (isUnico) {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], dataFixa, animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+    } else if (eventoUnico) {
+      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
     }
   };
 
@@ -1350,75 +1351,10 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
           <option value="geral">Tropa geral</option>
           <option value="gestante">Éguas gestantes</option>
           <option value="potro">Potros (por data de nascimento)</option>
-          <option value="unico">Evento único (data fixa + animais selecionados)</option>
         </select>
       </div>
 
-      {isUnico ? (
-        <>
-          <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#9a3412', marginBottom:14 }}>
-            Agendamento único, sem recorrência. Após aplicado, o item sai da agenda.
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Data do evento</div>
-            <input type="date" value={dataFixa} onChange={e=>setDataFixa(e.target.value)} style={inputSt} />
-          </div>
-          <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Tipo de protocolo</div>
-            <div style={{ display:'flex', gap:8 }}>
-              <button onClick={()=>setSubtipo('vermifugacao')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='vermifugacao'?'#15803d':'var(--line)'}`, background:subtipo==='vermifugacao'?'#15803d':'var(--card)', color:subtipo==='vermifugacao'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>Vermifugação</button>
-              <button onClick={()=>setSubtipo('opg')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='opg'?'#7c3aed':'var(--line)'}`, background:subtipo==='opg'?'#7c3aed':'var(--card)', color:subtipo==='opg'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>OPG</button>
-            </div>
-          </div>
-          {subtipo==='vermifugacao' ? (
-            <div style={{ marginBottom:12 }}>
-              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Princípio ativo (insumo)</div>
-              <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
-                <option value="">— selecionar —</option>
-                {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
-              </select>
-            </div>
-          ) : (
-            <>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Procedimento OPG</div>
-                <select value={servicoId} onChange={e=>setServicoId(e.target.value)} style={inputSt}>
-                  <option value="">— selecionar serviço —</option>
-                  {(servicos||[]).sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Laboratório</div>
-                <input value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="Ex: Lab Vet…" style={inputSt} />
-              </div>
-            </>
-          )}
-          <div style={{ marginBottom:12 }}>
-            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-              <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisAlvo.length}/{cavalosPresentes.length})</div>
-              <div style={{ display:'flex', gap:8 }}>
-                <button onClick={selectAllAnimais} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
-                <button onClick={clearAnimais} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
-              </div>
-            </div>
-            <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
-            <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
-              {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
-              {cavalosFiltrados.map(c => {
-                const checked = animaisAlvo.includes(c.id);
-                return (
-                  <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#f0fdf4':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
-                    <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
-                      {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
-                    </div>
-                    <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        </>
-      ) : isPotro ? (
+      {isPotro ? (
         <>
           <div style={{ background:'#f0fdf4', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#15803d', marginBottom:14 }}>
             Cada etapa é agendada com base na data de nascimento do potro.
@@ -1509,11 +1445,50 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
           )}
           <div style={{ marginBottom:12 }}>
             <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre {subtipo==='opg'?'coletas':'aplicações'}</div>
-            <select value={intervaloDias} onChange={e=>setIntervaloDias(Number(e.target.value))} style={inputSt}>
+            <select value={eventoUnico ? 'unico' : String(intervaloDias)} onChange={e=>{
+              if (e.target.value === 'unico') setEventoUnico(true);
+              else { setEventoUnico(false); setIntervaloDias(Number(e.target.value)); }
+            }} style={inputSt}>
               {INTERVALO_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
               <option value={60}>Bimestral (60 dias)</option>
+              <option value="unico">Evento único (data fixa, sem recorrência)</option>
             </select>
           </div>
+          {eventoUnico && (
+            <>
+              <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#9a3412', marginBottom:12 }}>
+                Agendamento único. Após aplicado em cada animal, o item sai da agenda.
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Data do evento</div>
+                <input type="date" value={dataFixa} onChange={e=>setDataFixa(e.target.value)} style={inputSt} />
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+                  <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisAlvo.length}/{cavalosPresentes.length})</div>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <button onClick={selectAllAnimais} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
+                    <button onClick={clearAnimais} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
+                  </div>
+                </div>
+                <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
+                <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
+                  {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
+                  {cavalosFiltrados.map(c => {
+                    const checked = animaisAlvo.includes(c.id);
+                    return (
+                      <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#f0fdf4':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
+                        <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
+                          {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
       <div style={{ marginBottom:14 }}>
