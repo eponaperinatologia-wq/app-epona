@@ -1,7 +1,9 @@
 // veterinaria.jsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Icon } from './icons';
 import { GestacaoPartosScreen } from './gestacao';
+import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './utils/pdfRelatorioVet';
+import { supabase } from './utils/supabase';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -187,7 +189,7 @@ function VacPlanner({ agenda, protocolos }) {
 // ─── VeterinariaScreen — Dashboard ────────────────────────────
 export function VeterinariaScreen({
   setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, insumos,
-  servicos, registros, procedimentos,
+  servicos, registros, procedimentos, empresaInfo,
   currentUser, addRegistro, addAtividade, addProcedimento,
   protocolosVacinacao, vacinacoesAnimais,
   addProtocoloVacinacao, updateProtocoloVacinacao, deleteProtocoloVacinacao,
@@ -197,6 +199,7 @@ export function VeterinariaScreen({
   addVermifugacaoAnimal, addOpg, updateOpg, deleteOpg,
   medicoes, addMedicao, updateMedicao, deleteMedicao,
   anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+  exames, uploadExame, deleteExame,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -291,6 +294,18 @@ export function VeterinariaScreen({
         medicoes={medicoes || []}
         registros={registros || []}
         procedimentos={procedimentos || []}
+        empresaInfo={empresaInfo || {}}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
+  if (secao === 'exames') {
+    return (
+      <ExamesComplementaresScreen
+        cavalos={cavalos}
+        exames={exames || []}
+        uploadExame={uploadExame}
+        deleteExame={deleteExame}
         onBack={() => setSecao(null)}
       />
     );
@@ -298,6 +313,7 @@ export function VeterinariaScreen({
 
   const animaisMedidos = new Set((medicoes || []).map(m => m.cavaloId)).size;
   const totalAnotacoes = (anotacoesClinicas || []).length;
+  const totalExames = (exames || []).length;
 
   const CARDS = [
     {
@@ -316,7 +332,7 @@ export function VeterinariaScreen({
     },
     { id: 'desenvolvimento', label: 'Desenvolvimento', icon: 'bar-chart', cor: '#b45309', bg: '#fef3c7', badge: animaisMedidos > 0 ? `${(medicoes||[]).length} medições` : 'Biometria', badgeCor: '#b45309' },
     { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', badge: totalAnotacoes > 0 ? `${totalAnotacoes} registro${totalAnotacoes>1?'s':''}` : 'Novo', badgeCor: '#7c3aed' },
-    { id: 'exames', label: 'Exames\nComplementares', icon: 'doc', cor: '#0e7490', bg: '#cffafe', emBreve: true },
+    { id: 'exames', label: 'Exames\nComplementares', icon: 'doc', cor: '#0e7490', bg: '#cffafe', badge: totalExames > 0 ? `${totalExames} arquivo${totalExames>1?'s':''}` : 'PDF · Imagens', badgeCor: '#0e7490' },
     { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'list', cor: '#374151', bg: '#f3f4f6', badge: 'Por animal · mês', badgeCor: '#374151' },
   ];
 
@@ -1812,11 +1828,64 @@ function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel })
   );
 }
 
+// ─── Share Sheet ──────────────────────────────────────────────
+
+function VetShareSheet({ onClose, getPdf, fileName, summary }) {
+  const [loading, setLoading] = useState(false);
+
+  const handleDownload = () => { getPdf()?.save(fileName); onClose(); };
+
+  const handleWhatsApp = () => window.open(`https://wa.me/?text=${encodeURIComponent(summary)}`, '_blank');
+
+  const handleShare = async () => {
+    setLoading(true);
+    const doc = getPdf(); if (!doc) { setLoading(false); return; }
+    try {
+      const blob = doc.output('blob');
+      const file = new File([blob], fileName, { type: 'application/pdf' });
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: fileName });
+      } else if (navigator.share) {
+        await navigator.share({ title: fileName, text: summary });
+      } else {
+        doc.save(fileName);
+      }
+    } catch (e) { if (e.name !== 'AbortError') getPdf()?.save(fileName); }
+    setLoading(false); onClose();
+  };
+
+  const btn = (icon, label, color, onClick) => (
+    <button onClick={onClick} disabled={loading} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 14, padding: '16px 8px', cursor: 'pointer' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 22, background: color + '18', display: 'grid', placeItems: 'center' }}><Icon name={icon} size={22} color={color} /></div>
+      <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--ink-2)', fontFamily: 'var(--sans)' }}>{label}</span>
+    </button>
+  );
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 300, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' }}>
+      <div onClick={onClose} style={{ flex: 1, background: 'rgba(0,0,0,0.4)' }} />
+      <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: '16px 20px 36px', boxShadow: '0 -4px 32px rgba(0,0,0,0.14)' }}>
+        <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--line-2)', margin: '0 auto 16px' }} />
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)', marginBottom: 16 }}>Exportar relatório</div>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+          {btn('share', 'Compartilhar', 'var(--accent)', handleShare)}
+          {btn('download', 'Salvar PDF', 'var(--ink-2)', handleDownload)}
+        </div>
+        <button onClick={handleWhatsApp} style={{ width: '100%', background: '#25D36618', border: '1px solid #25D36640', borderRadius: 14, padding: 14, fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 600, color: '#128C47', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, cursor: 'pointer' }}>
+          <span style={{ fontSize: 20 }}>📱</span> Enviar resumo via WhatsApp
+        </button>
+        <button onClick={onClose} style={{ marginTop: 10, width: '100%', background: 'none', border: 'none', fontFamily: 'var(--sans)', fontSize: 13, color: 'var(--ink-3)', cursor: 'pointer', padding: 10 }}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Relatório Veterinário ─────────────────────────────────────
 
-function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, medicoes, registros, procedimentos, onBack }) {
+function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, medicoes, registros, procedimentos, empresaInfo, onBack }) {
   const [cavaloId, setCavaloId] = useState('');
   const [mes, setMes] = useState('');
+  const [shareOpen, setShareOpen] = useState(false);
 
   const mesesDisponiveis = useMemo(() => {
     if (!cavaloId) return [];
@@ -1870,9 +1939,26 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
       <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>Relatório Veterinário</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)', flex: 1 }}>Relatório Veterinário</div>
+          {cavaloId && mes && (
+            <button onClick={() => setShareOpen(true)} style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="share" size={14} color="#fff" /> PDF
+            </button>
+          )}
         </div>
       </div>
+
+      {shareOpen && cavaloId && mes && (() => {
+        const pdfArgs = { cavalo, mesLabel: fmtMesLabel(mes), notas, medsMes, regsMes, procsMes, insumos, servicos, deltaPeso, deltaAltura, empresa: empresaInfo };
+        return (
+          <VetShareSheet
+            onClose={() => setShareOpen(false)}
+            getPdf={() => gerarPdfRelatorio(pdfArgs)}
+            fileName={nomePdfRelatorio(cavalo, fmtMesLabel(mes))}
+            summary={gerarResumoRelatorio(pdfArgs)}
+          />
+        );
+      })()}
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 90px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
@@ -1980,6 +2066,184 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Exames Complementares ────────────────────────────────────
+
+const TIPOS_EXAME = ['Raio-X','Ultrassom','Endoscopia','Odontograma','Hemograma','Bioquímica','Laudo','Eletrocardiograma','Outros'];
+const TIPO_EXAME_COR = { 'Raio-X':'#1d4ed8','Ultrassom':'#0e7490','Endoscopia':'#7c3aed','Odontograma':'#9d174d','Hemograma':'#dc2626','Bioquímica':'#b45309','Laudo':'#374151','Eletrocardiograma':'#15803d','Outros':'#6b7280' };
+
+function ExamesComplementaresScreen({ cavalos, exames, uploadExame, deleteExame, onBack }) {
+  const [filtroAnimal, setFiltroAnimal] = useState('');
+  const [showForm, setShowForm] = useState(false);
+
+  const cavalosOrdenados = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+
+  const lista = (exames || [])
+    .filter(e => !filtroAnimal || e.cavaloId === filtroAnimal)
+    .sort((a, b) => b.data.localeCompare(a.data));
+
+  const meses = [...new Set(lista.map(e => e.mes))].sort((a, b) => b.localeCompare(a));
+
+  const fmtMesLabel = m => {
+    const [a, mm] = m.split('-');
+    return new Date(parseInt(a), parseInt(mm) - 1, 15).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const ehImagem = (tipo) => tipo && tipo.startsWith('image/');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)', flex: 1 }}>Exames Complementares</div>
+          <button onClick={() => setShowForm(true)} style={{ background: '#0e7490', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Anexar</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 90px' }}>
+        <select value={filtroAnimal} onChange={e => setFiltroAnimal(e.target.value)} style={{ ...inputSt, marginBottom: 16, fontSize: 13 }}>
+          <option value="">Todos os animais</option>
+          {cavalosOrdenados.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+
+        {showForm && (
+          <ExameUploadForm
+            cavalos={cavalosOrdenados}
+            onSave={async (meta, file) => { await uploadExame(meta, file); setShowForm(false); }}
+            onCancel={() => setShowForm(false)}
+          />
+        )}
+
+        {!showForm && lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>
+            Nenhum exame anexado.
+          </div>
+        )}
+
+        {!showForm && meses.map(m => (
+          <div key={m} style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 10 }}>{fmtMesLabel(m)}</div>
+            {lista.filter(e => e.mes === m).map(exame => {
+              const cavalo = cavalos.find(c => c.id === exame.cavaloId);
+              const cor = TIPO_EXAME_COR[exame.tipo] || '#6b7280';
+              const isImg = ehImagem(exame.arquivoTipo);
+              const isPdf = exame.arquivoTipo === 'application/pdf';
+              return (
+                <div key={exame.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10, borderLeft: `3px solid ${cor}` }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                    {isImg && exame.arquivoUrl && (
+                      <img src={exame.arquivoUrl} alt={exame.arquivoNome} onClick={() => window.open(exame.arquivoUrl, '_blank')} style={{ width: 60, height: 60, objectFit: 'cover', borderRadius: 8, flexShrink: 0, cursor: 'pointer' }} />
+                    )}
+                    {!isImg && (
+                      <div onClick={() => exame.arquivoUrl && window.open(exame.arquivoUrl, '_blank')} style={{ width: 60, height: 60, borderRadius: 8, background: cor + '18', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', flexShrink: 0, cursor: exame.arquivoUrl ? 'pointer' : 'default' }}>
+                        <Icon name="doc" size={24} color={cor} />
+                        {isPdf && <span style={{ fontSize: 8, color: cor, fontWeight: 700, marginTop: 2 }}>PDF</span>}
+                      </div>
+                    )}
+                    <div style={{ flex: 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+                        <span style={{ background: cor + '22', color: cor, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{exame.tipo}</span>
+                        <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{new Date(exame.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                        {!filtroAnimal && cavalo && <span style={{ fontSize: 12, color: cor, fontWeight: 600 }}>· {cavalo.nome}</span>}
+                      </div>
+                      {exame.descricao && <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 6 }}>{exame.descricao}</div>}
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>{exame.arquivoNome}</div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        {exame.arquivoUrl && (
+                          <button onClick={() => window.open(exame.arquivoUrl, '_blank')} style={{ background: cor + '18', border: `1px solid ${cor}40`, borderRadius: 8, padding: '4px 12px', fontSize: 12, color: cor, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+                            {isImg ? 'Ver imagem' : 'Abrir'}
+                          </button>
+                        )}
+                        <button onClick={() => { if (window.confirm('Excluir exame?')) deleteExame(exame.id); }} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExameUploadForm({ cavalos, onSave, onCancel }) {
+  const [cavaloId, setCavaloId] = useState('');
+  const [data, setData] = useState(todayStr());
+  const [tipo, setTipo] = useState('Outros');
+  const [descricao, setDescricao] = useState('');
+  const [file, setFile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const fileRef = useRef();
+
+  const canSave = cavaloId && data && file;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setLoading(true);
+    try {
+      await onSave({ cavaloId, data, tipo, descricao, mes: data.slice(0, 7) }, file);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ background: 'var(--soft)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 14 }}>Anexar exame</div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Animal *</div>
+          <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt}>
+            <option value="">— Selecionar —</option>
+            {cavalos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Data *</div>
+          <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputSt} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>Tipo de exame</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {TIPOS_EXAME.map(t => {
+            const c = TIPO_EXAME_COR[t] || '#6b7280';
+            const sel = tipo === t;
+            return <button key={t} onClick={() => setTipo(t)} style={{ padding: '5px 11px', borderRadius: 8, border: `1px solid ${sel ? c : 'var(--line)'}`, background: sel ? c + '22' : 'var(--card)', color: sel ? c : 'var(--ink-2)', fontSize: 12, fontWeight: sel ? 700 : 400, cursor: 'pointer', fontFamily: 'var(--sans)' }}>{t}</button>;
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Descrição / observações</div>
+        <input value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Ex: Raio-X lateral esquerdo — fratura confirmada" style={inputSt} />
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>Arquivo * (PDF, imagem, raio-X)</div>
+        <input ref={fileRef} type="file" accept="image/*,application/pdf,.pdf,.jpg,.jpeg,.png,.gif,.tiff,.dcm" style={{ display: 'none' }} onChange={e => setFile(e.target.files?.[0] || null)} />
+        <button onClick={() => fileRef.current?.click()} style={{ width: '100%', background: file ? '#dcfce7' : 'var(--card)', border: `2px dashed ${file ? '#15803d' : 'var(--line)'}`, borderRadius: 12, padding: 16, cursor: 'pointer', fontSize: 14, color: file ? '#15803d' : 'var(--ink-3)', fontFamily: 'var(--sans)', fontWeight: file ? 600 : 400 }}>
+          {file ? `✓ ${file.name}` : '📎 Toque para selecionar arquivo'}
+        </button>
+        {file && (
+          <button onClick={() => setFile(null)} style={{ marginTop: 6, background: 'none', border: 'none', color: '#dc2626', fontSize: 12, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Remover arquivo</button>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 14, fontFamily: 'var(--sans)' }}>Cancelar</button>
+        <button disabled={!canSave || loading} onClick={handleSave} style={{ flex: 2, padding: 12, borderRadius: 10, border: 'none', background: canSave && !loading ? '#0e7490' : 'var(--soft)', color: canSave && !loading ? '#fff' : 'var(--ink-3)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--sans)', cursor: canSave && !loading ? 'pointer' : 'default' }}>
+          {loading ? 'Enviando…' : 'Salvar exame'}
+        </button>
       </div>
     </div>
   );
