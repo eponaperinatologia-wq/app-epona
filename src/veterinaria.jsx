@@ -266,7 +266,7 @@ export function VeterinariaScreen({
 
   const CARDS = [
     {
-      id: 'gestacao', label: 'Gestação', icon: 'heart', cor: '#9d174d', bg: '#fce7f3',
+      id: 'gestacao', label: 'Gestação\ne Parto', icon: 'heart', cor: '#9d174d', bg: '#fce7f3',
       badge: gestantes.length > 0 ? `${gestantes.length} gestante${gestantes.length > 1 ? 's' : ''}` : null,
     },
     {
@@ -1254,7 +1254,10 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
   const [showForm, setShowForm] = useState(false);
   const [editMed, setEditMed] = useState(null);
 
-  const cavalosPresentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+  const CATS_DESENV = ['Potro ao pé', 'Potro', 'Jovem'];
+  const cavalosPresentes = cavalos
+    .filter(c => c.presente && (c.categorias?.length ? c.categorias : [c.categoria]).some(cat => CATS_DESENV.includes(cat)))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const meusHistorico = (medicoes || [])
     .filter(m => m.cavaloId === cavaloId)
     .sort((a, b) => a.dataRegistro.localeCompare(b.dataRegistro));

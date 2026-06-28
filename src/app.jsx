@@ -448,13 +448,15 @@ const loadAllData = async () => {
   };
 
   // ── Medições (Desenvolvimento) CRUD ──────────────────────
+  const MED_FIELD_MAP = { peso:'peso', alturaCernelha:'altura_cernelha', perimetroCanela:'perimetro_canela', perimetroAbdominal:'perimetro_abdominal', perimetroToracico:'perimetro_toracico', perimetroPescoco1:'perimetro_pescoco_1', perimetroPescoco2:'perimetro_pescoco_2', perimetroPescoco3:'perimetro_pescoco_3', gorduraBaseCauda:'gordura_base_cauda', gorduraCostelas:'gordura_costelas', gorduraPescoco:'gordura_pescoco' };
+  const medToDb = (src) => { const r = {}; Object.entries(MED_FIELD_MAP).forEach(([c,s]) => { if (src[c] != null) r[s] = src[c]; }); return r; };
   const addMedicao = (m) => {
     setMedicoes(prev => [...prev, m]);
-    dbInsert('medicoes', { id: m.id, cavalo_id: m.cavaloId, data_registro: m.dataRegistro, peso: m.peso ?? null, altura_cernelha: m.alturaCernelha ?? null, perimetro_canela: m.perimetroCanela ?? null, perimetro_abdominal: m.perimetroAbdominal ?? null, perimetro_toracico: m.perimetroToracico ?? null, perimetro_pescoco_1: m.perimetroPescoco1 ?? null, perimetro_pescoco_2: m.perimetroPescoco2 ?? null, perimetro_pescoco_3: m.perimetroPescoco3 ?? null, gordura_base_cauda: m.gorduraBaseCauda ?? null, gordura_costelas: m.gorduraCostelas ?? null, gordura_pescoco: m.gorduraPescoco ?? null, observacoes: m.observacoes || null, registrado_por: m.registradoPor || null });
+    dbInsert('medicoes', { id: m.id, cavalo_id: m.cavaloId, data_registro: m.dataRegistro, ...medToDb(m), observacoes: m.observacoes || null, registrado_por: m.registradoPor || null });
   };
   const updateMedicao = (id, data) => {
     setMedicoes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));
-    dbUpdate('medicoes', id, { data_registro: data.dataRegistro, peso: data.peso ?? null, altura_cernelha: data.alturaCernelha ?? null, perimetro_canela: data.perimetroCanela ?? null, perimetro_abdominal: data.perimetroAbdominal ?? null, perimetro_toracico: data.perimetroToracico ?? null, perimetro_pescoco_1: data.perimetroPescoco1 ?? null, perimetro_pescoco_2: data.perimetroPescoco2 ?? null, perimetro_pescoco_3: data.perimetroPescoco3 ?? null, gordura_base_cauda: data.gorduraBaseCauda ?? null, gordura_costelas: data.gorduraCostelas ?? null, gordura_pescoco: data.gorduraPescoco ?? null, observacoes: data.observacoes || null });
+    dbUpdate('medicoes', id, { data_registro: data.dataRegistro, ...medToDb(data), observacoes: data.observacoes || null });
   };
   const deleteMedicao = (id) => {
     setMedicoes(prev => prev.filter(m => m.id !== id));
