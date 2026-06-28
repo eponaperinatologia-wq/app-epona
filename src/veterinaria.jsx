@@ -93,6 +93,7 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   const today = todayStr();
   for (const prot of protocolos) {
     if (!prot.ativo) continue;
+    if (prot.subtipo === 'opg') continue;
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
       if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
@@ -114,6 +115,44 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
         dataPrevista, diasRestantes: diffDays(dataPrevista),
         ultimaRealizacao: ultimo?.dataRealizacao || null,
         insumoId: prot.insumoId,
+      });
+    }
+  }
+  return items;
+}
+
+// ─── OPG: cálculo de agenda ───────────────────────────────────
+function calcAgendaOpg(protocolos, cavalos, opgs) {
+  const items = [];
+  const today = todayStr();
+  for (const prot of protocolos) {
+    if (!prot.ativo || prot.subtipo !== 'opg') continue;
+    const alvo = cavalos.filter(c => {
+      if (!c.presente) return false;
+      if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
+      if (prot.tipo === 'potro') return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
+      return true;
+    });
+    for (const cavalo of alvo) {
+      const historico = (opgs || [])
+        .filter(o => o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.aplicado)
+        .sort((a, b) => b.dataColeta.localeCompare(a.dataColeta));
+      const ultimo = historico[0];
+      const dataPrevista = ultimo
+        ? addDays(ultimo.dataColeta, prot.intervaloDias)
+        : addDays(today, -1);
+      const opgPendente = (opgs || []).find(o =>
+        o.cavaloId === cavalo.id && o.protocoloId === prot.id && !o.aplicado
+      ) || null;
+      items.push({
+        key: `opg_${prot.id}_${cavalo.id}`,
+        isOpg: true,
+        protocoloId: prot.id, protocoloNome: prot.nome,
+        cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+        laboratorio: prot.laboratorio || '',
+        dataPrevista, diasRestantes: diffDays(dataPrevista),
+        ultimaColeta: ultimo?.dataColeta || null,
+        opgPendente,
       });
     }
   }
@@ -249,7 +288,7 @@ export function VeterinariaScreen({
     return (
       <VermifugacaoScreen
         cavalos={cavalos} insumos={insumos || []} currentUser={currentUser}
-        addAtividade={addAtividade}
+        addAtividade={addAtividade} addRegistro={addRegistro}
         protocolos={protocolosVermifugacao || []}
         vermifugacoesAnimais={vermifugacoesAnimais || []}
         opgs={opgs || []}
@@ -700,7 +739,7 @@ function ProtocoloVacForm({ initial, insumos, onSave, onCancel }) {
             <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Vacina (insumo)</div>
             <select value={dose.insumoId} onChange={e=>updateDose(i,'insumoId',e.target.value)} style={inputSt}>
               <option value="">— selecionar —</option>
-              {insumos.map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
+              {[...insumos].filter(i=>i.setor==='Vacina').sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', gap:8 }}>
@@ -741,7 +780,7 @@ const INTERVALO_OPTIONS = [
 ];
 
 function VermifugacaoScreen({
-  cavalos, insumos, currentUser, addAtividade,
+  cavalos, insumos, currentUser, addAtividade, addRegistro,
   protocolos, vermifugacoesAnimais, opgs, agenda,
   addProtocolo, updateProtocolo, deleteProtocolo,
   addVermifugacao, addOpg, updateOpg, deleteOpg, onBack,
@@ -780,6 +819,34 @@ function VermifugacaoScreen({
         usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
         mes: data.slice(0,7), data, hora: new Date().toTimeString().slice(0,5), texto: '',
       });
+    }
+  };
+
+  const agendaOpg = useMemo(
+    () => calcAgendaOpg(protocolos, cavalos, opgs || []),
+    [protocolos, cavalos, opgs]
+  );
+  const agendaOpgFiltrada = filtroProtocolo ? agendaOpg.filter(i => i.protocoloId === filtroProtocolo) : agendaOpg;
+
+  const handleOPGAplicar = (item, data) => {
+    const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado } = data;
+    const hoje = todayStr();
+    const opgExistente = item.opgPendente;
+    const opgData = {
+      cavaloId: item.cavaloId, protocoloId: item.protocoloId,
+      dataColeta, resultado, precisaVermifugacao,
+      insumoVermId: insumoVermId||'', dataAplicacao: dataAplicacao||'',
+      aplicado: !!aplicado, principioAtivo:'', observacoes:'',
+    };
+    if (opgExistente) updateOpg(opgExistente.id, opgData);
+    else addOpg({ id: 'opg_'+Date.now(), ...opgData });
+    if (precisaVermifugacao && insumoVermId && aplicado) {
+      const appDate = dataAplicacao || hoje;
+      const ehMesAtual = appDate.slice(0,7) === hoje.slice(0,7);
+      if (ehMesAtual && addRegistro) {
+        addRegistro({ id:'reg_opg_'+Date.now(), cavaloId:item.cavaloId, insumoId:insumoVermId, qtd:1, hora:new Date().toTimeString().slice(0,5), usuario:currentUser?.nome||'', isAuto:false, data:appDate });
+      }
+      addAtividade({ id:'at_opg_'+Date.now(), tipo:'vermifugacao', cavaloId:item.cavaloId, insumoId:insumoVermId, qtd:1, motivo:`OPG · ${item.protocoloNome}`, usuario:currentUser?.nome||'', autor:currentUser?.nome||'', mes:appDate.slice(0,7), data:appDate, hora:new Date().toTimeString().slice(0,5), texto:'' });
     }
   };
 
@@ -841,6 +908,16 @@ function VermifugacaoScreen({
             {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} protocolos={protocolos} />}
             {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} protocolos={protocolos} />}
             {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} collapsed protocolos={protocolos} />}
+            {agendaOpgFiltrada.length > 0 && (
+              <div style={{ marginTop: agendaFiltrada.length > 0 ? 16 : 0 }}>
+                <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed', marginBottom:10 }}>
+                  OPG · Coleta Programada ({agendaOpgFiltrada.length})
+                </div>
+                {agendaOpgFiltrada.map(item => (
+                  <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} onAplicar={handleOPGAplicar} cor="#7c3aed" />
+                ))}
+              </div>
+            )}
           </>
         )}
 
@@ -996,6 +1073,7 @@ function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor 
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:700, color:'var(--ink)' }}>{protocolo.nome}</div>
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
+            {protocolo.subtipo==='opg' && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
             {TIPO_LABELS[protocolo.tipo]||'Tropa geral'} · {intervOpt?.label||`${protocolo.intervaloDias} dias`}
           </div>
         </div>
@@ -1003,9 +1081,15 @@ function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor 
       </button>
       {open && (
         <div style={{ padding:'0 16px 14px' }}>
-          <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
-            <span style={{ color:'var(--ink-3)' }}>Produto: </span>{insumo?.nome||protocolo.produto||'—'}
-          </div>
+          {protocolo.subtipo==='opg' ? (
+            <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+              <span style={{ color:'var(--ink-3)' }}>Laboratório: </span>{protocolo.laboratorio||'—'}
+            </div>
+          ) : (
+            <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+              <span style={{ color:'var(--ink-3)' }}>Produto: </span>{insumo?.nome||protocolo.produto||'—'}
+            </div>
+          )}
           <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
             <span style={{ color:'var(--ink-3)' }}>Intervalo: </span>{intervOpt?.label||`${protocolo.intervaloDias} dias`}
           </div>
@@ -1026,10 +1110,13 @@ function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor 
 function ProtocoloVermForm({ initial, insumos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
   const [tipo, setTipo] = useState(initial?.tipo||'geral');
+  const [subtipo, setSubtipo] = useState(initial?.subtipo||'vermifugacao');
   const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
+  const [laboratorio, setLaboratorio] = useState(initial?.laboratorio||'');
   const [intervaloDias, setIntervaloDias] = useState(initial?.intervaloDias||90);
   const [observacoes, setObservacoes] = useState(initial?.observacoes||'');
   const canSave = nome.trim() && intervaloDias > 0;
+  const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
 
   return (
     <div style={{ background:'var(--soft)', borderRadius:16, padding:16, marginBottom:16 }}>
@@ -1047,14 +1134,32 @@ function ProtocoloVermForm({ initial, insumos, onSave, onCancel }) {
         </select>
       </div>
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Produto (insumo)</div>
-        <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
-          <option value="">— selecionar (opcional) —</option>
-          {insumos.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
-        </select>
+        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Tipo de protocolo</div>
+        <div style={{ display:'flex', gap:8 }}>
+          <button onClick={()=>setSubtipo('vermifugacao')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='vermifugacao'?'#15803d':'var(--line)'}`, background:subtipo==='vermifugacao'?'#15803d':'var(--card)', color:subtipo==='vermifugacao'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>
+            Vermifugação
+          </button>
+          <button onClick={()=>setSubtipo('opg')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='opg'?'#7c3aed':'var(--line)'}`, background:subtipo==='opg'?'#7c3aed':'var(--card)', color:subtipo==='opg'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>
+            OPG
+          </button>
+        </div>
       </div>
+      {subtipo==='vermifugacao' ? (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Produto (insumo)</div>
+          <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
+            <option value="">— selecionar (opcional) —</option>
+            {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+          </select>
+        </div>
+      ) : (
+        <div style={{ marginBottom:12 }}>
+          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Laboratório</div>
+          <input value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="Ex: Exame Vet, Lab Central…" style={inputSt} />
+        </div>
+      )}
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo</div>
+        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre {subtipo==='opg'?'coletas':'aplicações'}</div>
         <select value={intervaloDias} onChange={e=>setIntervaloDias(Number(e.target.value))} style={inputSt}>
           {INTERVALO_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
           <option value={60}>Bimestral (60 dias)</option>
@@ -1066,8 +1171,107 @@ function ProtocoloVermForm({ initial, insumos, onSave, onCancel }) {
       </div>
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:14, fontFamily:'var(--sans)' }}>Cancelar</button>
-        <button disabled={!canSave} onClick={()=>onSave({nome:nome.trim(),tipo,insumoId,intervaloDias,observacoes,ativo:true})} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
+        <button disabled={!canSave} onClick={()=>onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, observacoes, ativo:true })} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
       </div>
+    </div>
+  );
+}
+
+// ─── OPGAgendaItem ────────────────────────────────────────────
+function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
+  const [open, setOpen] = useState(false);
+  const opg = item.opgPendente;
+  const [dataColeta, setDataColeta] = useState(opg?.dataColeta || item.dataPrevista);
+  const [resultado, setResultado] = useState(opg?.resultado?.length ? opg.resultado : [{ especie:'', contagem:'' }]);
+  const [precisaVerm, setPrecisaVerm] = useState(opg?.precisaVermifugacao !== undefined && opg?.precisaVermifugacao !== null ? opg.precisaVermifugacao : null);
+  const [insumoVermId, setInsumoVermId] = useState(opg?.insumoVermId||'');
+  const [dataAplicacao, setDataAplicacao] = useState(opg?.dataAplicacao||todayStr());
+
+  const dr = item.diasRestantes;
+  const labelDias = dr===0?'Hoje':dr<0?`${Math.abs(dr)} dia${Math.abs(dr)>1?'s':''} atrás`:`em ${dr} dia${dr>1?'s':''}`;
+  const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const resultadoValido = resultado.filter(r=>r.especie.trim());
+
+  const addEspecie = () => setResultado(r=>[...r,{especie:'',contagem:''}]);
+  const removeEspecie = i => setResultado(r=>r.filter((_,idx)=>idx!==i));
+  const updateEspecie = (i, field, val) => setResultado(r=>r.map((r2,idx)=>idx===i?{...r2,[field]:val}:r2));
+
+  const badge = opg
+    ? (opg.aplicado ? '✓ Concluído' : opg.precisaVermifugacao !== null ? 'Aguard. tratamento' : 'Resultado recebido')
+    : null;
+
+  const handleAplicar = () => {
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:true, insumoVermId, dataAplicacao, aplicado:true });
+    setOpen(false);
+  };
+  const handleSemNecessidade = () => {
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:false, insumoVermId:'', dataAplicacao:'', aplicado:true });
+    setOpen(false);
+  };
+
+  return (
+    <div style={{ background:'var(--card)', border:`1px solid ${open?cor:cor+'40'}`, borderRadius:13, padding:'12px 14px', marginBottom:8 }}>
+      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+        <div style={{ width:10, height:10, borderRadius:5, flexShrink:0, background:cor }} />
+        <div style={{ flex:1, minWidth:0 }}>
+          <div style={{ fontSize:14, fontWeight:600, color:'var(--ink)' }}>{item.cavaloNome}</div>
+          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>OPG · {item.protocoloNome}{item.laboratorio?` · ${item.laboratorio}`:''}</div>
+          {badge && <div style={{ fontSize:11, color:badge.startsWith('✓')?'#15803d':'#b45309', marginTop:2 }}>{badge}</div>}
+          {!opg && item.ultimaColeta && <div style={{ fontSize:11, color:'var(--ink-3)', marginTop:1 }}>Última coleta: {fmtDate(item.ultimaColeta)}</div>}
+        </div>
+        <div style={{ flexShrink:0, textAlign:'right' }}>
+          <div style={{ fontSize:11, fontWeight:600, color:opg?.aplicado?'#9ca3af':cor, marginBottom:6 }}>{labelDias}</div>
+          {!opg?.aplicado && (
+            <button onClick={()=>setOpen(o=>!o)} style={{ background:open?cor:'var(--soft)', color:open?'#fff':'var(--ink)', border:`1px solid ${open?cor:'var(--line)'}`, borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>
+              {open?'Fechar':opg?'Continuar':'Registrar'}
+            </button>
+          )}
+        </div>
+      </div>
+      {open && (
+        <div style={{ marginTop:12, padding:'12px 14px', background:'var(--soft)', borderRadius:10 }}>
+          <div style={{ marginBottom:10 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Data da coleta</div>
+            <input type="date" value={dataColeta} onChange={e=>setDataColeta(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
+          </div>
+          <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Resultado (OPG)</div>
+          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Deixe em branco se negativo.</div>
+          {resultado.map((r,i)=>(
+            <div key={i} style={{ display:'flex', gap:6, alignItems:'center', marginBottom:6 }}>
+              <input value={r.especie} onChange={e=>updateEspecie(i,'especie',e.target.value)} placeholder="Espécie…" style={{ flex:2, padding:'7px 10px', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none' }} />
+              <input type="number" min="0" value={r.contagem} onChange={e=>updateEspecie(i,'contagem',Number(e.target.value))} placeholder="OPG" style={{ flex:1, padding:'7px 10px', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none' }} />
+              {resultado.length>1 && <button onClick={()=>removeEspecie(i)} style={{ background:'none', border:'none', color:'#dc2626', cursor:'pointer', fontSize:16, padding:'4px' }}>×</button>}
+            </div>
+          ))}
+          <button onClick={addEspecie} style={{ width:'100%', background:'none', border:'1px dashed var(--line-2)', borderRadius:8, padding:'7px 0', fontSize:12, color:'var(--ink-3)', cursor:'pointer', marginBottom:14, fontFamily:'var(--sans)' }}>+ Adicionar espécie</button>
+          <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>Necessita vermifugação?</div>
+          <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+            <button onClick={()=>setPrecisaVerm(true)} style={{ flex:1, padding:'9px 0', borderRadius:9, border:`1.5px solid ${precisaVerm===true?cor:'var(--line)'}`, background:precisaVerm===true?cor:'var(--card)', color:precisaVerm===true?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>Sim</button>
+            <button onClick={()=>setPrecisaVerm(false)} style={{ flex:1, padding:'9px 0', borderRadius:9, border:`1.5px solid ${precisaVerm===false?'#15803d':'var(--line)'}`, background:precisaVerm===false?'#15803d':'var(--card)', color:precisaVerm===false?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>Não</button>
+          </div>
+          {precisaVerm===true && (
+            <>
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Princípio ativo (insumo)</div>
+                <select value={insumoVermId} onChange={e=>setInsumoVermId(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }}>
+                  <option value="">— selecionar —</option>
+                  {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Data de aplicação</div>
+                <input type="date" value={dataAplicacao} onChange={e=>setDataAplicacao(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
+              </div>
+            </>
+          )}
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>setOpen(false)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:13, fontFamily:'var(--sans)' }}>Cancelar</button>
+            {precisaVerm===false && <button onClick={handleSemNecessidade} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:'#15803d', color:'#fff', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>✓ Sem necessidade</button>}
+            {precisaVerm===true && <button onClick={handleAplicar} disabled={!insumoVermId||!dataAplicacao} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:insumoVermId&&dataAplicacao?cor:'var(--soft)', color:insumoVermId&&dataAplicacao?'#fff':'var(--ink-3)', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Aplicar ✓</button>}
+            {precisaVerm===null && <button disabled style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:'var(--soft)', color:'var(--ink-3)', fontSize:13, fontFamily:'var(--sans)' }}>Selecione acima</button>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

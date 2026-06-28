@@ -67,6 +67,7 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
     initialValues.valorVenda != null ? String(initialValues.valorVenda) : ''
   );
   const [injetavel, setInjetavel] = useState(initialValues.injetavel || false);
+  const [setor, setSetor] = useState(initialValues.setor || '');
   const [usaDescartaveis, setUsaDescartaveis] = useState(
     !!(initialValues.descartaveis?.length && !initialValues.injetavel)
   );
@@ -120,6 +121,7 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
     onSave({
       nome: nome.trim(),
       categoria,
+      setor,
       fornecedor,
       unidade: unidade.trim() || 'unidade',
       valorCompra: parseFloat(valorCompraStr) || 0,
@@ -155,6 +157,18 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
             Incluso na mensalidade · não cobrado à parte nas faturas. Use para controle de consumo e estoque.
           </div>
         )}
+
+        <Field label="Setor">
+          <select value={setor} onChange={e => setSetor(e.target.value)} style={inputSt}>
+            <option value="">— nenhum —</option>
+            <option value="Vacina">Vacina</option>
+            <option value="Vermífugo">Vermífugo</option>
+            <option value="Suplemento">Suplemento</option>
+            <option value="Medicamento">Medicamento</option>
+            <option value="Alimento">Alimento</option>
+            <option value="Descartável">Descartável</option>
+          </select>
+        </Field>
 
         <Field label="Fornecedor (opcional)">
           <input
