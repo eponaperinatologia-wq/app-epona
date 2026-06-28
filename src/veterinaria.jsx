@@ -1186,48 +1186,73 @@ function OPGForm({ initial, cavalos, insumos, onSave, onCancel }) {
 // ═══════════════════════════════════════════════════════════════
 
 const COR_DESENV = '#b45309';
-const ESCORE_COR = ['#dc2626','#dc2626','#dc2626','#f59e0b','#15803d','#15803d','#f59e0b','#dc2626','#dc2626'];
-const ESCORE_LABEL = ['','Muito magro','Magro','Abaixo do ideal','Moderado','Ideal','Moderado+','Gordo','Muito gordo','Obeso'];
+const COR_PESO = '#1d4ed8';
+const COR_ALTURA = '#15803d';
 
-function MiniLineChart({ dados, cor, unidade, label }) {
+function MiniLineChart({ dados, cor, unidade, titulo }) {
   if (!dados || dados.length < 2) return null;
-  const W = 320, H = 110;
-  const pad = { top: 14, right: 32, bottom: 18, left: 38 };
+  const W = 300, H = 90;
+  const pad = { top: 12, right: 36, bottom: 16, left: 36 };
   const cw = W - pad.left - pad.right;
   const ch = H - pad.top - pad.bottom;
   const vals = dados.map(d => d.v);
   const min = Math.min(...vals), max = Math.max(...vals);
   const range = max - min || 1;
   const pts = dados.map((d, i) => ({
-    x: pad.left + (dados.length === 1 ? cw / 2 : (i / (dados.length - 1)) * cw),
+    x: pad.left + (i / (dados.length - 1)) * cw,
     y: pad.top + ch - ((d.v - min) / range) * ch,
     v: d.v, label: d.label,
   }));
   const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ');
   const areaD = `${pathD} L${pts[pts.length-1].x.toFixed(1)},${(pad.top+ch).toFixed(1)} L${pts[0].x.toFixed(1)},${(pad.top+ch).toFixed(1)}Z`;
   const last = pts[pts.length - 1];
+  const delta = dados.length >= 2 ? dados[dados.length-1].v - dados[dados.length-2].v : null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%' }}>
-      <text x={pad.left - 4} y={pad.top + 3} textAnchor="end" fontSize="9" fill="var(--ink-3)">{max.toFixed(max < 10 ? 1 : 0)}</text>
-      <text x={pad.left - 4} y={pad.top + ch + 3} textAnchor="end" fontSize="9" fill="var(--ink-3)">{min.toFixed(min < 10 ? 1 : 0)}</text>
-      <line x1={pad.left} y1={pad.top} x2={pad.left + cw} y2={pad.top} stroke="var(--line)" strokeWidth="0.5" />
-      <line x1={pad.left} y1={pad.top + ch} x2={pad.left + cw} y2={pad.top + ch} stroke="var(--line)" strokeWidth="0.5" />
-      <path d={areaD} fill={cor} fillOpacity="0.1" />
-      <path d={pathD} fill="none" stroke={cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r={i === pts.length - 1 ? 4 : 3} fill={cor} />)}
-      <text x={last.x + 5} y={last.y + 3} fontSize="10" fill={cor} fontWeight="700">{last.v.toFixed(last.v < 10 ? 1 : 0)}{unidade}</text>
-      {dados.length <= 6 && pts.map((p, i) => (
-        <text key={i} x={p.x} y={pad.top + ch + 13} textAnchor="middle" fontSize="8" fill="var(--ink-3)">{p.label}</text>
-      ))}
-    </svg>
+    <div>
+      <div style={{ display:'flex', alignItems:'baseline', justifyContent:'space-between', marginBottom:4 }}>
+        <span style={{ fontSize:11, fontWeight:700, color:cor, textTransform:'uppercase', letterSpacing:'0.06em' }}>{titulo}</span>
+        {delta !== null && (
+          <span style={{ fontSize:11, fontWeight:700, color: delta > 0 ? '#15803d' : delta < 0 ? '#dc2626' : 'var(--ink-3)' }}>
+            {delta > 0 ? '+' : ''}{delta.toFixed(1)}{unidade} vs. anterior
+          </span>
+        )}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%' }}>
+        <text x={pad.left-4} y={pad.top+3} textAnchor="end" fontSize="9" fill="var(--ink-3)">{max.toFixed(0)}</text>
+        <text x={pad.left-4} y={pad.top+ch+3} textAnchor="end" fontSize="9" fill="var(--ink-3)">{min.toFixed(0)}</text>
+        <line x1={pad.left} y1={pad.top} x2={pad.left+cw} y2={pad.top} stroke="var(--line)" strokeWidth="0.5" />
+        <line x1={pad.left} y1={pad.top+ch} x2={pad.left+cw} y2={pad.top+ch} stroke="var(--line)" strokeWidth="0.5" />
+        <path d={areaD} fill={cor} fillOpacity="0.1" />
+        <path d={pathD} fill="none" stroke={cor} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        {pts.map((p,i) => <circle key={i} cx={p.x} cy={p.y} r={i===pts.length-1?4:3} fill={cor} />)}
+        <text x={last.x+5} y={last.y+3} fontSize="10" fill={cor} fontWeight="700">{last.v.toFixed(0)}{unidade}</text>
+        {dados.length <= 8 && pts.map((p,i) => (
+          <text key={i} x={p.x} y={pad.top+ch+13} textAnchor="middle" fontSize="8" fill="var(--ink-3)">{p.label}</text>
+        ))}
+      </svg>
+    </div>
   );
 }
+
+// Campos de medição — ordem e metadados
+const CAMPOS_MEDICAO = [
+  { id: 'alturaCernelha',    label: 'Altura de Cernelha',     unidade: 'cm',  grupo: 'principal' },
+  { id: 'peso',              label: 'Peso',                    unidade: 'kg',  grupo: 'principal' },
+  { id: 'perimetroCanela',   label: 'Perímetro da Canela',     unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'perimetroAbdominal',label: 'Perímetro Abdominal',     unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'perimetroToracico', label: 'Perímetro Torácico',      unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'perimetroPescoco1', label: 'Perímetro de Pescoço 1',  unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'perimetroPescoco2', label: 'Perímetro de Pescoço 2',  unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'perimetroPescoco3', label: 'Perímetro de Pescoço 3',  unidade: 'cm',  grupo: 'perimetros' },
+  { id: 'gorduraBaseCauda',  label: 'Gordura — Base de Cauda', unidade: '',    grupo: 'gordura' },
+  { id: 'gorduraCostelas',   label: 'Gordura — Costelas',      unidade: '',    grupo: 'gordura' },
+  { id: 'gorduraPescoco',    label: 'Gordura — Pescoço',       unidade: '',    grupo: 'gordura' },
+];
 
 function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, updateMedicao, deleteMedicao, onBack }) {
   const [cavaloId, setCavaloId] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editMed, setEditMed] = useState(null);
-  const [metrica, setMetrica] = useState('peso');
 
   const cavalosPresentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const meusHistorico = (medicoes || [])
@@ -1235,25 +1260,20 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
     .sort((a, b) => a.dataRegistro.localeCompare(b.dataRegistro));
 
   const ultimaMedicao = meusHistorico[meusHistorico.length - 1];
+  const penultimaMedicao = meusHistorico[meusHistorico.length - 2];
 
   const fmtLbl = ds => { const [,m,d] = ds.split('-'); return `${parseInt(d)}/${parseInt(m)}`; };
 
-  const dadosGrafico = meusHistorico
-    .filter(m => m[metrica] != null && m[metrica] !== '')
-    .map(m => ({ v: Number(m[metrica]), label: fmtLbl(m.dataRegistro) }));
+  const dadosPeso = meusHistorico.filter(m => m.peso != null).map(m => ({ v: Number(m.peso), label: fmtLbl(m.dataRegistro) }));
+  const dadosAltura = meusHistorico.filter(m => m.alturaCernelha != null).map(m => ({ v: Number(m.alturaCernelha), label: fmtLbl(m.dataRegistro) }));
 
-  const METRICAS = [
-    { id: 'peso', label: 'Peso', unidade: 'kg' },
-    { id: 'alturaCernelha', label: 'Altura', unidade: 'cm' },
-    { id: 'escore', label: 'Escore', unidade: '/9' },
-    { id: 'circunferenciaToracica', label: 'Circ. Tor.', unidade: 'cm' },
-  ];
-
-  const metricaInfo = METRICAS.find(m => m.id === metrica);
+  const delta = (campo) => {
+    if (!ultimaMedicao?.[campo] || !penultimaMedicao?.[campo]) return null;
+    return Number(ultimaMedicao[campo]) - Number(penultimaMedicao[campo]);
+  };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header */}
       <div style={{ padding: '14px 20px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
@@ -1272,24 +1292,17 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
           </select>
         </div>
 
+        {/* Visão geral quando nenhum animal selecionado */}
         {!cavaloId && (
-          <div>
-            {/* Resumo geral: últimas medições de todos animais */}
+          <>
             <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 10 }}>
               Última medição por animal
             </div>
-            {cavalosPresentes.length === 0 && (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum animal presente.</div>
-            )}
             {cavalosPresentes.map(c => {
               const hist = (medicoes || []).filter(m => m.cavaloId === c.id).sort((a,b) => b.dataRegistro.localeCompare(a.dataRegistro));
               const ult = hist[0];
               return (
-                <button key={c.id} onClick={() => setCavaloId(c.id)} style={{
-                  width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
-                  borderRadius: 13, padding: '12px 14px', marginBottom: 8,
-                  display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer',
-                }}>
+                <button key={c.id} onClick={() => setCavaloId(c.id)} style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 13, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer' }}>
                   <div style={{ width: 40, height: 40, borderRadius: 12, background: '#fef3c7', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
                     <Icon name="bar-chart" size={20} color={COR_DESENV} />
                   </div>
@@ -1298,9 +1311,9 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
                     {ult ? (
                       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
                         {fmtDate(ult.dataRegistro)}
-                        {ult.peso ? ` · ${ult.peso} kg` : ''}
-                        {ult.alturaCernelha ? ` · ${ult.alturaCernelha} cm` : ''}
-                        {ult.escore ? ` · Escore ${ult.escore}` : ''}
+                        {ult.peso != null ? ` · ${ult.peso} kg` : ''}
+                        {ult.alturaCernelha != null ? ` · ${ult.alturaCernelha} cm` : ''}
+                        {` · ${hist.length} medição${hist.length > 1 ? 'ões' : ''}`}
                       </div>
                     ) : (
                       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Sem medições</div>
@@ -1310,92 +1323,68 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
                 </button>
               );
             })}
-          </div>
+            {cavalosPresentes.length === 0 && <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum animal presente.</div>}
+          </>
         )}
 
         {cavaloId && (
           <>
-            {/* Última medição - resumo */}
+            {/* Última medição — resumo principal */}
             {ultimaMedicao && (
-              <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 14, padding: '14px 16px', marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: COR_DESENV, marginBottom: 10 }}>
+              <div style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 14, padding: '14px 16px', marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: COR_DESENV, marginBottom: 10 }}>
                   Última medição · {fmtDate(ultimaMedicao.dataRegistro)}
                 </div>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
-                  {ultimaMedicao.peso && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: COR_DESENV }}>{ultimaMedicao.peso}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>kg</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+                  {ultimaMedicao.peso != null && (
+                    <div style={{ background: COR_PESO+'12', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: COR_PESO }}>{ultimaMedicao.peso}<span style={{ fontSize: 12, fontWeight: 400 }}> kg</span></div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>Peso</div>
+                      {delta('peso') !== null && (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: delta('peso') >= 0 ? '#15803d' : '#dc2626', marginTop: 2 }}>
+                          {delta('peso') >= 0 ? '+' : ''}{delta('peso').toFixed(1)} kg vs. anterior
+                        </div>
+                      )}
                     </div>
                   )}
-                  {ultimaMedicao.alturaCernelha && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: COR_DESENV }}>{ultimaMedicao.alturaCernelha}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>cm cernelha</div>
-                    </div>
-                  )}
-                  {ultimaMedicao.escore && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 22, fontWeight: 700, color: ESCORE_COR[ultimaMedicao.escore - 1] || COR_DESENV }}>{ultimaMedicao.escore}/9</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>escore corporal</div>
-                    </div>
-                  )}
-                  {ultimaMedicao.circunferenciaToracica && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: COR_DESENV }}>{ultimaMedicao.circunferenciaToracica}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>cm tor.</div>
-                    </div>
-                  )}
-                  {ultimaMedicao.comprimentoCorporal && (
-                    <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 18, fontWeight: 700, color: COR_DESENV }}>{ultimaMedicao.comprimentoCorporal}</div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>cm corpo</div>
+                  {ultimaMedicao.alturaCernelha != null && (
+                    <div style={{ background: COR_ALTURA+'12', borderRadius: 10, padding: '10px 12px', textAlign: 'center' }}>
+                      <div style={{ fontSize: 24, fontWeight: 700, color: COR_ALTURA }}>{ultimaMedicao.alturaCernelha}<span style={{ fontSize: 12, fontWeight: 400 }}> cm</span></div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>Altura cernelha</div>
+                      {delta('alturaCernelha') !== null && (
+                        <div style={{ fontSize: 11, fontWeight: 700, color: delta('alturaCernelha') >= 0 ? '#15803d' : '#dc2626', marginTop: 2 }}>
+                          {delta('alturaCernelha') >= 0 ? '+' : ''}{delta('alturaCernelha').toFixed(1)} cm vs. anterior
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
-                {ultimaMedicao.escore && (
-                  <div style={{ marginTop: 10, fontSize: 12, color: ESCORE_COR[ultimaMedicao.escore - 1] || COR_DESENV, fontWeight: 600 }}>
-                    {ESCORE_LABEL[ultimaMedicao.escore]}
-                  </div>
-                )}
+                <div style={{ fontSize: 10, color: '#b45309', fontStyle: 'italic' }}>
+                  Peso e altura alimentam o Relatório Veterinário do mês.
+                </div>
               </div>
             )}
 
-            {/* Gráfico de crescimento */}
-            {meusHistorico.length >= 2 && (
-              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 16 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 10 }}>
+            {/* Gráficos de crescimento */}
+            {(dadosPeso.length >= 2 || dadosAltura.length >= 2) && (
+              <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 14 }}>
+                <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--ink-3)', marginBottom: 12 }}>
                   Curva de crescimento
                 </div>
-                {/* Tabs de métrica */}
-                <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 12 }}>
-                  {METRICAS.filter(m => meusHistorico.some(med => med[m.id] != null && med[m.id] !== '')).map(m => (
-                    <button key={m.id} onClick={() => setMetrica(m.id)} style={{
-                      flexShrink: 0, padding: '4px 10px', borderRadius: 20,
-                      border: `1.5px solid ${metrica === m.id ? COR_DESENV : 'var(--line)'}`,
-                      background: metrica === m.id ? COR_DESENV : 'var(--card)',
-                      color: metrica === m.id ? '#fff' : 'var(--ink)',
-                      fontSize: 12, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer',
-                    }}>{m.label}</button>
-                  ))}
-                </div>
-                {dadosGrafico.length >= 2 ? (
-                  <MiniLineChart dados={dadosGrafico} cor={COR_DESENV} unidade={metricaInfo?.unidade} label={metricaInfo?.label} />
-                ) : (
-                  <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '16px 0', textAlign: 'center' }}>
-                    Pelo menos 2 registros de {metricaInfo?.label.toLowerCase()} para gerar o gráfico.
+                {dadosPeso.length >= 2 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <MiniLineChart dados={dadosPeso} cor={COR_PESO} unidade="kg" titulo="Peso (kg)" />
                   </div>
+                )}
+                {dadosAltura.length >= 2 && (
+                  <MiniLineChart dados={dadosAltura} cor={COR_ALTURA} unidade="cm" titulo="Altura na Cernelha (cm)" />
                 )}
               </div>
             )}
 
             {/* Botão nova medição */}
             {!showForm && (
-              <button onClick={() => { setEditMed(null); setShowForm(true); }} style={{
-                width: '100%', background: 'var(--accent-soft)', border: '1px dashed var(--accent)',
-                borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 600, color: 'var(--accent)',
-                marginBottom: 14, fontFamily: 'var(--sans)',
-              }}>
+              <button onClick={() => { setEditMed(null); setShowForm(true); }} style={{ width: '100%', background: 'var(--accent-soft)', border: '1px dashed var(--accent)', borderRadius: 12, padding: 13, fontSize: 14, fontWeight: 600, color: 'var(--accent)', marginBottom: 14, fontFamily: 'var(--sans)' }}>
                 + Nova medição
               </button>
             )}
@@ -1403,10 +1392,10 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
             {/* Formulário */}
             {showForm && (
               <MedicaoForm
-                initial={editMed} cavaloId={cavaloId}
+                initial={editMed}
                 onSave={data => {
                   if (editMed) updateMedicao(editMed.id, data);
-                  else addMedicao({ id: 'med_' + Date.now(), cavaloId, ...data, registradoPor: currentUser?.nome || '' });
+                  else addMedicao({ id: 'med_'+Date.now(), cavaloId, ...data, registradoPor: currentUser?.nome||'' });
                   setShowForm(false); setEditMed(null);
                 }}
                 onCancel={() => { setShowForm(false); setEditMed(null); }}
@@ -1415,29 +1404,23 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
 
             {/* Histórico */}
             {meusHistorico.length === 0 && !showForm && (
-              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>
-                Nenhuma medição registrada.
-              </div>
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma medição registrada.</div>
             )}
             {[...meusHistorico].reverse().map(med => (
               <div key={med.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 10 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: COR_DESENV }}>{fmtDate(med.dataRegistro)}</div>
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => { setEditMed(med); setShowForm(true); }} style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)' }}>Editar</button>
                     <button onClick={() => { if (window.confirm('Excluir medição?')) deleteMedicao(med.id); }} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '3px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
                   </div>
                 </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {med.peso && <MedicaoChip label="Peso" valor={`${med.peso} kg`} />}
-                  {med.alturaCernelha && <MedicaoChip label="Altura" valor={`${med.alturaCernelha} cm`} />}
-                  {med.escore && <MedicaoChip label="Escore" valor={`${med.escore}/9`} cor={ESCORE_COR[med.escore - 1]} />}
-                  {med.circunferenciaToracica && <MedicaoChip label="Circ. Tor." valor={`${med.circunferenciaToracica} cm`} />}
-                  {med.comprimentoCorporal && <MedicaoChip label="Compr." valor={`${med.comprimentoCorporal} cm`} />}
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  {CAMPOS_MEDICAO.filter(c => med[c.id] != null && med[c.id] !== '').map(c => (
+                    <MedicaoChip key={c.id} label={c.label} valor={`${med[c.id]}${c.unidade ? ' '+c.unidade : ''}`} destaque={c.grupo === 'principal'} />
+                  ))}
                 </div>
-                {med.observacoes && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, fontStyle: 'italic' }}>{med.observacoes}</div>
-                )}
+                {med.observacoes && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 8, fontStyle: 'italic' }}>{med.observacoes}</div>}
               </div>
             ))}
           </>
@@ -1447,76 +1430,78 @@ function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedicao, upd
   );
 }
 
-function MedicaoChip({ label, valor, cor }) {
+function MedicaoChip({ label, valor, destaque }) {
   return (
-    <div style={{ background: 'var(--soft)', borderRadius: 8, padding: '4px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-      <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: 700, color: cor || 'var(--ink)' }}>{valor}</span>
+    <div style={{ background: destaque ? '#fef3c7' : 'var(--soft)', borderRadius: 8, padding: '4px 10px', display: 'flex', flexDirection: 'column', alignItems: 'center', border: destaque ? '1px solid #fcd34d' : 'none' }}>
+      <span style={{ fontSize: 9, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 13, fontWeight: 700, color: destaque ? COR_DESENV : 'var(--ink)' }}>{valor}</span>
     </div>
   );
 }
 
-function MedicaoForm({ initial, cavaloId, onSave, onCancel }) {
+function MedicaoForm({ initial, onSave, onCancel }) {
+  const toStr = v => v != null ? String(v) : '';
   const [dataRegistro, setDataRegistro] = useState(initial?.dataRegistro || todayStr());
-  const [peso, setPeso] = useState(initial?.peso != null ? String(initial.peso) : '');
-  const [alturaCernelha, setAlturaCernelha] = useState(initial?.alturaCernelha != null ? String(initial.alturaCernelha) : '');
-  const [escore, setEscore] = useState(initial?.escore != null ? String(initial.escore) : '');
-  const [circunferenciaToracica, setCircunferenciaToracica] = useState(initial?.circunferenciaToracica != null ? String(initial.circunferenciaToracica) : '');
-  const [comprimentoCorporal, setComprimentoCorporal] = useState(initial?.comprimentoCorporal != null ? String(initial.comprimentoCorporal) : '');
+  const [vals, setVals] = useState(() => {
+    const o = {};
+    CAMPOS_MEDICAO.forEach(c => { o[c.id] = toStr(initial?.[c.id]); });
+    return o;
+  });
   const [observacoes, setObservacoes] = useState(initial?.observacoes || '');
+  const setVal = (id, v) => setVals(prev => ({ ...prev, [id]: v }));
+  const toNum = v => v !== '' && v != null ? Number(v) : undefined;
+  const canSave = dataRegistro && CAMPOS_MEDICAO.some(c => vals[c.id] !== '');
 
-  const canSave = dataRegistro && (peso || alturaCernelha || escore || circunferenciaToracica || comprimentoCorporal);
-
-  const toNum = v => v !== '' ? Number(v) : undefined;
+  const GRUPOS = [
+    { id: 'principal', label: 'Biometria Principal', desc: 'Alimentam gráfico e Relatório Veterinário' },
+    { id: 'perimetros', label: 'Perímetros' },
+    { id: 'gordura', label: 'Escore de Gordura' },
+  ];
 
   return (
     <div style={{ background: 'var(--soft)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 14 }}>
         {initial ? 'Editar medição' : 'Nova medição biométrica'}
       </div>
-      <div style={{ marginBottom: 12 }}>
+      <div style={{ marginBottom: 16 }}>
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Data do registro *</div>
         <input type="date" value={dataRegistro} onChange={e => setDataRegistro(e.target.value)} style={inputSt} />
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Peso (kg)</div>
-          <input type="number" min="0" step="0.5" value={peso} onChange={e => setPeso(e.target.value)} placeholder="Ex: 450" style={inputSt} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Altura cernelha (cm)</div>
-          <input type="number" min="0" step="0.5" value={alturaCernelha} onChange={e => setAlturaCernelha(e.target.value)} placeholder="Ex: 155" style={inputSt} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Escore corporal (1–9)</div>
-          <select value={escore} onChange={e => setEscore(e.target.value)} style={inputSt}>
-            <option value="">—</option>
-            {[1,2,3,4,5,6,7,8,9].map(n => (
-              <option key={n} value={n}>{n} — {ESCORE_LABEL[n]}</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Circ. torácica (cm)</div>
-          <input type="number" min="0" step="0.5" value={circunferenciaToracica} onChange={e => setCircunferenciaToracica(e.target.value)} placeholder="Ex: 180" style={inputSt} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Compr. corporal (cm)</div>
-          <input type="number" min="0" step="0.5" value={comprimentoCorporal} onChange={e => setComprimentoCorporal(e.target.value)} placeholder="Ex: 165" style={inputSt} />
-        </div>
-      </div>
-      {escore && (
-        <div style={{ background: (ESCORE_COR[Number(escore)-1] || COR_DESENV) + '18', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: ESCORE_COR[Number(escore)-1] || COR_DESENV, fontWeight: 600, marginBottom: 12 }}>
-          Escore {escore}: {ESCORE_LABEL[Number(escore)]}
-        </div>
-      )}
+      {GRUPOS.map(grupo => {
+        const campos = CAMPOS_MEDICAO.filter(c => c.grupo === grupo.id);
+        return (
+          <div key={grupo.id} style={{ marginBottom: 16 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: grupo.id === 'principal' ? COR_DESENV : 'var(--ink-3)', marginBottom: grupo.desc ? 2 : 8 }}>
+              {grupo.label}
+            </div>
+            {grupo.desc && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 8 }}>{grupo.desc}</div>}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+              {campos.map(c => (
+                <div key={c.id}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>{c.label}{c.unidade ? ` (${c.unidade})` : ''}</div>
+                  <input
+                    type="number" min="0" step="0.1"
+                    value={vals[c.id]}
+                    onChange={e => setVal(c.id, e.target.value)}
+                    style={{ ...inputSt, padding: '9px 11px', fontSize: 14 }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
       <div style={{ marginBottom: 14 }}>
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Observações</div>
-        <input value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder="Ex: Perdeu peso após doença…" style={inputSt} />
+        <input value={observacoes} onChange={e => setObservacoes(e.target.value)} placeholder="Ex: Crescimento acelerado após desmame…" style={inputSt} />
       </div>
       <div style={{ display: 'flex', gap: 8 }}>
         <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 14, fontFamily: 'var(--sans)' }}>Cancelar</button>
-        <button disabled={!canSave} onClick={() => onSave({ dataRegistro, peso: toNum(peso), alturaCernelha: toNum(alturaCernelha), escore: toNum(escore), circunferenciaToracica: toNum(circunferenciaToracica), comprimentoCorporal: toNum(comprimentoCorporal), observacoes })} style={{ flex: 2, padding: 12, borderRadius: 10, border: 'none', background: canSave ? COR_DESENV : 'var(--soft)', color: canSave ? '#fff' : 'var(--ink-3)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--sans)' }}>
+        <button disabled={!canSave} onClick={() => {
+          const data = { dataRegistro, observacoes };
+          CAMPOS_MEDICAO.forEach(c => { data[c.id] = toNum(vals[c.id]); });
+          onSave(data);
+        }} style={{ flex: 2, padding: 12, borderRadius: 10, border: 'none', background: canSave ? COR_DESENV : 'var(--soft)', color: canSave ? '#fff' : 'var(--ink-3)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--sans)' }}>
           Salvar medição
         </button>
       </div>
