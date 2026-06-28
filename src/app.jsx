@@ -80,6 +80,9 @@ function AppEpona() {
   const [protocolosVacinacao, setProtocolosVacinacao] = useState([]);
   const [campanhasVacinacao, setCampanhasVacinacao] = useState([]);
   const [vacinacoesAnimais, setVacinacoesAnimais] = useState([]);
+  const [protocolosVermifugacao, setProtocolosVermifugacao] = useState([]);
+  const [vermifugacoesAnimais, setVermifugacoesAnimais] = useState([]);
+  const [opgs, setOpgs] = useState([]);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -103,7 +106,8 @@ const loadAllData = async () => {
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
-      protocolosVacData, campanhasVacData, vacinacoesAnimaisData
+      protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
+      protocolosVermData, vermifugacoesData, opgsData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -126,6 +130,9 @@ const loadAllData = async () => {
       fetchAll('protocolos_vacinacao', fromDbProtocoloVacinacao),
       fetchAll('campanhas_vacinacao', fromDbCampanhaVacinacao),
       fetchAll('vacinacoes_animais', fromDbVacinacaoAnimal),
+      fetchAll('protocolos_vermifugacao', r => r),
+      fetchAll('vermifugacoes_animais_verm', r => r),
+      fetchAll('opgs', r => r),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -145,6 +152,9 @@ const loadAllData = async () => {
     setProtocolosVacinacao(protocolosVacData || []);
     setCampanhasVacinacao(campanhasVacData || []);
     setVacinacoesAnimais(vacinacoesAnimaisData || []);
+    setProtocolosVermifugacao(protocolosVermData || []);
+    setVermifugacoesAnimais(vermifugacoesData || []);
+    setOpgs(opgsData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -400,6 +410,38 @@ const loadAllData = async () => {
   const upsertVacinacaoAnimal = (v) => {
     setVacinacoesAnimais(prev => prev.some(x => x.id === v.id) ? prev.map(x => x.id === v.id ? v : x) : [...prev, v]);
     dbUpsert('vacinacoes_animais', toDbVacinacaoAnimal(v));
+  };
+
+  // ── Vermifugação CRUD ─────────────────────────────────────
+  const addProtocoloVermifugacao = (p) => {
+    setProtocolosVermifugacao(prev => [...prev, p]);
+    dbInsert('protocolos_vermifugacao', p);
+  };
+  const updateProtocoloVermifugacao = (id, data) => {
+    setProtocolosVermifugacao(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
+    dbUpdate('protocolos_vermifugacao', id, data);
+  };
+  const deleteProtocoloVermifugacao = (id) => {
+    setProtocolosVermifugacao(prev => prev.filter(p => p.id !== id));
+    dbDelete('protocolos_vermifugacao', id);
+  };
+  const addVermifugacaoAnimal = (v) => {
+    setVermifugacoesAnimais(prev => [...prev, v]);
+    dbInsert('vermifugacoes_animais_verm', v);
+  };
+
+  // ── OPG CRUD ─────────────────────────────────────────────
+  const addOpg = (o) => {
+    setOpgs(prev => [...prev, o]);
+    dbInsert('opgs', { ...o, resultado: JSON.stringify(o.resultado || []) });
+  };
+  const updateOpg = (id, data) => {
+    setOpgs(prev => prev.map(o => o.id === id ? { ...o, ...data } : o));
+    dbUpdate('opgs', id, { ...data, resultado: JSON.stringify(data.resultado || []) });
+  };
+  const deleteOpg = (id) => {
+    setOpgs(prev => prev.filter(o => o.id !== id));
+    dbDelete('opgs', id);
   };
 
   // ── Ordem dos grupos de nutrição ─────────────────────────
@@ -922,7 +964,7 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
-  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} protocolosVacinacao={protocolosVacinacao} campanhasVacinacao={campanhasVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} addCampanhaVacinacao={addCampanhaVacinacao} updateCampanhaVacinacao={updateCampanhaVacinacao} deleteCampanhaVacinacao={deleteCampanhaVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} />;
+  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs.map(o=>({...o,resultado:typeof o.resultado==='string'?JSON.parse(o.resultado||'[]'):o.resultado||[]}))} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} addProcedimento={addProcedimento} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} />;
