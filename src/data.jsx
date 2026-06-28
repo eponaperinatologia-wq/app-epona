@@ -390,15 +390,17 @@ const getCategoria = (id) => CATEGORIAS_INSUMOS.find(c => c.id === id);
 
 const idade = (nasc) => {
   if (!nasc) return '';
-  const d = new Date(nasc);
+  const d = new Date(nasc + 'T12:00:00');
   const hoje = new Date();
   let anos = hoje.getFullYear() - d.getFullYear();
   if (hoje.getMonth() < d.getMonth() || (hoje.getMonth() === d.getMonth() && hoje.getDate() < d.getDate())) anos--;
   if (anos < 1) {
-    const meses = (hoje.getFullYear() - d.getFullYear()) * 12 + (hoje.getMonth() - d.getMonth());
-    return meses + ' meses';
+    let meses = (hoje.getFullYear() - d.getFullYear()) * 12 + (hoje.getMonth() - d.getMonth());
+    if (hoje.getDate() < d.getDate()) meses--;
+    if (meses <= 0) return 'Recém-nascido';
+    return meses + (meses === 1 ? ' mês' : ' meses');
   }
-  return anos + ' anos';
+  return anos + (anos === 1 ? ' ano' : ' anos');
 };
 
 const formatBRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');

@@ -890,7 +890,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
           <DetailRow label="Mensalidade" value={formatBRL(c.mensalidade)} />
           <DetailRow label="Sexo" value={c.sexo === 'M' ? 'Macho' : 'Fêmea'} />
           <DetailRow label="Idade" value={c.idade || idade(c.nascimento)} />
-          <DetailRow label="Nascimento" value={new Date(c.nascimento).toLocaleDateString('pt-BR')} />
+          <DetailRow label="Nascimento" value={c.nascimento ? new Date(c.nascimento + 'T12:00:00').toLocaleDateString('pt-BR') : '—'} />
           {c.obs && <DetailRow label="Observações" value={c.obs} />}
         </div>
       </div>
@@ -1022,7 +1022,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
       {meusProcedimentos.length > 0 && (
         <div style={{ padding: '20px 20px 0' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Procedimentos · maio</h2>
+            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Registro Veterinário</h2>
             <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusProcedimentos.length} registros</span>
           </div>
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
@@ -1523,6 +1523,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [pelagem, setPelagem] = useState(c.pelagem || 'Tordilho');
   const pelagenOptions = ['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha'];
   const [dataEntrada, setDataEntrada] = useState(c.dataEntrada || '');
+  const [nascimento, setNascimento] = useState(c.nascimento || '');
   const [selectedProprietarios, setSelectedProprietarios] = useState(c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []));
   const [showPropSelector, setShowPropSelector] = useState(false);
   const [propSearch, setPropSearch] = useState('');
@@ -1632,7 +1633,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
     const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
     const categoriasArr = Array.from(categorias);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -1946,15 +1947,23 @@ Suplementos: ${supNomes}` : ''}`;
         </div>
       </div>
 
-      {/* Data de entrada */}
+      {/* Datas */}
       <div style={{ padding: '0 20px' }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-          <FormField label="Data de entrada no haras">
-            <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} style={{
+          <FormField label="Data de nascimento">
+            <input type="date" value={nascimento} onChange={e => setNascimento(e.target.value)} style={{
               width: '100%', border: 'none', outline: 'none', background: 'transparent',
               fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
             }} />
           </FormField>
+          <div style={{ borderTop: '1px solid var(--line)' }}>
+            <FormField label="Data de entrada no haras">
+              <input type="date" value={dataEntrada} onChange={e => setDataEntrada(e.target.value)} style={{
+                width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+              }} />
+            </FormField>
+          </div>
         </div>
       </div>
 
@@ -2230,6 +2239,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const hoje = new Date().toISOString().split('T')[0];
   const primeiroDiaMes = new Date().getFullYear() + '-' + String(new Date().getMonth() + 1).padStart(2, '0') + '-01';
   const [dataEntrada, setDataEntrada] = useState(pendingEntradaCavalo ? hoje : '');
+  const [nascimento, setNascimento] = useState('');
   const [obs, setObs] = useState('');
   const [erro, setErro] = useState('');
 
@@ -2339,7 +2349,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       mensalidade: parseInt(mensalidade) || 1950,
       obs: obs.trim(),
       dataEntrada: dataEntradaFinal,
-      nascimento: new Date().toISOString().split('T')[0],
+      nascimento: nascimento || undefined,
       ...(isGestante ? { gestacao: { dataCobricao: dataCobertura, pai, ...(isReceptora ? { mae } : {}) } } : {}),
       nutricao: {
         racaoId,
@@ -2466,24 +2476,37 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
           </FormField>
         </div>
 
-        {/* Data de entrada */}
+        {/* Datas */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-          <FormField label={pendingEntradaCavalo ? 'Data de entrada *' : 'Data de entrada (opcional)'}>
+          <FormField label="Data de nascimento">
             <input
               type="date"
-              value={dataEntrada}
-              onChange={e => setDataEntrada(e.target.value)}
+              value={nascimento}
+              onChange={e => setNascimento(e.target.value)}
               style={{
                 width: '100%', border: 'none', outline: 'none', background: 'transparent',
                 fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
               }}
             />
-            {!pendingEntradaCavalo && (
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6 }}>
-                Se não preenchida, considera entrada no 1º dia do mês vigente
-              </div>
-            )}
           </FormField>
+          <div style={{ borderTop: '1px solid var(--line)' }}>
+            <FormField label={pendingEntradaCavalo ? 'Data de entrada *' : 'Data de entrada (opcional)'}>
+              <input
+                type="date"
+                value={dataEntrada}
+                onChange={e => setDataEntrada(e.target.value)}
+                style={{
+                  width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                  fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+                }}
+              />
+              {!pendingEntradaCavalo && (
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6 }}>
+                  Se não preenchida, considera entrada no 1º dia do mês vigente
+                </div>
+              )}
+            </FormField>
+          </div>
         </div>
 
         {/* Sexo */}
