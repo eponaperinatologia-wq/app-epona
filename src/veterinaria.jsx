@@ -5,6 +5,7 @@ import { GestacaoPartosScreen } from './gestacao';
 import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './utils/pdfRelatorioVet';
 import { supabase } from './utils/supabase';
 import { ReproducaoScreen, resumoReproducaoMes } from './reproducao';
+import { addDescartaveis } from './data';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -291,6 +292,7 @@ export function VeterinariaScreen({
   setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, insumos,
   servicos, registros, procedimentos, empresaInfo,
   currentUser, addRegistro, addAtividade, addProcedimento, addAviso,
+  deleteRegistro, deleteProcedimento,
   protocolosVacinacao, vacinacoesAnimais,
   addProtocoloVacinacao, updateProtocoloVacinacao, deleteProtocoloVacinacao,
   upsertVacinacaoAnimal,
@@ -385,6 +387,7 @@ export function VeterinariaScreen({
         deleteAnotacaoClinica={deleteAnotacaoClinica}
         addRegistro={addRegistro} addAtividade={addAtividade}
         addProcedimento={addProcedimento}
+        deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento}
         onBack={() => setSecao(null)}
       />
     );
@@ -1999,7 +2002,7 @@ function MedicaoForm({ initial, onSave, onCancel }) {
 
 // ─── Anotações Clínicas ────────────────────────────────────────
 
-function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, onBack }) {
+function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, deleteRegistro, deleteProcedimento, onBack }) {
   const [filtroAnimal, setFiltroAnimal] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editNota, setEditNota] = useState(null);
@@ -2015,14 +2018,23 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
   const handleSave = (notaData, insumosUsados, procsUsados) => {
     const hora = new Date().toTimeString().slice(0, 5);
     const mes = notaData.data.slice(0, 7);
+    const usuarioNome = currentUser?.nome || '';
+
+    if (editNota) {
+      (editNota.insumosCriados || []).forEach(c => deleteRegistro && deleteRegistro(c.registroId));
+      (editNota.procsCriados || []).forEach(c => deleteProcedimento && deleteProcedimento(c.procId));
+    }
 
     const insumosCriados = [];
     insumosUsados.forEach(({ insumoId, qtd }) => {
       if (!insumoId || !qtd) return;
       const rid = 'reg_anot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      addRegistro({ id: rid, cavaloId: notaData.cavaloId, insumoId, qtd: Number(qtd), hora, usuario: currentUser?.nome || '', isAuto: false, data: notaData.data });
-      addAtividade({ id: 'at_' + rid, tipo: 'insumo', cavaloId: notaData.cavaloId, insumoId, qtd: Number(qtd), motivo: `Anotação clínica: ${notaData.titulo}`, usuario: currentUser?.nome || '', autor: currentUser?.nome || '', mes, data: notaData.data, hora, texto: '' });
-      insumosCriados.push({ registroId: rid, insumoId, qtd: Number(qtd) });
+      const qtdNum = Number(qtd);
+      addRegistro({ id: rid, cavaloId: notaData.cavaloId, insumoId, qtd: qtdNum, hora, usuario: usuarioNome, isAuto: false, data: notaData.data });
+      addAtividade({ id: 'at_' + rid, tipo: 'insumo', cavaloId: notaData.cavaloId, insumoId, qtd: qtdNum, motivo: `Anotação clínica: ${notaData.titulo}`, usuario: usuarioNome, autor: usuarioNome, mes, data: notaData.data, hora, texto: '' });
+      insumosCriados.push({ registroId: rid, insumoId, qtd: qtdNum });
+      const descs = addDescartaveis(addRegistro, insumoId, notaData.cavaloId, qtdNum, insumos, hora, 'Sistema (auto)', notaData.data);
+      descs.forEach(d => insumosCriados.push(d));
     });
 
     const procsCriados = [];
@@ -2031,14 +2043,14 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
       const sv = (servicos || []).find(s => s.id === servicoId);
       const pid = 'proc_anot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
       addProcedimento({ id: pid, cavaloId: notaData.cavaloId, servicoId, valorServico: sv?.valor || 0, total: sv?.valor || 0, descartaveisObrigatorios: sv?.descartaveisObrigatorios || [], insumosAdicionais: [], motoboy: { ativo: false, valor: 0, nome: '' }, laboratorio: '', tubosSelecionados: [], examesSelecionados: [], hora, nota: notaProc || '', data: notaData.data });
-      addAtividade({ id: 'at_' + pid, tipo: 'procedimento', cavaloId: notaData.cavaloId, insumoId: null, qtd: null, motivo: `Anotação clínica: ${notaData.titulo} — ${sv?.nome || ''}`, usuario: currentUser?.nome || '', autor: currentUser?.nome || '', mes, data: notaData.data, hora, texto: '' });
+      addAtividade({ id: 'at_' + pid, tipo: 'procedimento', cavaloId: notaData.cavaloId, insumoId: null, qtd: null, motivo: `Anotação clínica: ${notaData.titulo} — ${sv?.nome || ''}`, usuario: usuarioNome, autor: usuarioNome, mes, data: notaData.data, hora, texto: '' });
       procsCriados.push({ procId: pid, servicoId, nota: notaProc });
     });
 
     if (editNota) {
-      updateAnotacaoClinica(editNota.id, { ...notaData, mes });
+      updateAnotacaoClinica(editNota.id, { ...notaData, mes, insumosCriados, procsCriados });
     } else {
-      addAnotacaoClinica({ id: 'anot_' + Date.now(), mes, autor: currentUser?.nome || '', hora, insumosCriados, procsCriados, ...notaData });
+      addAnotacaoClinica({ id: 'anot_' + Date.now(), mes, autor: usuarioNome, hora, insumosCriados, procsCriados, ...notaData });
     }
     setShowForm(false);
     setEditNota(null);
@@ -2156,8 +2168,14 @@ function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel })
   const [gravidade, setGravidade] = useState(initial?.gravidade || '');
   const [titulo, setTitulo] = useState(initial?.titulo || '');
   const [descricao, setDescricao] = useState(initial?.descricao || '');
-  const [insumosUsados, setInsumosUsados] = useState([]);
-  const [procsUsados, setProcsUsados] = useState([]);
+  const [insumosUsados, setInsumosUsados] = useState(
+    (initial?.insumosCriados || [])
+      .filter(c => !c.isAuto)
+      .map(c => ({ insumoId: c.insumoId, qtd: c.qtd }))
+  );
+  const [procsUsados, setProcsUsados] = useState(
+    (initial?.procsCriados || []).map(c => ({ servicoId: c.servicoId, notaProc: c.nota || '' }))
+  );
 
   const canSave = cavaloId && data && titulo.trim();
 
@@ -2173,7 +2191,7 @@ function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel })
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Animal *</div>
-          <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt} disabled={!!initial}>
+          <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt}>
             <option value="">— Selecionar —</option>
             {cavalos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
           </select>

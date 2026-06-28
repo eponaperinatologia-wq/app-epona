@@ -4,24 +4,9 @@ import React from 'react';
 import { Icon, CATEGORIA_ICONS } from './icons';
 import {
   CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, SETORES,
-  getCavalo, getInsumo, getCategoria, formatBRL, norm,
+  getCavalo, getInsumo, getCategoria, formatBRL, norm, addDescartaveis,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
-
-// Cria registros para descartaveis automaticamente
-function addDescartaveis(addRegistro, insumoBase, cavaloId, qtdBase, insumos, hora, usuario, data) {
-  const ins = insumos.find(i => i.id === insumoBase) || getInsumo(insumoBase);
-  if (!ins?.descartaveis?.length) return;
-  ins.descartaveis.forEach(d => {
-    addRegistro({
-      id: 'r' + Date.now() + '_' + cavaloId + '_' + d.insumoId,
-      cavaloId, insumoId: d.insumoId,
-      qtd: d.qtd * qtdBase,
-      hora, usuario, data,
-      isAuto: true,
-    });
-  });
-}
 const { useState: useStateR, useMemo: useMemoR } = React;
 
 // ─────────────────────────────────────────────────────────────
