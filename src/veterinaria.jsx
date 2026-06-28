@@ -406,7 +406,7 @@ function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, collapse
 
 function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
-  const [dataReal, setDataReal] = useState(item.dataPrevista || todayStr());
+  const [dataReal, setDataReal] = useState(todayStr());
   const hoje = todayStr();
 
   const vacina = insumos.find(i => i.id === item.dose?.insumoId);

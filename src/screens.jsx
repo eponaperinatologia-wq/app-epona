@@ -822,7 +822,16 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const props = (c.proprietarioIds || [c.proprietarioId]).map(id => getProprietarioLocal(id) || { nome: 'Sem proprietário' });
-  const meusRegistros = registros.filter(r => r.cavaloId === id);
+  const hoje = new Date();
+  const anoAtual = hoje.getFullYear();
+  const mesAtual = hoje.getMonth() + 1;
+  const mesNomeAtual = MESES[hoje.getMonth()];
+  const meusRegistros = registros.filter(r => {
+    if (r.cavaloId !== id) return false;
+    if (!r.data) return false;
+    const d = new Date(r.data + 'T12:00:00');
+    return d.getFullYear() === anoAtual && d.getMonth() + 1 === mesAtual;
+  });
   const meusProcedimentos = procedimentos.filter(p => p.cavaloId === id);
   const [editRegQtd, setEditRegQtd] = useState(null);
   const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
@@ -946,7 +955,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
       {/* Registros avulsos do mês */}
       <div style={{ padding: '20px 20px 0' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Insumos avulsos · maio</h2>
+          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Insumos avulsos · {mesNomeAtual}</h2>
           <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusRegistros.length} registros</span>
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
@@ -2937,7 +2946,7 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
     const myReg = registros.filter(r => {
       if (!cavIds.has(r.cavaloId)) return false;
       if (!r.data) return true;
-      const d = new Date(r.data);
+      const d = new Date(r.data + 'T12:00:00');
       return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
     });
     const insumosTotal = myReg.reduce((s, r) => {
@@ -3937,7 +3946,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
     if (!r.data) return true;
-    const d = new Date(r.data);
+    const d = new Date(r.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   });
 
@@ -3957,7 +3966,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
   const procLinhas = procedimentos.filter(pr => {
     if (!cavIds.has(pr.cavaloId)) return false;
     if (!pr.data) return false;
-    const d = new Date(pr.data);
+    const d = new Date(pr.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   }).map(pr => {
     const cav = cavalos.find(c => c.id === pr.cavaloId);

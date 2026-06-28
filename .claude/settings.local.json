@@ -31,7 +31,13 @@
       "Bash(npx supabase *)",
       "Bash(python3 -m json.tool)",
       "Bash(vercel --version)",
-      "Bash(git commit *)"
+      "Bash(git commit *)",
+      "Bash(git checkout *)",
+      "Bash(git rm *)",
+      "Bash(git -C /Users/carolinabatata/Downloads/app-epona log --oneline --all)",
+      "Bash(git -C /Users/carolinabatata/Downloads/app-epona show 53f4f46a -- src/app.jsx)",
+      "Bash(node *)",
+      "Bash(git *)"
     ]
   }
 }
