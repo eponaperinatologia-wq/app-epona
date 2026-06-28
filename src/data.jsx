@@ -502,15 +502,17 @@ const PARTOS = [];
 
 const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
-// Cria registros para descartáveis automaticamente. Retorna os registros criados
-// para que o chamador possa rastrear (útil para edição/exclusão posterior).
+// Cria registros para descartáveis automaticamente. A quantidade de descartável
+// NÃO escala com o volume do insumo: 1 aplicação = 1 agulha/seringa/algodão,
+// independente de aplicar 1ml ou 10ml. qtdBase é mantido na assinatura por
+// compatibilidade mas ignorado. Retorna os registros criados para rastreio.
 function addDescartaveis(addRegistro, insumoBase, cavaloId, qtdBase, insumos, hora, usuario, data) {
   const ins = (insumos || []).find(i => i.id === insumoBase) || getInsumo(insumoBase);
   if (!ins?.descartaveis?.length) return [];
   const created = [];
   ins.descartaveis.forEach(d => {
     const id = 'r_desc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6) + '_' + d.insumoId;
-    const qtd = d.qtd * qtdBase;
+    const qtd = d.qtd;
     addRegistro({ id, cavaloId, insumoId: d.insumoId, qtd, hora, usuario, data, isAuto: true });
     created.push({ registroId: id, insumoId: d.insumoId, qtd, isAuto: true });
   });
