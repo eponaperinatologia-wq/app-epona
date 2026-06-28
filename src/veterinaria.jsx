@@ -893,7 +893,9 @@ function VermifugacaoScreen({
     () => calcAgendaOpg(protocolos, cavalos, opgs || []),
     [protocolos, cavalos, opgs]
   );
-  const agendaOpgFiltrada = filtroProtocolo ? agendaOpg.filter(i => i.protocoloId === filtroProtocolo) : agendaOpg;
+  const agendaOpgFiltrada = (filtroProtocolo ? agendaOpg.filter(i => i.protocoloId === filtroProtocolo) : agendaOpg)
+    .slice()
+    .sort((a, b) => (a.dataPrevista || '').localeCompare(b.dataPrevista || ''));
 
   const handleOPGAplicar = (item, data) => {
     const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado, proximaData, motoboy, servicoId, etapaIdx } = data;
@@ -943,13 +945,6 @@ function VermifugacaoScreen({
     };
     if (opgExistente) updateOpg(opgExistente.id, data);
     else addOpg({ id: 'opg_disp_' + Date.now() + '_' + Math.random().toString(36).slice(2,6) + '_' + item.cavaloId, ...data });
-  };
-
-  const opgsAtrasados = agendaOpgFiltrada.filter(i => i.diasRestantes < 0);
-  const handleDispensarTodosAtrasados = () => {
-    if (opgsAtrasados.length === 0) return;
-    if (!window.confirm(`Dispensar ${opgsAtrasados.length} OPG(s) atrasado(s)?\n\nIsso marca todos como "não realizado" e o próximo ciclo será calculado a partir de hoje.`)) return;
-    opgsAtrasados.forEach(handleDispensarOpg);
   };
 
   return (
@@ -1012,15 +1007,8 @@ function VermifugacaoScreen({
             {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} collapsed protocolos={protocolos} />}
             {agendaOpgFiltrada.length > 0 && (
               <div style={{ marginTop: agendaFiltrada.length > 0 ? 16 : 0 }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-                  <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed' }}>
-                    OPG · Coleta Programada ({agendaOpgFiltrada.length})
-                  </div>
-                  {opgsAtrasados.length > 0 && (
-                    <button onClick={handleDispensarTodosAtrasados} style={{ background:'var(--soft)', border:'1px solid var(--line)', color:'var(--ink-2)', borderRadius:8, padding:'5px 10px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)' }}>
-                      Dispensar {opgsAtrasados.length} atrasado{opgsAtrasados.length>1?'s':''}
-                    </button>
-                  )}
+                <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed', marginBottom:10 }}>
+                  OPG · Coleta Programada ({agendaOpgFiltrada.length})
                 </div>
                 {agendaOpgFiltrada.map(item => (
                   <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} servicos={servicos||[]} addProcedimento={addProcedimento} onAplicar={handleOPGAplicar} onDispensar={handleDispensarOpg} cor="#7c3aed" />
@@ -1447,16 +1435,9 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
         <div style={{ flexShrink:0, textAlign:'right' }}>
           <div style={{ fontSize:11, fontWeight:600, color:opg?.aplicado?'#9ca3af':cor, marginBottom:6 }}>{labelDias}</div>
           {!opg?.aplicado && (
-            <div style={{ display:'flex', flexDirection:'column', gap:4, alignItems:'flex-end' }}>
-              <button onClick={()=>setOpen(o=>!o)} style={{ background:open?cor:'var(--soft)', color:open?'#fff':'var(--ink)', border:`1px solid ${open?cor:'var(--line)'}`, borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>
-                {open?'Fechar':opg?'Continuar':'Registrar'}
-              </button>
-              {onDispensar && !open && (
-                <button onClick={()=>{ if(window.confirm(`Dispensar este OPG (${item.cavaloNome})?`)) onDispensar(item); }} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:10, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline', padding:'2px 4px' }}>
-                  Dispensar
-                </button>
-              )}
-            </div>
+            <button onClick={()=>setOpen(o=>!o)} style={{ background:open?cor:'var(--soft)', color:open?'#fff':'var(--ink)', border:`1px solid ${open?cor:'var(--line)'}`, borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>
+              {open?'Fechar':opg?'Continuar':'Registrar'}
+            </button>
           )}
         </div>
       </div>
@@ -1521,6 +1502,11 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
             {precisaVerm===true && <button onClick={handleAplicar} disabled={!insumoVermId||!dataAplicacao} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:insumoVermId&&dataAplicacao?cor:'var(--soft)', color:insumoVermId&&dataAplicacao?'#fff':'var(--ink-3)', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Aplicar ✓</button>}
             {precisaVerm===null && <button disabled style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:'var(--soft)', color:'var(--ink-3)', fontSize:13, fontFamily:'var(--sans)' }}>Selecione acima</button>}
           </div>
+          {onDispensar && (
+            <button onClick={()=>{ if(window.confirm(`Marcar como exame não realizado (${item.cavaloNome})?`)) { onDispensar(item); setOpen(false); } }} style={{ width:'100%', marginTop:10, background:'none', border:'none', color:'var(--ink-3)', fontSize:12, textDecoration:'underline', cursor:'pointer', fontFamily:'var(--sans)', padding:'4px 0' }}>
+              Exame não realizado
+            </button>
+          )}
         </div>
       )}
     </div>
