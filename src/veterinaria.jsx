@@ -4,6 +4,7 @@ import { Icon } from './icons';
 import { GestacaoPartosScreen } from './gestacao';
 import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './utils/pdfRelatorioVet';
 import { supabase } from './utils/supabase';
+import { ReproducaoScreen, resumoReproducaoMes } from './reproducao';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -190,7 +191,7 @@ function VacPlanner({ agenda, protocolos }) {
 export function VeterinariaScreen({
   setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, insumos,
   servicos, registros, procedimentos, empresaInfo,
-  currentUser, addRegistro, addAtividade, addProcedimento,
+  currentUser, addRegistro, addAtividade, addProcedimento, addAviso,
   protocolosVacinacao, vacinacoesAnimais,
   addProtocoloVacinacao, updateProtocoloVacinacao, deleteProtocoloVacinacao,
   upsertVacinacaoAnimal,
@@ -200,6 +201,7 @@ export function VeterinariaScreen({
   medicoes, addMedicao, updateMedicao, deleteMedicao,
   anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
   exames, uploadExame, deleteExame,
+  registrosReproducao, addRegistroReproducao, deleteRegistroReproducao,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -295,6 +297,7 @@ export function VeterinariaScreen({
         registros={registros || []}
         procedimentos={procedimentos || []}
         empresaInfo={empresaInfo || {}}
+        registrosReproducao={registrosReproducao || []}
         onBack={() => setSecao(null)}
       />
     );
@@ -306,6 +309,20 @@ export function VeterinariaScreen({
         exames={exames || []}
         uploadExame={uploadExame}
         deleteExame={deleteExame}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
+  if (secao === 'reproducao') {
+    return (
+      <ReproducaoScreen
+        cavalos={cavalos} insumos={insumos || []}
+        registrosReproducao={registrosReproducao || []}
+        addRegistroReproducao={addRegistroReproducao}
+        deleteRegistroReproducao={deleteRegistroReproducao}
+        addRegistro={addRegistro} addAtividade={addAtividade}
+        addAviso={addAviso}
+        currentUser={currentUser}
         onBack={() => setSecao(null)}
       />
     );
@@ -334,6 +351,7 @@ export function VeterinariaScreen({
     { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', badge: totalAnotacoes > 0 ? `${totalAnotacoes} registro${totalAnotacoes>1?'s':''}` : 'Novo', badgeCor: '#7c3aed' },
     { id: 'exames', label: 'Exames\nComplementares', icon: 'doc', cor: '#0e7490', bg: '#cffafe', badge: totalExames > 0 ? `${totalExames} arquivo${totalExames>1?'s':''}` : 'PDF · Imagens', badgeCor: '#0e7490' },
     { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'list', cor: '#374151', bg: '#f3f4f6', badge: 'Por animal · mês', badgeCor: '#374151' },
+    { id: 'reproducao', label: 'Reprodução', icon: 'heart', cor: '#7c2d8c', bg: '#f5e8ff', badge: (registrosReproducao||[]).length > 0 ? `${(registrosReproducao||[]).length} registro${(registrosReproducao||[]).length>1?'s':''}` : 'Caderno · Planner', badgeCor: '#7c2d8c' },
   ];
 
   return (
@@ -1882,7 +1900,7 @@ function VetShareSheet({ onClose, getPdf, fileName, summary }) {
 
 // ─── Relatório Veterinário ─────────────────────────────────────
 
-function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, medicoes, registros, procedimentos, empresaInfo, onBack }) {
+function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, medicoes, registros, procedimentos, empresaInfo, registrosReproducao, onBack }) {
   const [cavaloId, setCavaloId] = useState('');
   const [mes, setMes] = useState('');
   const [shareOpen, setShareOpen] = useState(false);
@@ -1894,8 +1912,9 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
     medicoes.filter(m => m.cavaloId === cavaloId).forEach(m => s.add(m.dataRegistro.slice(0, 7)));
     registros.filter(r => r.cavaloId === cavaloId && r.data).forEach(r => s.add(r.data.slice(0, 7)));
     procedimentos.filter(p => p.cavaloId === cavaloId && p.data).forEach(p => s.add(p.data.slice(0, 7)));
+    (registrosReproducao || []).filter(r => r.eguaId === cavaloId).forEach(r => s.add(r.mes));
     return [...s].sort((a, b) => b.localeCompare(a));
-  }, [cavaloId, anotacoesClinicas, medicoes, registros, procedimentos]);
+  }, [cavaloId, anotacoesClinicas, medicoes, registros, procedimentos, registrosReproducao]);
 
   React.useEffect(() => {
     if (mesesDisponiveis.length > 0 && !mesesDisponiveis.includes(mes)) setMes(mesesDisponiveis[0]);
@@ -1909,6 +1928,7 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
     .sort((a, b) => a.dataRegistro.localeCompare(b.dataRegistro));
   const regsMes = registros.filter(r => r.cavaloId === cavaloId && r.data?.slice(0, 7) === mes);
   const procsMes = procedimentos.filter(p => p.cavaloId === cavaloId && p.data?.slice(0, 7) === mes);
+  const reprosMes = resumoReproducaoMes(registrosReproducao, cavaloId, mes);
 
   const mesAnterior = mes ? (() => {
     const [a, mm] = mes.split('-');
@@ -1949,7 +1969,7 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
       </div>
 
       {shareOpen && cavaloId && mes && (() => {
-        const pdfArgs = { cavalo, mesLabel: fmtMesLabel(mes), notas, medsMes, regsMes, procsMes, insumos, servicos, deltaPeso, deltaAltura, empresa: empresaInfo };
+        const pdfArgs = { cavalo, mesLabel: fmtMesLabel(mes), notas, medsMes, regsMes, procsMes, insumos, servicos, deltaPeso, deltaAltura, empresa: empresaInfo, reprosMes };
         return (
           <VetShareSheet
             onClose={() => setShareOpen(false)}
@@ -2061,7 +2081,32 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
               </div>
             )}
 
-            {notas.length === 0 && medsMes.length === 0 && regsMes.length === 0 && procsMes.length === 0 && (
+            {reprosMes.length > 0 && (
+              <div style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--line)' }}>
+                {secTitle('🐴 Registros Reprodutivos')}
+                {reprosMes.map(r => {
+                  const TIPO_REPROD_LABEL = { controle_folicular: 'Controle Folicular', inseminacao_artificial: 'Inseminação Artificial', coleta_embriao: 'Coleta de Embrião', lavagem_uterina: 'Lavagem Uterina', diagnostico_gestacao: 'Diagnóstico de Gestação' };
+                  const TIPO_REPROD_COR = { controle_folicular: '#0e7490', inseminacao_artificial: '#1d4ed8', coleta_embriao: '#b45309', lavagem_uterina: '#15803d', diagnostico_gestacao: '#9d174d' };
+                  const cor = TIPO_REPROD_COR[r.tipo] || '#6b7280';
+                  const label = TIPO_REPROD_LABEL[r.tipo] || r.tipo;
+                  const d = r.dados || {};
+                  const detalhes = [];
+                  if (r.tipo === 'inseminacao_artificial') { if (d.garanhao) detalhes.push(d.garanhao); if (d.qtdPalhetas) detalhes.push(`${d.qtdPalhetas} palheta${d.qtdPalhetas>1?'s':''}`); }
+                  if (r.tipo === 'coleta_embriao' && d.resultado) detalhes.push(d.resultado === 'positivo' ? '✓ Positiva' : '✗ Negativa');
+                  if (r.tipo === 'diagnostico_gestacao' && d.resultado) detalhes.push(d.resultado === 'positivo' ? '✓ Gestante' : '✗ Vazio');
+                  if (r.tipo === 'controle_folicular' && d.induzirOvulacao) detalhes.push('⚡ Ovulação induzida');
+                  return (
+                    <div key={r.id} style={{ fontSize: 13, color: 'var(--ink)', padding: '6px 0', borderBottom: '1px solid var(--soft)' }}>
+                      <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{new Date(r.data + 'T12:00:00').toLocaleDateString('pt-BR')} · </span>
+                      <span style={{ background: cor + '20', color: cor, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600, marginRight: 6 }}>{label}</span>
+                      {detalhes.join(' · ')}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {notas.length === 0 && medsMes.length === 0 && regsMes.length === 0 && procsMes.length === 0 && reprosMes.length === 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum registro clínico para este mês.</div>
             )}
           </>
