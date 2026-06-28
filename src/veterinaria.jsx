@@ -29,6 +29,11 @@ const MESES_ABREV = ['jan','fev','mar','abr','mai','jun','jul','ago','set','out'
 
 // ─── Paleta de cores para protocolos ──────────────────────────
 const PROT_COLORS = ['#1d4ed8','#9d174d','#15803d','#b45309','#7c3aed','#0e7490','#dc2626','#c2410c'];
+
+// ─── Anotações clínicas ────────────────────────────────────────
+const TIPOS_ANOT = ['Cólica','Ferimento','Infecção','Doença','Cirurgia','Medicação','Exame','Acompanhamento','Outro'];
+const TIPO_COR = { 'Cólica':'#dc2626','Ferimento':'#b45309','Infecção':'#7c3aed','Doença':'#0e7490','Cirurgia':'#9d174d','Medicação':'#1d4ed8','Exame':'#15803d','Acompanhamento':'#374151','Outro':'#6b7280' };
+const GRAV_COR = { 'Leve':'#15803d','Moderada':'#b45309','Grave':'#dc2626' };
 const getProtColor = (protId, allProts) => {
   const idx = allProts.findIndex(p => p.id === protId);
   return PROT_COLORS[idx >= 0 ? idx % PROT_COLORS.length : 0];
@@ -182,7 +187,8 @@ function VacPlanner({ agenda, protocolos }) {
 // ─── VeterinariaScreen — Dashboard ────────────────────────────
 export function VeterinariaScreen({
   setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, insumos,
-  currentUser, addRegistro, addAtividade,
+  servicos, registros, procedimentos,
+  currentUser, addRegistro, addAtividade, addProcedimento,
   protocolosVacinacao, vacinacoesAnimais,
   addProtocoloVacinacao, updateProtocoloVacinacao, deleteProtocoloVacinacao,
   upsertVacinacaoAnimal,
@@ -190,6 +196,7 @@ export function VeterinariaScreen({
   addProtocoloVermifugacao, updateProtocoloVermifugacao, deleteProtocoloVermifugacao,
   addVermifugacaoAnimal, addOpg, updateOpg, deleteOpg,
   medicoes, addMedicao, updateMedicao, deleteMedicao,
+  anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -261,8 +268,36 @@ export function VeterinariaScreen({
       />
     );
   }
+  if (secao === 'anotacoes') {
+    return (
+      <AnotacoesClinicasScreen
+        cavalos={cavalos} insumos={insumos || []} servicos={servicos || []}
+        currentUser={currentUser}
+        anotacoesClinicas={anotacoesClinicas || []}
+        addAnotacaoClinica={addAnotacaoClinica}
+        updateAnotacaoClinica={updateAnotacaoClinica}
+        deleteAnotacaoClinica={deleteAnotacaoClinica}
+        addRegistro={addRegistro} addAtividade={addAtividade}
+        addProcedimento={addProcedimento}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
+  if (secao === 'relatorio') {
+    return (
+      <RelatorioVetScreen
+        cavalos={cavalos} insumos={insumos || []} servicos={servicos || []}
+        anotacoesClinicas={anotacoesClinicas || []}
+        medicoes={medicoes || []}
+        registros={registros || []}
+        procedimentos={procedimentos || []}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
 
   const animaisMedidos = new Set((medicoes || []).map(m => m.cavaloId)).size;
+  const totalAnotacoes = (anotacoesClinicas || []).length;
 
   const CARDS = [
     {
@@ -280,9 +315,9 @@ export function VeterinariaScreen({
       badgeCor: dosesVermPend > 0 ? '#dc2626' : '#6b7280',
     },
     { id: 'desenvolvimento', label: 'Desenvolvimento', icon: 'bar-chart', cor: '#b45309', bg: '#fef3c7', badge: animaisMedidos > 0 ? `${(medicoes||[]).length} medições` : 'Biometria', badgeCor: '#b45309' },
-    { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', emBreve: true },
+    { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', badge: totalAnotacoes > 0 ? `${totalAnotacoes} registro${totalAnotacoes>1?'s':''}` : 'Novo', badgeCor: '#7c3aed' },
     { id: 'exames', label: 'Exames\nComplementares', icon: 'doc', cor: '#0e7490', bg: '#cffafe', emBreve: true },
-    { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'list', cor: '#374151', bg: '#f3f4f6', emBreve: true },
+    { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'list', cor: '#374151', bg: '#f3f4f6', badge: 'Por animal · mês', badgeCor: '#374151' },
   ];
 
   return (
@@ -1507,6 +1542,444 @@ function MedicaoForm({ initial, onSave, onCancel }) {
         }} style={{ flex: 2, padding: 12, borderRadius: 10, border: 'none', background: canSave ? COR_DESENV : 'var(--soft)', color: canSave ? '#fff' : 'var(--ink-3)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--sans)' }}>
           Salvar medição
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Anotações Clínicas ────────────────────────────────────────
+
+function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, onBack }) {
+  const [filtroAnimal, setFiltroAnimal] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editNota, setEditNota] = useState(null);
+
+  const cavalosOrdenados = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+
+  const lista = anotacoesClinicas
+    .filter(a => !filtroAnimal || a.cavaloId === filtroAnimal)
+    .sort((a, b) => (b.data + (b.hora || '')).localeCompare(a.data + (a.hora || '')));
+
+  const meses = [...new Set(lista.map(a => a.mes))].sort((a, b) => b.localeCompare(a));
+
+  const handleSave = (notaData, insumosUsados, procsUsados) => {
+    const hora = new Date().toTimeString().slice(0, 5);
+    const mes = notaData.data.slice(0, 7);
+
+    const insumosCriados = [];
+    insumosUsados.forEach(({ insumoId, qtd }) => {
+      if (!insumoId || !qtd) return;
+      const rid = 'reg_anot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      addRegistro({ id: rid, cavaloId: notaData.cavaloId, insumoId, qtd: Number(qtd), hora, usuario: currentUser?.nome || '', isAuto: false, data: notaData.data });
+      addAtividade({ id: 'at_' + rid, tipo: 'insumo', cavaloId: notaData.cavaloId, insumoId, qtd: Number(qtd), motivo: `Anotação clínica: ${notaData.titulo}`, usuario: currentUser?.nome || '', autor: currentUser?.nome || '', mes, data: notaData.data, hora, texto: '' });
+      insumosCriados.push({ registroId: rid, insumoId, qtd: Number(qtd) });
+    });
+
+    const procsCriados = [];
+    procsUsados.forEach(({ servicoId, notaProc }) => {
+      if (!servicoId) return;
+      const sv = (servicos || []).find(s => s.id === servicoId);
+      const pid = 'proc_anot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+      addProcedimento({ id: pid, cavaloId: notaData.cavaloId, servicoId, valorServico: sv?.valor || 0, total: sv?.valor || 0, descartaveisObrigatorios: sv?.descartaveisObrigatorios || [], insumosAdicionais: [], motoboy: { ativo: false, valor: 0, nome: '' }, laboratorio: '', tubosSelecionados: [], examesSelecionados: [], hora, nota: notaProc || '', data: notaData.data });
+      addAtividade({ id: 'at_' + pid, tipo: 'procedimento', cavaloId: notaData.cavaloId, insumoId: null, qtd: null, motivo: `Anotação clínica: ${notaData.titulo} — ${sv?.nome || ''}`, usuario: currentUser?.nome || '', autor: currentUser?.nome || '', mes, data: notaData.data, hora, texto: '' });
+      procsCriados.push({ procId: pid, servicoId, nota: notaProc });
+    });
+
+    if (editNota) {
+      updateAnotacaoClinica(editNota.id, { ...notaData, mes });
+    } else {
+      addAnotacaoClinica({ id: 'anot_' + Date.now(), mes, autor: currentUser?.nome || '', hora, insumosCriados, procsCriados, ...notaData });
+    }
+    setShowForm(false);
+    setEditNota(null);
+  };
+
+  const fmtMesLabel = m => {
+    const [a, mm] = m.split('-');
+    return new Date(parseInt(a), parseInt(mm) - 1, 15).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)', flex: 1 }}>Anotações Clínicas</div>
+          <button onClick={() => { setEditNota(null); setShowForm(true); }} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Nova</button>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 90px' }}>
+        <select value={filtroAnimal} onChange={e => setFiltroAnimal(e.target.value)} style={{ ...inputSt, marginBottom: 16, fontSize: 13 }}>
+          <option value="">Todos os animais</option>
+          {cavalosOrdenados.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+        </select>
+
+        {showForm && (
+          <AnotacaoForm
+            initial={editNota}
+            cavalos={cavalosOrdenados}
+            insumos={insumos}
+            servicos={servicos}
+            onSave={handleSave}
+            onCancel={() => { setShowForm(false); setEditNota(null); }}
+          />
+        )}
+
+        {!showForm && lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma anotação registrada.</div>
+        )}
+
+        {!showForm && meses.map(m => (
+          <div key={m} style={{ marginBottom: 24 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 10 }}>{fmtMesLabel(m)}</div>
+            {lista.filter(a => a.mes === m).map(nota => (
+              <AnotacaoCard
+                key={nota.id}
+                nota={nota}
+                cavalo={cavalos.find(c => c.id === nota.cavaloId)}
+                insumos={insumos}
+                servicos={servicos}
+                showAnimal={!filtroAnimal}
+                onEdit={() => { setEditNota(nota); setShowForm(true); }}
+                onDelete={() => { if (window.confirm('Excluir anotação?')) deleteAnotacaoClinica(nota.id); }}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function AnotacaoCard({ nota, cavalo, insumos, servicos, showAnimal, onEdit, onDelete }) {
+  const [expanded, setExpanded] = useState(false);
+  const cor = TIPO_COR[nota.tipo] || '#6b7280';
+  const temItens = (nota.insumosCriados?.length || 0) + (nota.procsCriados?.length || 0) > 0;
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10, borderLeft: `3px solid ${cor}` }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)' }}>
+              {new Date(nota.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
+              {nota.hora ? ` · ${nota.hora}` : ''}
+            </span>
+            {showAnimal && cavalo && <span style={{ fontSize: 12, color: cor, fontWeight: 600 }}>· {cavalo.nome}</span>}
+            <span style={{ background: cor + '22', color: cor, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{nota.tipo}</span>
+            {nota.gravidade && <span style={{ background: (GRAV_COR[nota.gravidade] || '#6b7280') + '22', color: GRAV_COR[nota.gravidade] || '#6b7280', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{nota.gravidade}</span>}
+          </div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: nota.descricao ? 4 : 0 }}>{nota.titulo}</div>
+          {nota.descricao && <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{nota.descricao}</div>}
+          {temItens && (
+            <button onClick={() => setExpanded(!expanded)} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 12, padding: '4px 0 0', cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+              {expanded ? '▲' : '▼'} {(nota.insumosCriados?.length || 0) + (nota.procsCriados?.length || 0)} item(ns) registrado(s)
+            </button>
+          )}
+          {expanded && (
+            <div style={{ marginTop: 6, paddingLeft: 4 }}>
+              {(nota.insumosCriados || []).map((ins, i) => {
+                const insumo = insumos.find(n => n.id === ins.insumoId);
+                return <div key={i} style={{ fontSize: 12, color: 'var(--ink-2)', padding: '2px 0' }}>💊 {insumo?.nome || ins.insumoId} · {ins.qtd} {insumo?.unidade || ''}</div>;
+              })}
+              {(nota.procsCriados || []).map((p, i) => {
+                const sv = (servicos || []).find(s => s.id === p.servicoId);
+                return <div key={i} style={{ fontSize: 12, color: 'var(--ink-2)', padding: '2px 0' }}>🔬 {sv?.nome || p.servicoId}{p.nota ? ` — ${p.nota}` : ''}</div>;
+              })}
+            </div>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+          <button onClick={onEdit} style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)' }}>Editar</button>
+          <button onClick={onDelete} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '3px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel }) {
+  const [cavaloId, setCavaloId] = useState(initial?.cavaloId || '');
+  const [data, setData] = useState(initial?.data || todayStr());
+  const [tipo, setTipo] = useState(initial?.tipo || 'Outro');
+  const [gravidade, setGravidade] = useState(initial?.gravidade || '');
+  const [titulo, setTitulo] = useState(initial?.titulo || '');
+  const [descricao, setDescricao] = useState(initial?.descricao || '');
+  const [insumosUsados, setInsumosUsados] = useState([]);
+  const [procsUsados, setProcsUsados] = useState([]);
+
+  const canSave = cavaloId && data && titulo.trim();
+
+  const setInsumo = (i, key, val) => setInsumosUsados(prev => prev.map((x, j) => j === i ? { ...x, [key]: val } : x));
+  const setProc = (i, key, val) => setProcsUsados(prev => prev.map((x, j) => j === i ? { ...x, [key]: val } : x));
+
+  return (
+    <div style={{ background: 'var(--soft)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 14 }}>
+        {initial ? 'Editar anotação' : 'Nova anotação clínica'}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Animal *</div>
+          <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt} disabled={!!initial}>
+            <option value="">— Selecionar —</option>
+            {cavalos.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Data *</div>
+          <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputSt} />
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>Tipo</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {TIPOS_ANOT.map(t => {
+            const c = TIPO_COR[t] || '#6b7280';
+            const sel = tipo === t;
+            return <button key={t} onClick={() => setTipo(t)} style={{ padding: '5px 11px', borderRadius: 8, border: `1px solid ${sel ? c : 'var(--line)'}`, background: sel ? c + '22' : 'var(--card)', color: sel ? c : 'var(--ink-2)', fontSize: 12, fontWeight: sel ? 700 : 400, cursor: 'pointer', fontFamily: 'var(--sans)' }}>{t}</button>;
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>Gravidade (opcional)</div>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {['Leve', 'Moderada', 'Grave'].map(g => {
+            const c = GRAV_COR[g];
+            const sel = gravidade === g;
+            return <button key={g} onClick={() => setGravidade(sel ? '' : g)} style={{ flex: 1, padding: '7px 0', borderRadius: 8, border: `1px solid ${sel ? c : 'var(--line)'}`, background: sel ? c + '22' : 'var(--card)', color: sel ? c : 'var(--ink-2)', fontSize: 13, fontWeight: sel ? 700 : 400, cursor: 'pointer', fontFamily: 'var(--sans)' }}>{g}</button>;
+          })}
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Título *</div>
+        <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder="Ex: Cólica espasmódica leve pós-pastejo" style={inputSt} />
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Descrição / observações</div>
+        <textarea value={descricao} onChange={e => setDescricao(e.target.value)} placeholder="Detalhes, evolução, tratamento aplicado…" rows={3} style={{ ...inputSt, resize: 'vertical', fontFamily: 'var(--sans)', lineHeight: 1.5 }} />
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Insumos utilizados</div>
+          <button onClick={() => setInsumosUsados(prev => [...prev, { insumoId: '', qtd: 1 }])} style={{ background: 'var(--accent-soft)', border: '1px dashed var(--accent)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Adicionar</button>
+        </div>
+        {insumosUsados.map((ins, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 6, marginBottom: 6 }}>
+            <select value={ins.insumoId} onChange={e => setInsumo(i, 'insumoId', e.target.value)} style={{ ...inputSt, padding: '8px 10px' }}>
+              <option value="">— Insumo —</option>
+              {[...insumos].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(n => <option key={n.id} value={n.id}>{n.nome}</option>)}
+            </select>
+            <input type="number" min="0.1" step="0.1" value={ins.qtd} onChange={e => setInsumo(i, 'qtd', e.target.value)} placeholder="Qtd" style={{ ...inputSt, padding: '8px 10px', textAlign: 'center' }} />
+            <button onClick={() => setInsumosUsados(prev => prev.filter((_, j) => j !== i))} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '0 10px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Procedimentos / Exames</div>
+          <button onClick={() => setProcsUsados(prev => [...prev, { servicoId: '', notaProc: '' }])} style={{ background: 'var(--accent-soft)', border: '1px dashed var(--accent)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Adicionar</button>
+        </div>
+        {procsUsados.map((p, i) => (
+          <div key={i} style={{ marginBottom: 8 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, marginBottom: 4 }}>
+              <select value={p.servicoId} onChange={e => setProc(i, 'servicoId', e.target.value)} style={{ ...inputSt, padding: '8px 10px' }}>
+                <option value="">— Serviço / Exame —</option>
+                {[...servicos].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+              </select>
+              <button onClick={() => setProcsUsados(prev => prev.filter((_, j) => j !== i))} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '0 10px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+            </div>
+            <input value={p.notaProc} onChange={e => setProc(i, 'notaProc', e.target.value)} placeholder="Observação / resultado" style={{ ...inputSt, padding: '8px 10px', fontSize: 13 }} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: 12, borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 14, fontFamily: 'var(--sans)' }}>Cancelar</button>
+        <button disabled={!canSave} onClick={() => onSave({ cavaloId, data, tipo, gravidade, titulo: titulo.trim(), descricao }, insumosUsados.filter(x => x.insumoId), procsUsados.filter(x => x.servicoId))} style={{ flex: 2, padding: 12, borderRadius: 10, border: 'none', background: canSave ? '#7c3aed' : 'var(--soft)', color: canSave ? '#fff' : 'var(--ink-3)', fontSize: 14, fontWeight: 700, fontFamily: 'var(--sans)', cursor: canSave ? 'pointer' : 'default' }}>
+          {initial ? 'Salvar alterações' : 'Registrar anotação'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Relatório Veterinário ─────────────────────────────────────
+
+function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, medicoes, registros, procedimentos, onBack }) {
+  const [cavaloId, setCavaloId] = useState('');
+  const [mes, setMes] = useState('');
+
+  const mesesDisponiveis = useMemo(() => {
+    if (!cavaloId) return [];
+    const s = new Set();
+    anotacoesClinicas.filter(a => a.cavaloId === cavaloId).forEach(a => s.add(a.mes));
+    medicoes.filter(m => m.cavaloId === cavaloId).forEach(m => s.add(m.dataRegistro.slice(0, 7)));
+    registros.filter(r => r.cavaloId === cavaloId && r.data).forEach(r => s.add(r.data.slice(0, 7)));
+    procedimentos.filter(p => p.cavaloId === cavaloId && p.data).forEach(p => s.add(p.data.slice(0, 7)));
+    return [...s].sort((a, b) => b.localeCompare(a));
+  }, [cavaloId, anotacoesClinicas, medicoes, registros, procedimentos]);
+
+  React.useEffect(() => {
+    if (mesesDisponiveis.length > 0 && !mesesDisponiveis.includes(mes)) setMes(mesesDisponiveis[0]);
+  }, [mesesDisponiveis]);
+
+  const cavalo = cavalos.find(c => c.id === cavaloId);
+
+  const notas = anotacoesClinicas.filter(a => a.cavaloId === cavaloId && a.mes === mes)
+    .sort((a, b) => b.data.localeCompare(a.data));
+  const medsMes = medicoes.filter(m => m.cavaloId === cavaloId && m.dataRegistro.slice(0, 7) === mes)
+    .sort((a, b) => a.dataRegistro.localeCompare(b.dataRegistro));
+  const regsMes = registros.filter(r => r.cavaloId === cavaloId && r.data?.slice(0, 7) === mes);
+  const procsMes = procedimentos.filter(p => p.cavaloId === cavaloId && p.data?.slice(0, 7) === mes);
+
+  const mesAnterior = mes ? (() => {
+    const [a, mm] = mes.split('-');
+    const m2 = parseInt(mm) - 1;
+    return m2 === 0 ? `${parseInt(a) - 1}-12` : `${a}-${String(m2).padStart(2, '0')}`;
+  })() : '';
+  const medsAnt = medicoes.filter(m => m.cavaloId === cavaloId && m.dataRegistro.slice(0, 7) === mesAnterior)
+    .sort((a, b) => b.dataRegistro.localeCompare(a.dataRegistro));
+  const ultimaMed = medsMes[medsMes.length - 1];
+  const ultimaMedAnt = medsAnt[0];
+  const deltaPeso = ultimaMed?.peso != null && ultimaMedAnt?.peso != null ? Number(ultimaMed.peso) - Number(ultimaMedAnt.peso) : null;
+  const deltaAltura = ultimaMed?.alturaCernelha != null && ultimaMedAnt?.alturaCernelha != null ? Number(ultimaMed.alturaCernelha) - Number(ultimaMedAnt.alturaCernelha) : null;
+
+  const fmtMesLabel = m => {
+    if (!m) return '';
+    const [a, mm] = m.split('-');
+    return new Date(parseInt(a), parseInt(mm) - 1, 15).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  };
+
+  const cavalosPresentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+
+  const secTitle = (txt) => (
+    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.07em', color: 'var(--ink-3)', marginBottom: 8 }}>{txt}</div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>Relatório Veterinário</div>
+        </div>
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 90px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Animal</div>
+            <select value={cavaloId} onChange={e => { setCavaloId(e.target.value); setMes(''); }} style={inputSt}>
+              <option value="">— Selecionar —</option>
+              {cavalosPresentes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+            </select>
+          </div>
+          <div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Mês</div>
+            <select value={mes} onChange={e => setMes(e.target.value)} style={inputSt} disabled={!cavaloId || mesesDisponiveis.length === 0}>
+              <option value="">— Mês —</option>
+              {mesesDisponiveis.map(m => <option key={m} value={m}>{fmtMesLabel(m)}</option>)}
+            </select>
+          </div>
+        </div>
+
+        {!cavaloId && <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Selecione um animal para ver o relatório.</div>}
+        {cavaloId && !mes && mesesDisponiveis.length === 0 && <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum registro para {cavalo?.nome}.</div>}
+
+        {cavaloId && mes && (
+          <>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)', marginBottom: 18 }}>
+              {cavalo?.nome} · {fmtMesLabel(mes)}
+            </div>
+
+            {medsMes.length > 0 && (
+              <div style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--line)' }}>
+                {secTitle('📏 Biometria')}
+                {medsMes.map((m, idx) => (
+                  <div key={m.id} style={{ marginBottom: idx < medsMes.length - 1 ? 12 : 0 }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>{new Date(m.dataRegistro + 'T12:00:00').toLocaleDateString('pt-BR')}</div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {m.peso != null && <span style={{ background: '#dbeafe', color: '#1d4ed8', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>Peso: {m.peso} kg</span>}
+                      {m.alturaCernelha != null && <span style={{ background: '#dcfce7', color: '#15803d', borderRadius: 8, padding: '3px 10px', fontSize: 12, fontWeight: 700 }}>Altura: {m.alturaCernelha} cm</span>}
+                      {CAMPOS_MEDICAO.filter(f => f.grupo !== 'principal' && m[f.id] != null).map(f => (
+                        <span key={f.id} style={{ background: 'var(--soft)', borderRadius: 8, padding: '3px 10px', fontSize: 11, color: 'var(--ink)' }}>{f.label}: {m[f.id]}{f.unidade ? ' ' + f.unidade : ''}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {(deltaPeso != null || deltaAltura != null) && (
+                  <div style={{ marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--line)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    {deltaPeso != null && <span style={{ fontSize: 12, color: deltaPeso >= 0 ? '#15803d' : '#dc2626', fontWeight: 700 }}>{deltaPeso >= 0 ? '▲' : '▼'} Peso: {deltaPeso > 0 ? '+' : ''}{deltaPeso.toFixed(1)} kg vs mês anterior</span>}
+                    {deltaAltura != null && <span style={{ fontSize: 12, color: deltaAltura >= 0 ? '#15803d' : '#dc2626', fontWeight: 700 }}>{deltaAltura >= 0 ? '▲' : '▼'} Altura: {deltaAltura > 0 ? '+' : ''}{deltaAltura.toFixed(1)} cm vs mês anterior</span>}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {notas.length > 0 && (
+              <div style={{ marginBottom: 14 }}>
+                {secTitle(`🩺 Anotações Clínicas (${notas.length})`)}
+                {notas.map(nota => {
+                  const cor = TIPO_COR[nota.tipo] || '#6b7280';
+                  return (
+                    <div key={nota.id} style={{ background: 'var(--card)', borderRadius: 12, padding: '12px 14px', marginBottom: 8, border: '1px solid var(--line)', borderLeft: `3px solid ${cor}` }}>
+                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{new Date(nota.data + 'T12:00:00').toLocaleDateString('pt-BR')}{nota.hora ? ` · ${nota.hora}` : ''}</span>
+                        <span style={{ background: cor + '22', color: cor, borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 600 }}>{nota.tipo}</span>
+                        {nota.gravidade && <span style={{ background: (GRAV_COR[nota.gravidade] || '#6b7280') + '22', color: GRAV_COR[nota.gravidade] || '#6b7280', borderRadius: 6, padding: '1px 7px', fontSize: 11, fontWeight: 700 }}>{nota.gravidade}</span>}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{nota.titulo}</div>
+                      {nota.descricao && <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 3, lineHeight: 1.5 }}>{nota.descricao}</div>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {regsMes.length > 0 && (
+              <div style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--line)' }}>
+                {secTitle('💊 Insumos administrados')}
+                {regsMes.map(r => {
+                  const ins = insumos.find(i => i.id === r.insumoId);
+                  return (
+                    <div key={r.id} style={{ fontSize: 13, color: 'var(--ink)', padding: '5px 0', borderBottom: '1px solid var(--soft)' }}>
+                      <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{new Date(r.data + 'T12:00:00').toLocaleDateString('pt-BR')} · </span>
+                      {ins?.nome || r.insumoId} — {r.qtd} {ins?.unidade || ''}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {procsMes.length > 0 && (
+              <div style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', marginBottom: 14, border: '1px solid var(--line)' }}>
+                {secTitle('🔬 Procedimentos realizados')}
+                {procsMes.map(p => {
+                  const sv = (servicos || []).find(s => s.id === p.servicoId);
+                  return (
+                    <div key={p.id} style={{ fontSize: 13, color: 'var(--ink)', padding: '5px 0', borderBottom: '1px solid var(--soft)' }}>
+                      <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{p.data ? new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR') : '—'} · </span>
+                      {sv?.nome || p.servicoId}{p.nota ? ` — ${p.nota}` : ''}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {notas.length === 0 && medsMes.length === 0 && regsMes.length === 0 && procsMes.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum registro clínico para este mês.</div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

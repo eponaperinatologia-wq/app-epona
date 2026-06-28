@@ -84,6 +84,7 @@ function AppEpona() {
   const [vermifugacoesAnimais, setVermifugacoesAnimais] = useState([]);
   const [opgs, setOpgs] = useState([]);
   const [medicoes, setMedicoes] = useState([]);
+  const [anotacoesClinicas, setAnotacoesClinicas] = useState([]);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -108,7 +109,7 @@ const loadAllData = async () => {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
-      protocolosVermData, vermifugacoesData, opgsData, medicoesData
+      protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -135,6 +136,7 @@ const loadAllData = async () => {
       fetchAll('vermifugacoes_animais_verm', r => r),
       fetchAll('opgs', r => r),
       fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
+      fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [] })),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -158,6 +160,7 @@ const loadAllData = async () => {
     setVermifugacoesAnimais(vermifugacoesData || []);
     setOpgs(opgsData || []);
     setMedicoes(medicoesData || []);
+    setAnotacoesClinicas(anotacoesData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -461,6 +464,19 @@ const loadAllData = async () => {
   const deleteMedicao = (id) => {
     setMedicoes(prev => prev.filter(m => m.id !== id));
     dbDelete('medicoes', id);
+  };
+
+  const addAnotacaoClinica = (a) => {
+    setAnotacoesClinicas(prev => [a, ...prev]);
+    dbInsert('anotacoes_clinicas', { id: a.id, cavalo_id: a.cavaloId, data: a.data, hora: a.hora || '', tipo: a.tipo, gravidade: a.gravidade || null, titulo: a.titulo, descricao: a.descricao || '', autor: a.autor || '', mes: a.mes, insumos_criados: a.insumosCriados || [], procs_criados: a.procsCriados || [] });
+  };
+  const updateAnotacaoClinica = (id, data) => {
+    setAnotacoesClinicas(prev => prev.map(a => a.id === id ? { ...a, ...data } : a));
+    dbUpdate('anotacoes_clinicas', id, { titulo: data.titulo, descricao: data.descricao || '', tipo: data.tipo, gravidade: data.gravidade || null, hora: data.hora || '', data: data.data, mes: data.mes });
+  };
+  const deleteAnotacaoClinica = (id) => {
+    setAnotacoesClinicas(prev => prev.filter(a => a.id !== id));
+    dbDelete('anotacoes_clinicas', id);
   };
 
   // ── Ordem dos grupos de nutrição ─────────────────────────
@@ -983,7 +999,7 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
-  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs.map(o=>({...o,resultado:typeof o.resultado==='string'?JSON.parse(o.resultado||'[]'):o.resultado||[]}))} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} />;
+  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs.map(o=>({...o,resultado:typeof o.resultado==='string'?JSON.parse(o.resultado||'[]'):o.resultado||[]}))} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} addProcedimento={addProcedimento} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} />;
