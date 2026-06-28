@@ -331,6 +331,25 @@ export const toDbVacinacaoAnimal = v => ({
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
 });
 
+export const fromDbVermifugacaoAnimal = r => ({
+  id: r.id,
+  protocoloId: r.protocolo_id || null,
+  cavaloId: r.cavalo_id || null,
+  dataRealizacao: r.data_realizacao || '',
+  produto: r.produto || '',
+  registradoPor: r.registrado_por || '',
+  etapaIdx: r.etapa_idx ?? null,
+});
+export const toDbVermifugacaoAnimal = v => ({
+  id: v.id,
+  protocolo_id: v.protocoloId || null,
+  cavalo_id: v.cavaloId,
+  data_realizacao: v.dataRealizacao,
+  produto: v.produto || '',
+  registrado_por: v.registradoPor || '',
+  etapa_idx: v.etapaIdx ?? null,
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };

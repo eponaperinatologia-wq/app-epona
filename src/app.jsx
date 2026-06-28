@@ -37,6 +37,7 @@ import {
   fromDbProtocoloVacinacao, toDbProtocoloVacinacao,
   fromDbCampanhaVacinacao, toDbCampanhaVacinacao,
   fromDbVacinacaoAnimal, toDbVacinacaoAnimal,
+  fromDbVermifugacaoAnimal, toDbVermifugacaoAnimal,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
@@ -135,7 +136,7 @@ const loadAllData = async () => {
       fetchAll('campanhas_vacinacao', fromDbCampanhaVacinacao),
       fetchAll('vacinacoes_animais', fromDbVacinacaoAnimal),
       fetchAll('protocolos_vermifugacao', r => r),
-      fetchAll('vermifugacoes_animais_verm', r => r),
+      fetchAll('vermifugacoes_animais_verm', fromDbVermifugacaoAnimal),
       fetchAll('opgs', r => r),
       fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
       fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [] })),
@@ -439,7 +440,7 @@ const loadAllData = async () => {
   };
   const addVermifugacaoAnimal = (v) => {
     setVermifugacoesAnimais(prev => [...prev, v]);
-    dbInsert('vermifugacoes_animais_verm', v);
+    dbInsert('vermifugacoes_animais_verm', toDbVermifugacaoAnimal(v));
   };
 
   // ── OPG CRUD ─────────────────────────────────────────────
