@@ -564,7 +564,7 @@ function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, collapse
 
 function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
-  const [dataReal, setDataReal] = useState(todayStr());
+  const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
   const vacina = insumos.find(i => i.id === item.dose?.insumoId);
   const dr = item.diasRestantes;
@@ -939,7 +939,7 @@ function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, collaps
 
 function VermItem({ item, cavalos, insumos, onVermifugar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
-  const [dataReal, setDataReal] = useState(todayStr());
+  const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
   const insumo = insumos.find(i => i.id === item.insumoId);
   const dr = item.diasRestantes;
