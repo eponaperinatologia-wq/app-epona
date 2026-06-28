@@ -101,21 +101,43 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
       return true;
     });
     for (const cavalo of alvo) {
-      const historico = (vermifugacoesAnimais || [])
-        .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id)
-        .sort((a, b) => b.dataRealizacao.localeCompare(a.dataRealizacao));
-      const ultimo = historico[0];
-      const dataPrevista = ultimo
-        ? addDays(ultimo.dataRealizacao, prot.intervaloDias)
-        : addDays(today, -1);
-      items.push({
-        key: `verm_${prot.id}_${cavalo.id}`,
-        protocoloId: prot.id, protocoloNome: prot.nome,
-        cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-        dataPrevista, diasRestantes: diffDays(dataPrevista),
-        ultimaRealizacao: ultimo?.dataRealizacao || null,
-        insumoId: prot.insumoId,
-      });
+      if (prot.tipo === 'potro' && (prot.etapas||[]).length > 0) {
+        prot.etapas.forEach((etapa, etapaIdx) => {
+          if (etapa.subtipo === 'opg') return;
+          const dataPrevista = addDays(cavalo.nascimento, etapa.diasDesdeNascimento);
+          if (!dataPrevista) return;
+          const feito = (vermifugacoesAnimais || []).find(v =>
+            v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === etapaIdx
+          );
+          if (!feito) {
+            items.push({
+              key: `verm_${prot.id}_${cavalo.id}_${etapaIdx}`,
+              protocoloId: prot.id, protocoloNome: prot.nome,
+              cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+              dataPrevista, diasRestantes: diffDays(dataPrevista),
+              ultimaRealizacao: null,
+              insumoId: etapa.insumoId || '',
+              etapaIdx, etapaLabel: etapa.label || `Etapa ${etapaIdx + 1}`,
+            });
+          }
+        });
+      } else {
+        const historico = (vermifugacoesAnimais || [])
+          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx == null)
+          .sort((a, b) => b.dataRealizacao.localeCompare(a.dataRealizacao));
+        const ultimo = historico[0];
+        const dataPrevista = ultimo
+          ? addDays(ultimo.dataRealizacao, prot.intervaloDias)
+          : addDays(today, -1);
+        items.push({
+          key: `verm_${prot.id}_${cavalo.id}`,
+          protocoloId: prot.id, protocoloNome: prot.nome,
+          cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+          dataPrevista, diasRestantes: diffDays(dataPrevista),
+          ultimaRealizacao: ultimo?.dataRealizacao || null,
+          insumoId: prot.insumoId,
+        });
+      }
     }
   }
   return items;
@@ -126,7 +148,42 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
   const items = [];
   const today = todayStr();
   for (const prot of protocolos) {
-    if (!prot.ativo || prot.subtipo !== 'opg') continue;
+    if (!prot.ativo) continue;
+
+    // Potro protocol with etapas — OPG etapas
+    if (prot.tipo === 'potro' && (prot.etapas||[]).length > 0) {
+      const alvo = cavalos.filter(c => c.presente && !!c.nascimento && diffDays(today, c.nascimento) <= 730);
+      for (const cavalo of alvo) {
+        prot.etapas.forEach((etapa, etapaIdx) => {
+          if (etapa.subtipo !== 'opg') return;
+          const dataPrevista = addDays(cavalo.nascimento, etapa.diasDesdeNascimento);
+          if (!dataPrevista) return;
+          const feito = (opgs || []).find(o =>
+            o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.etapaIdx === etapaIdx && o.aplicado
+          );
+          if (feito) return;
+          const opgPendente = (opgs || []).find(o =>
+            o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.etapaIdx === etapaIdx && !o.aplicado
+          ) || null;
+          items.push({
+            key: `opg_${prot.id}_${cavalo.id}_${etapaIdx}`,
+            isOpg: true,
+            protocoloId: prot.id, protocoloNome: prot.nome,
+            cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+            laboratorio: etapa.laboratorio || prot.laboratorio || '',
+            servicoId: etapa.servicoId || prot.servicoId || '',
+            dataPrevista, diasRestantes: diffDays(dataPrevista),
+            ultimaColeta: null, opgPendente,
+            etapaIdx, etapaLabel: etapa.label || `OPG Etapa ${etapaIdx + 1}`,
+            isSequencial: false,
+          });
+        });
+      }
+      continue;
+    }
+
+    // Regular OPG protocol (subtipo === 'opg')
+    if (prot.subtipo !== 'opg') continue;
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
       if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
@@ -138,9 +195,11 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
         .filter(o => o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.aplicado)
         .sort((a, b) => b.dataColeta.localeCompare(a.dataColeta));
       const ultimo = historico[0];
-      const dataPrevista = ultimo
-        ? addDays(ultimo.dataColeta, prot.intervaloDias)
-        : addDays(today, -1);
+      const dataPrevista = ultimo?.proximaData
+        ? ultimo.proximaData
+        : ultimo
+          ? addDays(ultimo.dataColeta, prot.intervaloDias)
+          : addDays(today, -1);
       const opgPendente = (opgs || []).find(o =>
         o.cavaloId === cavalo.id && o.protocoloId === prot.id && !o.aplicado
       ) || null;
@@ -150,9 +209,10 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
         protocoloId: prot.id, protocoloNome: prot.nome,
         cavaloId: cavalo.id, cavaloNome: cavalo.nome,
         laboratorio: prot.laboratorio || '',
+        servicoId: prot.servicoId || '',
         dataPrevista, diasRestantes: diffDays(dataPrevista),
         ultimaColeta: ultimo?.dataColeta || null,
-        opgPendente,
+        opgPendente, isSequencial: true,
       });
     }
   }
@@ -297,6 +357,8 @@ export function VeterinariaScreen({
         deleteProtocolo={deleteProtocoloVermifugacao}
         addVermifugacao={addVermifugacaoAnimal}
         addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg}
+        addProcedimento={addProcedimento}
+        servicos={servicos || []}
         agenda={agendaVerm}
         onBack={() => setSecao(null)}
       />
@@ -783,7 +845,8 @@ function VermifugacaoScreen({
   cavalos, insumos, currentUser, addAtividade, addRegistro,
   protocolos, vermifugacoesAnimais, opgs, agenda,
   addProtocolo, updateProtocolo, deleteProtocolo,
-  addVermifugacao, addOpg, updateOpg, deleteOpg, onBack,
+  addVermifugacao, addOpg, updateOpg, deleteOpg,
+  addProcedimento, servicos, onBack,
 }) {
   const [vista, setVista] = useState('agenda');
   const [editProt, setEditProt] = useState(null);
@@ -809,6 +872,7 @@ function VermifugacaoScreen({
       dataRealizacao: data,
       produto: insumo?.nome || '',
       registradoPor: currentUser?.nome || '',
+      etapaIdx: item.etapaIdx ?? null,
     });
     if (cavalo) {
       addAtividade({
@@ -829,20 +893,33 @@ function VermifugacaoScreen({
   const agendaOpgFiltrada = filtroProtocolo ? agendaOpg.filter(i => i.protocoloId === filtroProtocolo) : agendaOpg;
 
   const handleOPGAplicar = (item, data) => {
-    const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado } = data;
-    const hoje = todayStr();
+    const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado, proximaData, motoboy, servicoId, etapaIdx } = data;
+    const hojeStr = todayStr();
     const opgExistente = item.opgPendente;
     const opgData = {
       cavaloId: item.cavaloId, protocoloId: item.protocoloId,
       dataColeta, resultado, precisaVermifugacao,
       insumoVermId: insumoVermId||'', dataAplicacao: dataAplicacao||'',
       aplicado: !!aplicado, principioAtivo:'', observacoes:'',
+      proximaData: proximaData || '',
+      etapaIdx: etapaIdx ?? null,
     };
     if (opgExistente) updateOpg(opgExistente.id, opgData);
     else addOpg({ id: 'opg_'+Date.now(), ...opgData });
+    if (servicoId && addProcedimento && aplicado) {
+      addProcedimento({
+        id: 'proc_opg_'+Date.now()+'_'+item.cavaloId,
+        cavaloId: item.cavaloId, servicoId,
+        data: dataColeta,
+        nota: `OPG · ${item.protocoloNome}${item.laboratorio ? ' · ' + item.laboratorio : ''}`,
+        motoboy: !!motoboy,
+        usuario: currentUser?.nome || '',
+        mes: dataColeta.slice(0,7),
+      });
+    }
     if (precisaVermifugacao && insumoVermId && aplicado) {
-      const appDate = dataAplicacao || hoje;
-      const ehMesAtual = appDate.slice(0,7) === hoje.slice(0,7);
+      const appDate = dataAplicacao || hojeStr;
+      const ehMesAtual = appDate.slice(0,7) === hojeStr.slice(0,7);
       if (ehMesAtual && addRegistro) {
         addRegistro({ id:'reg_opg_'+Date.now(), cavaloId:item.cavaloId, insumoId:insumoVermId, qtd:1, hora:new Date().toTimeString().slice(0,5), usuario:currentUser?.nome||'', isAuto:false, data:appDate });
       }
@@ -914,7 +991,7 @@ function VermifugacaoScreen({
                   OPG · Coleta Programada ({agendaOpgFiltrada.length})
                 </div>
                 {agendaOpgFiltrada.map(item => (
-                  <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} onAplicar={handleOPGAplicar} cor="#7c3aed" />
+                  <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} servicos={servicos||[]} addProcedimento={addProcedimento} onAplicar={handleOPGAplicar} cor="#7c3aed" />
                 ))}
               </div>
             )}
@@ -929,7 +1006,7 @@ function VermifugacaoScreen({
               </button>
             )}
             {showProtForm && (
-              <ProtocoloVermForm initial={editProt} insumos={insumos}
+              <ProtocoloVermForm initial={editProt} insumos={insumos} servicos={servicos||[]}
                 onSave={data => { if(editProt) updateProtocolo(editProt.id,data); else addProtocolo({id:'pverm_'+Date.now(),...data}); setShowProtForm(false); setEditProt(null); }}
                 onCancel={() => { setShowProtForm(false); setEditProt(null); }} />
             )}
@@ -937,7 +1014,7 @@ function VermifugacaoScreen({
               <div style={{ textAlign:'center', padding:'32px 0', color:'var(--ink-3)', fontSize:14 }}>Nenhum protocolo cadastrado.</div>
             )}
             {protocolos.map((p, idx) => (
-              <ProtocoloVermCard key={p.id} protocolo={p} insumos={insumos} isAdmin={isAdmin} cor={PROT_COLORS[idx%PROT_COLORS.length]}
+              <ProtocoloVermCard key={p.id} protocolo={p} insumos={insumos} servicos={servicos||[]} isAdmin={isAdmin} cor={PROT_COLORS[idx%PROT_COLORS.length]}
                 onEdit={() => { setEditProt(p); setShowProtForm(true); }}
                 onDelete={() => deleteProtocolo(p.id)} />
             ))}
@@ -1028,11 +1105,11 @@ function VermItem({ item, cavalos, insumos, onVermifugar, cor }) {
         <div style={{ width:10, height:10, borderRadius:5, flexShrink:0, background:cor }} />
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'var(--ink)' }}>{item.cavaloNome}</div>
-          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>{insumo?.nome||'—'} · {item.protocoloNome}</div>
+          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>{insumo?.nome||'—'} · {item.etapaLabel || item.protocoloNome}</div>
           {item.ultimaRealizacao && (
             <div style={{ fontSize:11, color:'var(--ink-3)', marginTop:1 }}>Última: {fmtDate(item.ultimaRealizacao)}</div>
           )}
-          {!item.ultimaRealizacao && (
+          {!item.ultimaRealizacao && !item.etapaLabel && (
             <div style={{ fontSize:11, color:'#b45309', marginTop:1 }}>Nunca realizada</div>
           )}
         </div>
@@ -1060,10 +1137,11 @@ function VermItem({ item, cavalos, insumos, onVermifugar, cor }) {
 }
 
 // ─── ProtocoloVermCard ────────────────────────────────────────
-function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor }) {
+function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDelete, cor }) {
   const [open, setOpen] = useState(false);
   const insumo = insumos.find(i => i.id === protocolo.insumoId);
   const intervOpt = INTERVALO_OPTIONS.find(o => o.value === protocolo.intervaloDias);
+  const isPotroEtapas = protocolo.tipo === 'potro' && (protocolo.etapas||[]).length > 0;
   return (
     <div style={{ background:'var(--card)', border:`1px solid ${cor}30`, borderRadius:14, marginBottom:10, overflow:'hidden' }}>
       <button onClick={()=>setOpen(o=>!o)} style={{ width:'100%', background:'none', border:'none', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, textAlign:'left', cursor:'pointer' }}>
@@ -1073,26 +1151,53 @@ function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor 
         <div style={{ flex:1 }}>
           <div style={{ fontSize:14, fontWeight:700, color:'var(--ink)' }}>{protocolo.nome}</div>
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
-            {protocolo.subtipo==='opg' && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
-            {TIPO_LABELS[protocolo.tipo]||'Tropa geral'} · {intervOpt?.label||`${protocolo.intervaloDias} dias`}
+            {protocolo.subtipo==='opg' && !isPotroEtapas && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
+            {TIPO_LABELS[protocolo.tipo]||'Tropa geral'}
+            {isPotroEtapas
+              ? ` · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
+              : ` · ${intervOpt?.label||`${protocolo.intervaloDias} dias`}`}
           </div>
         </div>
         <span style={{ fontSize:16, color:'var(--ink-3)', transform:open?'rotate(90deg)':'none', transition:'transform 0.15s' }}>›</span>
       </button>
       {open && (
         <div style={{ padding:'0 16px 14px' }}>
-          {protocolo.subtipo==='opg' ? (
-            <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
-              <span style={{ color:'var(--ink-3)' }}>Laboratório: </span>{protocolo.laboratorio||'—'}
+          {isPotroEtapas ? (
+            <div>
+              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8, textTransform:'uppercase', letterSpacing:'0.07em' }}>Etapas · dias desde nascimento</div>
+              {protocolo.etapas.map((etapa, i) => {
+                const ins = insumos.find(x => x.id === etapa.insumoId);
+                const sv = (servicos||[]).find(x => x.id === etapa.servicoId);
+                return (
+                  <div key={i} style={{ display:'flex', alignItems:'center', gap:10, padding:'8px 0', borderBottom:i<protocolo.etapas.length-1?'1px solid var(--line)':'none' }}>
+                    <div style={{ width:24, height:24, borderRadius:12, background:cor+'20', color:cor, display:'grid', placeItems:'center', fontSize:11, fontWeight:700, flexShrink:0 }}>{i+1}</div>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>
+                        {etapa.subtipo==='opg' ? (sv?.nome||'OPG') : (ins?.nome||'—')}
+                        <span style={{ fontSize:10, background:etapa.subtipo==='opg'?'#ede9fe':'#f0fdf4', color:etapa.subtipo==='opg'?'#7c3aed':'#15803d', borderRadius:4, padding:'1px 5px', marginLeft:6 }}>{etapa.subtipo==='opg'?'OPG':'Verm'}</span>
+                      </div>
+                      <div style={{ fontSize:11, color:'var(--ink-3)' }}>{etapa.label||`Etapa ${i+1}`} · {etapa.diasDesdeNascimento} dias (≈{Math.round(etapa.diasDesdeNascimento/30)} mês)</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           ) : (
-            <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
-              <span style={{ color:'var(--ink-3)' }}>Produto: </span>{insumo?.nome||protocolo.produto||'—'}
-            </div>
+            <>
+              {protocolo.subtipo==='opg' ? (
+                <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                  <span style={{ color:'var(--ink-3)' }}>Laboratório: </span>{protocolo.laboratorio||'—'}
+                </div>
+              ) : (
+                <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                  <span style={{ color:'var(--ink-3)' }}>Produto: </span>{insumo?.nome||protocolo.produto||'—'}
+                </div>
+              )}
+              <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                <span style={{ color:'var(--ink-3)' }}>Intervalo: </span>{intervOpt?.label||`${protocolo.intervaloDias} dias`}
+              </div>
+            </>
           )}
-          <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
-            <span style={{ color:'var(--ink-3)' }}>Intervalo: </span>{intervOpt?.label||`${protocolo.intervaloDias} dias`}
-          </div>
           {protocolo.observacoes && <div style={{ fontSize:12, color:'var(--ink-3)', fontStyle:'italic', marginBottom:8 }}>{protocolo.observacoes}</div>}
           {isAdmin && (
             <div style={{ display:'flex', gap:8, marginTop:12 }}>
@@ -1107,78 +1212,162 @@ function ProtocoloVermCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor 
 }
 
 // ─── ProtocoloVermForm ────────────────────────────────────────
-function ProtocoloVermForm({ initial, insumos, onSave, onCancel }) {
+function ProtocoloVermForm({ initial, insumos, servicos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
   const [tipo, setTipo] = useState(initial?.tipo||'geral');
   const [subtipo, setSubtipo] = useState(initial?.subtipo||'vermifugacao');
   const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
+  const [servicoId, setServicoId] = useState(initial?.servicoId||'');
   const [laboratorio, setLaboratorio] = useState(initial?.laboratorio||'');
   const [intervaloDias, setIntervaloDias] = useState(initial?.intervaloDias||90);
   const [observacoes, setObservacoes] = useState(initial?.observacoes||'');
-  const canSave = nome.trim() && intervaloDias > 0;
+  const [etapas, setEtapas] = useState(
+    initial?.etapas?.length ? initial.etapas : [{ diasDesdeNascimento:60, subtipo:'vermifugacao', insumoId:'', servicoId:'', laboratorio:'', label:'' }]
+  );
+
   const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const isPotro = tipo === 'potro';
+  const addEtapa = () => setEtapas(e=>[...e,{diasDesdeNascimento:0,subtipo:'vermifugacao',insumoId:'',servicoId:'',laboratorio:'',label:''}]);
+  const removeEtapa = i => setEtapas(e=>e.filter((_,idx)=>idx!==i));
+  const updateEtapa = (i,field,val) => setEtapas(e=>e.map((e2,idx)=>idx===i?{...e2,[field]:val}:e2));
+  const canSave = nome.trim() && (isPotro ? etapas.length>0 : intervaloDias>0);
+
+  const handleSave = () => {
+    if (isPotro) {
+      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas, observacoes, ativo:true });
+    } else {
+      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], observacoes, ativo:true });
+    }
+  };
 
   return (
     <div style={{ background:'var(--soft)', borderRadius:16, padding:16, marginBottom:16 }}>
       <div style={{ fontSize:14, fontWeight:700, color:'var(--ink)', marginBottom:14 }}>{initial?'Editar protocolo':'Novo protocolo de vermifugação'}</div>
       <div style={{ marginBottom:12 }}>
         <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Nome</div>
-        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Ex: Protocolo Trimestral…" style={inputSt} />
+        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Ex: Protocolo Potros…" style={inputSt} />
       </div>
       <div style={{ marginBottom:12 }}>
         <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Aplicar em</div>
         <select value={tipo} onChange={e=>setTipo(e.target.value)} style={inputSt}>
           <option value="geral">Tropa geral</option>
           <option value="gestante">Éguas gestantes</option>
-          <option value="potro">Potros</option>
+          <option value="potro">Potros (por data de nascimento)</option>
         </select>
       </div>
-      <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Tipo de protocolo</div>
-        <div style={{ display:'flex', gap:8 }}>
-          <button onClick={()=>setSubtipo('vermifugacao')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='vermifugacao'?'#15803d':'var(--line)'}`, background:subtipo==='vermifugacao'?'#15803d':'var(--card)', color:subtipo==='vermifugacao'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>
-            Vermifugação
-          </button>
-          <button onClick={()=>setSubtipo('opg')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='opg'?'#7c3aed':'var(--line)'}`, background:subtipo==='opg'?'#7c3aed':'var(--card)', color:subtipo==='opg'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>
-            OPG
-          </button>
-        </div>
-      </div>
-      {subtipo==='vermifugacao' ? (
-        <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Produto (insumo)</div>
-          <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
-            <option value="">— selecionar (opcional) —</option>
-            {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
-          </select>
-        </div>
+
+      {isPotro ? (
+        <>
+          <div style={{ background:'#f0fdf4', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#15803d', marginBottom:14 }}>
+            Cada etapa é agendada com base na data de nascimento do potro.
+          </div>
+          <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Etapas</div>
+          {etapas.map((etapa, i) => (
+            <div key={i} style={{ background:'var(--card)', borderRadius:12, padding:'12px 14px', marginBottom:8, border:'1px solid var(--line)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                <span style={{ width:22, height:22, borderRadius:11, background:'#dcfce7', color:'#15803d', fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center' }}>{i+1}</span>
+                {etapas.length>1 && <button onClick={()=>removeEtapa(i)} style={{ background:'none', border:'none', color:'#dc2626', cursor:'pointer', padding:'2px 6px', fontSize:14 }}>×</button>}
+              </div>
+              <div style={{ display:'flex', gap:8, marginBottom:10 }}>
+                <button onClick={()=>updateEtapa(i,'subtipo','vermifugacao')} style={{ flex:1, padding:'8px 0', borderRadius:9, border:`1.5px solid ${etapa.subtipo==='vermifugacao'?'#15803d':'var(--line)'}`, background:etapa.subtipo==='vermifugacao'?'#15803d':'var(--card)', color:etapa.subtipo==='vermifugacao'?'#fff':'var(--ink)', fontSize:12, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>Vermifugação</button>
+                <button onClick={()=>updateEtapa(i,'subtipo','opg')} style={{ flex:1, padding:'8px 0', borderRadius:9, border:`1.5px solid ${etapa.subtipo==='opg'?'#7c3aed':'var(--line)'}`, background:etapa.subtipo==='opg'?'#7c3aed':'var(--card)', color:etapa.subtipo==='opg'?'#fff':'var(--ink)', fontSize:12, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>OPG</button>
+              </div>
+              <div style={{ display:'flex', gap:8, marginBottom:8 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Dias desde nascimento</div>
+                  <input type="number" min="0" value={etapa.diasDesdeNascimento} onChange={e=>updateEtapa(i,'diasDesdeNascimento',Number(e.target.value))} style={inputSt} />
+                  {etapa.diasDesdeNascimento>0 && <div style={{ fontSize:10, color:'var(--ink-3)', marginTop:3 }}>≈ {Math.round(etapa.diasDesdeNascimento/30)} mês(es)</div>}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Rótulo (opcional)</div>
+                  <input value={etapa.label} onChange={e=>updateEtapa(i,'label',e.target.value)} placeholder="Ex: 2º mês…" style={inputSt} />
+                </div>
+              </div>
+              {etapa.subtipo==='vermifugacao' ? (
+                <div>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Produto (insumo)</div>
+                  <select value={etapa.insumoId} onChange={e=>updateEtapa(i,'insumoId',e.target.value)} style={inputSt}>
+                    <option value="">— selecionar (opcional) —</option>
+                    {insumosVerm.map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <>
+                  <div style={{ marginBottom:8 }}>
+                    <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Procedimento OPG</div>
+                    <select value={etapa.servicoId} onChange={e=>updateEtapa(i,'servicoId',e.target.value)} style={inputSt}>
+                      <option value="">— selecionar serviço —</option>
+                      {(servicos||[]).sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Laboratório</div>
+                    <input value={etapa.laboratorio} onChange={e=>updateEtapa(i,'laboratorio',e.target.value)} placeholder="Ex: Lab Vet…" style={inputSt} />
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+          <button onClick={addEtapa} style={{ width:'100%', background:'none', border:'1px dashed var(--line-2)', borderRadius:10, padding:'10px 0', fontSize:13, color:'var(--ink-3)', cursor:'pointer', marginBottom:14, fontFamily:'var(--sans)' }}>+ Adicionar etapa</button>
+        </>
       ) : (
-        <div style={{ marginBottom:12 }}>
-          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Laboratório</div>
-          <input value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="Ex: Exame Vet, Lab Central…" style={inputSt} />
-        </div>
+        <>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Tipo de protocolo</div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={()=>setSubtipo('vermifugacao')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='vermifugacao'?'#15803d':'var(--line)'}`, background:subtipo==='vermifugacao'?'#15803d':'var(--card)', color:subtipo==='vermifugacao'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>Vermifugação</button>
+              <button onClick={()=>setSubtipo('opg')} style={{ flex:1, padding:'10px 0', borderRadius:10, border:`1.5px solid ${subtipo==='opg'?'#7c3aed':'var(--line)'}`, background:subtipo==='opg'?'#7c3aed':'var(--card)', color:subtipo==='opg'?'#fff':'var(--ink)', fontSize:13, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer' }}>OPG Sequencial</button>
+            </div>
+          </div>
+          {subtipo==='vermifugacao' ? (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Produto (insumo)</div>
+              <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
+                <option value="">— selecionar (opcional) —</option>
+                {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+              </select>
+            </div>
+          ) : (
+            <>
+              <div style={{ background:'#ede9fe', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#7c3aed', marginBottom:12 }}>
+                Protocolo sequencial: após cada OPG, você define a data do próximo.
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Procedimento OPG</div>
+                <select value={servicoId} onChange={e=>setServicoId(e.target.value)} style={inputSt}>
+                  <option value="">— selecionar serviço —</option>
+                  {(servicos||[]).sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Laboratório</div>
+                <input value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="Ex: Exame Vet, Lab Central…" style={inputSt} />
+              </div>
+            </>
+          )}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre {subtipo==='opg'?'coletas':'aplicações'}</div>
+            <select value={intervaloDias} onChange={e=>setIntervaloDias(Number(e.target.value))} style={inputSt}>
+              {INTERVALO_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              <option value={60}>Bimestral (60 dias)</option>
+            </select>
+          </div>
+        </>
       )}
-      <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre {subtipo==='opg'?'coletas':'aplicações'}</div>
-        <select value={intervaloDias} onChange={e=>setIntervaloDias(Number(e.target.value))} style={inputSt}>
-          {INTERVALO_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
-          <option value={60}>Bimestral (60 dias)</option>
-        </select>
-      </div>
       <div style={{ marginBottom:14 }}>
         <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Observações</div>
         <input value={observacoes} onChange={e=>setObservacoes(e.target.value)} style={inputSt} />
       </div>
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:14, fontFamily:'var(--sans)' }}>Cancelar</button>
-        <button disabled={!canSave} onClick={()=>onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, observacoes, ativo:true })} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
+        <button disabled={!canSave} onClick={handleSave} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
       </div>
     </div>
   );
 }
 
 // ─── OPGAgendaItem ────────────────────────────────────────────
-function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
+function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, cor }) {
   const [open, setOpen] = useState(false);
   const opg = item.opgPendente;
   const [dataColeta, setDataColeta] = useState(opg?.dataColeta || item.dataPrevista);
@@ -1186,11 +1375,14 @@ function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
   const [precisaVerm, setPrecisaVerm] = useState(opg?.precisaVermifugacao !== undefined && opg?.precisaVermifugacao !== null ? opg.precisaVermifugacao : null);
   const [insumoVermId, setInsumoVermId] = useState(opg?.insumoVermId||'');
   const [dataAplicacao, setDataAplicacao] = useState(opg?.dataAplicacao||todayStr());
+  const [proximaData, setProximaData] = useState(opg?.proximaData||'');
+  const [motoboy, setMotoboy] = useState(false);
 
   const dr = item.diasRestantes;
   const labelDias = dr===0?'Hoje':dr<0?`${Math.abs(dr)} dia${Math.abs(dr)>1?'s':''} atrás`:`em ${dr} dia${dr>1?'s':''}`;
   const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const resultadoValido = resultado.filter(r=>r.especie.trim());
+  const servico = (servicos||[]).find(s=>s.id===item.servicoId);
 
   const addEspecie = () => setResultado(r=>[...r,{especie:'',contagem:''}]);
   const removeEspecie = i => setResultado(r=>r.filter((_,idx)=>idx!==i));
@@ -1201,11 +1393,11 @@ function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
     : null;
 
   const handleAplicar = () => {
-    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:true, insumoVermId, dataAplicacao, aplicado:true });
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:true, insumoVermId, dataAplicacao, aplicado:true, proximaData, motoboy, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
     setOpen(false);
   };
   const handleSemNecessidade = () => {
-    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:false, insumoVermId:'', dataAplicacao:'', aplicado:true });
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:false, insumoVermId:'', dataAplicacao:'', aplicado:true, proximaData, motoboy, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
     setOpen(false);
   };
 
@@ -1215,7 +1407,8 @@ function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
         <div style={{ width:10, height:10, borderRadius:5, flexShrink:0, background:cor }} />
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'var(--ink)' }}>{item.cavaloNome}</div>
-          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>OPG · {item.protocoloNome}{item.laboratorio?` · ${item.laboratorio}`:''}</div>
+          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>OPG · {item.etapaLabel||item.protocoloNome}{item.laboratorio?` · ${item.laboratorio}`:''}</div>
+          {servico && <div style={{ fontSize:11, color:'#7c3aed', marginTop:1 }}>{servico.nome}{servico.valor?` · R$ ${Number(servico.valor).toFixed(2)}`:''}</div>}
           {badge && <div style={{ fontSize:11, color:badge.startsWith('✓')?'#15803d':'#b45309', marginTop:2 }}>{badge}</div>}
           {!opg && item.ultimaColeta && <div style={{ fontSize:11, color:'var(--ink-3)', marginTop:1 }}>Última coleta: {fmtDate(item.ultimaColeta)}</div>}
         </div>
@@ -1234,6 +1427,19 @@ function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
             <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Data da coleta</div>
             <input type="date" value={dataColeta} onChange={e=>setDataColeta(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
           </div>
+          {servico && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', background:motoboy?'#ede9fe':'var(--card)', border:`1px solid ${motoboy?'#7c3aed':'var(--line)'}`, borderRadius:10, padding:'10px 12px' }}>
+                <div>
+                  <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>{servico.nome}</div>
+                  {servico.valor && <div style={{ fontSize:11, color:'var(--ink-3)' }}>R$ {Number(servico.valor).toFixed(2)}</div>}
+                </div>
+                <button onClick={()=>setMotoboy(m=>!m)} style={{ padding:'7px 14px', borderRadius:8, border:`1.5px solid ${motoboy?'#7c3aed':'var(--line)'}`, background:motoboy?'#7c3aed':'var(--card)', color:motoboy?'#fff':'var(--ink)', fontSize:12, fontWeight:700, fontFamily:'var(--sans)', cursor:'pointer' }}>
+                  {motoboy?'🛵 Motoboy ✓':'🛵 Motoboy'}
+                </button>
+              </div>
+            </div>
+          )}
           <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Resultado (OPG)</div>
           <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>Deixe em branco se negativo.</div>
           {resultado.map((r,i)=>(
@@ -1263,6 +1469,12 @@ function OPGAgendaItem({ item, insumos, onAplicar, cor }) {
                 <input type="date" value={dataAplicacao} onChange={e=>setDataAplicacao(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
               </div>
             </>
+          )}
+          {item.isSequencial && (
+            <div style={{ marginBottom:12 }}>
+              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Data do próximo OPG</div>
+              <input type="date" value={proximaData} onChange={e=>setProximaData(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
+            </div>
           )}
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={()=>setOpen(false)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:13, fontFamily:'var(--sans)' }}>Cancelar</button>
