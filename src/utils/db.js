@@ -331,6 +331,41 @@ export const toDbVacinacaoAnimal = v => ({
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
 });
 
+export const fromDbOpg = r => ({
+  id: r.id,
+  cavaloId: r.cavalo_id,
+  protocoloId: r.protocolo_id || '',
+  dataColeta: r.data_coleta || '',
+  dataResultado: r.data_resultado || null,
+  resultado: typeof r.resultado === 'string' ? JSON.parse(r.resultado || '[]') : (r.resultado || []),
+  precisaVermifugacao: r.precisa_vermifugacao,
+  insumoVermId: r.insumo_verm_id || '',
+  dataAplicacao: r.data_aplicacao || '',
+  aplicado: !!r.aplicado,
+  dispensado: !!r.dispensado,
+  principioAtivo: r.principio_ativo || '',
+  observacoes: r.observacoes || '',
+  proximaData: r.proxima_data || null,
+  etapaIdx: r.etapa_idx ?? null,
+});
+export const toDbOpg = o => ({
+  id: o.id,
+  cavalo_id: o.cavaloId,
+  protocolo_id: o.protocoloId || null,
+  data_coleta: o.dataColeta,
+  data_resultado: o.dataResultado || null,
+  resultado: o.resultado || [],
+  precisa_vermifugacao: o.precisaVermifugacao ?? null,
+  insumo_verm_id: o.insumoVermId || '',
+  data_aplicacao: o.dataAplicacao || null,
+  aplicado: !!o.aplicado,
+  dispensado: !!o.dispensado,
+  principio_ativo: o.principioAtivo || '',
+  observacoes: o.observacoes || '',
+  proxima_data: o.proximaData || null,
+  etapa_idx: o.etapaIdx ?? null,
+});
+
 export const fromDbVermifugacaoAnimal = r => ({
   id: r.id,
   protocoloId: r.protocolo_id || null,
