@@ -25,7 +25,6 @@ export const fromDbInsumo = r => ({
   fornecedor: r.fornecedor || '', valorCompra: Number(r.valor_compra) || 0,
   markup: Number(r.markup) || 0, valorVenda: Number(r.valor_venda) || 0,
   injetavel: !!r.injetavel, descartaveis: r.descartaveis || [],
-  setor: r.setor || '',
 });
 
 export const fromDbServico = r => ({
@@ -139,7 +138,6 @@ export const toDbInsumo = i => ({
   fornecedor: i.fornecedor || '', valor_compra: i.valorCompra || 0,
   markup: i.markup || 0, valor_venda: i.valorVenda || 0,
   injetavel: !!i.injetavel, descartaveis: i.descartaveis || [],
-  setor: i.setor || '',
 });
 
 export const toDbServico = s => ({

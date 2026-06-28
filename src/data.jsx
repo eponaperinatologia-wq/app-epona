@@ -177,6 +177,8 @@ const CATEGORIAS_INSUMOS = [
   { id: 'suplemento',    nome: 'Suplemento',    cor: '#7c2d12' },
   { id: 'oleo',          nome: 'Óleo',          cor: '#b45309' },
   { id: 'medicamento',   nome: 'Medicamento',   cor: '#991b1b' },
+  { id: 'vacina',        nome: 'Vacina',        cor: '#0f766e' },
+  { id: 'vermifugo',     nome: 'Vermífugo',     cor: '#15803d' },
   { id: 'descartavel',   nome: 'Descartável',   cor: '#4b5563' },
 ];
 

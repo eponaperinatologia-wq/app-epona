@@ -801,7 +801,7 @@ function ProtocoloVacForm({ initial, insumos, onSave, onCancel }) {
             <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Vacina (insumo)</div>
             <select value={dose.insumoId} onChange={e=>updateDose(i,'insumoId',e.target.value)} style={inputSt}>
               <option value="">— selecionar —</option>
-              {[...insumos].filter(i=>i.setor==='Vacina').sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
+              {[...insumos].filter(i=>i.categoria==='vacina').sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
             </select>
           </div>
           <div style={{ display:'flex', gap:8 }}>
@@ -1225,7 +1225,7 @@ function ProtocoloVermForm({ initial, insumos, servicos, onSave, onCancel }) {
     initial?.etapas?.length ? initial.etapas : [{ diasDesdeNascimento:60, subtipo:'vermifugacao', insumoId:'', servicoId:'', laboratorio:'', label:'' }]
   );
 
-  const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const insumosVerm = [...insumos].filter(i=>i.categoria==='vermifugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const isPotro = tipo === 'potro';
   const addEtapa = () => setEtapas(e=>[...e,{diasDesdeNascimento:0,subtipo:'vermifugacao',insumoId:'',servicoId:'',laboratorio:'',label:''}]);
   const removeEtapa = i => setEtapas(e=>e.filter((_,idx)=>idx!==i));
@@ -1380,7 +1380,7 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, co
 
   const dr = item.diasRestantes;
   const labelDias = dr===0?'Hoje':dr<0?`${Math.abs(dr)} dia${Math.abs(dr)>1?'s':''} atrás`:`em ${dr} dia${dr>1?'s':''}`;
-  const insumosVerm = [...insumos].filter(i=>i.setor==='Vermífugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const insumosVerm = [...insumos].filter(i=>i.categoria==='vermifugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const resultadoValido = resultado.filter(r=>r.especie.trim());
   const servico = (servicos||[]).find(s=>s.id===item.servicoId);
 
