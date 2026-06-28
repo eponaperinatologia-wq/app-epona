@@ -222,39 +222,46 @@ function VacinacaoScreen({
   const feitas = agenda.filter(i => i.feito)
     .sort((a, b) => (b.dataPrevista || '').localeCompare(a.dataPrevista || ''));
 
-  const handleVacinar = (item) => {
+  // dataRealizada: data em que a vacina foi de fato aplicada (pode ser passado)
+  // Só cria registro (fatura) se for o mês atual — vacinas antigas já foram cobradas
+  const handleVacinar = (item, dataRealizada) => {
+    const data = dataRealizada || today;
     const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
     const cavalo = cavalos.find(c => c.id === item.cavaloId);
     const vacina = insumos.find(i => i.id === item.dose?.insumoId);
+    const ehMesAtual = data.slice(0, 7) === today.slice(0, 7);
 
     upsertVacinacao({
       id: vacId, protocoloId: item.protocoloId, doseIdx: item.doseIdx,
       cavaloId: item.cavaloId, dataPrevista: item.dataPrevista,
-      feito: true, feitoPor: currentUser?.nome || '', feitoEm: new Date().toISOString(),
+      feito: true, feitoPor: currentUser?.nome || '', feitoEm: data + 'T12:00:00',
     });
 
     if (vacina && cavalo) {
-      const dataReg = today;
-      addRegistro({
-        id: 'reg_vac_' + Date.now() + '_' + cavalo.id,
-        cavaloId: cavalo.id, insumoId: vacina.id,
-        qtd: 1, hora: new Date().toTimeString().slice(0, 5),
-        usuario: currentUser?.nome || '', isAuto: false, data: dataReg,
-      });
-      (vacina.descartaveis || []).forEach(d => {
+      // Registro na fatura só se for mês atual
+      if (ehMesAtual) {
         addRegistro({
-          id: 'reg_vac_desc_' + d.insumoId + '_' + Date.now() + '_' + cavalo.id,
-          cavaloId: cavalo.id, insumoId: d.insumoId,
-          qtd: d.qtd || 1, hora: new Date().toTimeString().slice(0, 5),
-          usuario: currentUser?.nome || '', isAuto: true, data: dataReg,
+          id: 'reg_vac_' + Date.now() + '_' + cavalo.id,
+          cavaloId: cavalo.id, insumoId: vacina.id,
+          qtd: 1, hora: new Date().toTimeString().slice(0, 5),
+          usuario: currentUser?.nome || '', isAuto: false, data,
         });
-      });
+        (vacina.descartaveis || []).forEach(d => {
+          addRegistro({
+            id: 'reg_vac_desc_' + d.insumoId + '_' + Date.now() + '_' + cavalo.id,
+            cavaloId: cavalo.id, insumoId: d.insumoId,
+            qtd: d.qtd || 1, hora: new Date().toTimeString().slice(0, 5),
+            usuario: currentUser?.nome || '', isAuto: true, data,
+          });
+        });
+      }
+      // Atividade sempre (histórico veterinário)
       addAtividade({
         id: 'at_vac_' + Date.now() + '_' + cavalo.id,
         tipo: 'vacinacao', cavaloId: cavalo.id, insumoId: vacina.id,
         qtd: 1, motivo: `${item.protocoloNome} · ${item.dose?.label || 'Dose ' + (item.doseIdx + 1)}`,
         usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
-        mes: dataReg.slice(0, 7), data: dataReg,
+        mes: data.slice(0, 7), data,
         hora: new Date().toTimeString().slice(0, 5), texto: '',
       });
     }
@@ -398,6 +405,10 @@ function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, collapse
 }
 
 function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
+  const [confirmando, setConfirmando] = useState(false);
+  const [dataReal, setDataReal] = useState(item.dataPrevista || todayStr());
+  const hoje = todayStr();
+
   const vacina = insumos.find(i => i.id === item.dose?.insumoId);
   const dr = item.diasRestantes;
   const labelDias = item.feito ? fmtDate(item.dataPrevista)
@@ -405,44 +416,95 @@ function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
     : dr < 0 ? `${Math.abs(dr)} dia${Math.abs(dr) > 1 ? 's' : ''} atrás`
     : `em ${dr} dia${dr > 1 ? 's' : ''}`;
 
+  const ehMesAtual = dataReal.slice(0, 7) === hoje.slice(0, 7);
+
   return (
     <div style={{
-      background: 'var(--card)', border: `1px solid ${item.feito ? 'var(--line)' : cor + '40'}`,
+      background: 'var(--card)', border: `1px solid ${item.feito ? 'var(--line)' : confirmando ? cor : cor + '40'}`,
       borderRadius: 13, padding: '12px 14px', marginBottom: 8,
-      display: 'flex', alignItems: 'center', gap: 12,
       opacity: item.feito ? 0.6 : 1,
     }}>
-      <div style={{
-        width: 10, height: 10, borderRadius: 5, flexShrink: 0,
-        background: item.feito ? '#9ca3af' : cor,
-      }} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
-          {item.cavaloNome}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{
+          width: 10, height: 10, borderRadius: 5, flexShrink: 0,
+          background: item.feito ? '#9ca3af' : cor,
+        }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>
+            {item.cavaloNome}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+            {vacina?.nome || '—'} · {item.dose?.label || `Dose ${item.doseIdx + 1}`}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+            {item.protocoloNome} · {fmtDate(item.dataPrevista)}
+          </div>
         </div>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-          {vacina?.nome || '—'} · {item.dose?.label || `Dose ${item.doseIdx + 1}`}
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
-          {item.protocoloNome} · {fmtDate(item.dataPrevista)}
+        <div style={{ flexShrink: 0, textAlign: 'right' }}>
+          {item.feito ? (
+            <span style={{ fontSize: 11, color: '#6b7280' }}>✓ {item.feitoPor || 'feito'}</span>
+          ) : !confirmando ? (
+            <>
+              <div style={{ fontSize: 11, fontWeight: 600, color: cor, marginBottom: 6 }}>{labelDias}</div>
+              <button onClick={() => setConfirmando(true)} style={{
+                background: cor, color: '#fff', border: 'none',
+                borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700,
+                cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>
+                Aplicar ✓
+              </button>
+            </>
+          ) : null}
         </div>
       </div>
-      <div style={{ flexShrink: 0, textAlign: 'right' }}>
-        {item.feito ? (
-          <span style={{ fontSize: 11, color: '#6b7280' }}>✓ {item.feitoPor || 'feito'}</span>
-        ) : (
-          <>
-            <div style={{ fontSize: 11, fontWeight: 600, color: cor, marginBottom: 6 }}>{labelDias}</div>
-            <button onClick={() => onVacinar?.(item)} style={{
-              background: cor, color: '#fff', border: 'none',
-              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700,
-              cursor: 'pointer', fontFamily: 'var(--sans)',
+
+      {/* Mini-form de confirmação de data */}
+      {confirmando && (
+        <div style={{ marginTop: 12, padding: '12px 14px', background: 'var(--soft)', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>
+            Quando foi aplicada?
+          </div>
+          <input
+            type="date" value={dataReal} max={hoje}
+            onChange={e => setDataReal(e.target.value)}
+            style={{
+              width: '100%', padding: '9px 12px', borderRadius: 9,
+              border: '1px solid var(--line)', background: 'var(--card)',
+              fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)',
+              outline: 'none', boxSizing: 'border-box', marginBottom: 8,
+            }}
+          />
+          {!ehMesAtual && (
+            <div style={{
+              fontSize: 11, color: '#b45309', background: '#fef3c7',
+              borderRadius: 8, padding: '6px 10px', marginBottom: 8,
             }}>
-              Aplicar ✓
+              Data em mês anterior — registrado no histórico, <strong>sem lançamento na fatura</strong> (já cobrado).
+            </div>
+          )}
+          {ehMesAtual && (
+            <div style={{
+              fontSize: 11, color: '#15803d', background: '#f0fdf4',
+              borderRadius: 8, padding: '6px 10px', marginBottom: 8,
+            }}>
+              Mês atual — será lançado na fatura do proprietário.
+            </div>
+          )}
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setConfirmando(false)} style={{
+              flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)',
+              background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)',
+            }}>Cancelar</button>
+            <button onClick={() => { onVacinar?.(item, dataReal); setConfirmando(false); }} style={{
+              flex: 2, padding: '8px 0', borderRadius: 8, border: 'none',
+              background: 'var(--accent)', color: '#fff',
+              fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)',
+            }}>
+              Confirmar
             </button>
-          </>
-        )}
-      </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
