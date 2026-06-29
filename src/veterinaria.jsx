@@ -2477,13 +2477,23 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
     });
 
     const procsCriados = [];
-    procsUsados.forEach(({ servicoId, notaProc }) => {
+    procsUsados.forEach(({ servicoId, notaProc, insumosAdicionais }) => {
       if (!servicoId) return;
       const sv = (servicos || []).find(s => s.id === servicoId);
       const pid = 'proc_anot_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      addProcedimento({ id: pid, cavaloId: notaData.cavaloId, servicoId, valorServico: sv?.valor || 0, total: sv?.valor || 0, descartaveisObrigatorios: sv?.descartaveisObrigatorios || [], insumosAdicionais: [], motoboy: { ativo: false, valor: 0, nome: '' }, laboratorio: '', tubosSelecionados: [], examesSelecionados: [], hora, nota: notaProc || '', data: notaData.data });
+      const insAdics = (insumosAdicionais || []).filter(a => a.insumoId && Number(a.qtd) > 0).map(a => ({ insumoId: a.insumoId, qtd: Number(a.qtd) }));
+      let total = sv?.valor || 0;
+      (sv?.descartaveisObrigatorios || []).forEach(d => {
+        const ins = insumos.find(i => i.id === d.insumoId);
+        total += (ins?.valorVenda || 0) * d.qtd;
+      });
+      insAdics.forEach(a => {
+        const ins = insumos.find(i => i.id === a.insumoId);
+        total += (ins?.valorVenda || 0) * a.qtd;
+      });
+      addProcedimento({ id: pid, cavaloId: notaData.cavaloId, servicoId, valorServico: sv?.valor || 0, total, descartaveisObrigatorios: sv?.descartaveisObrigatorios || [], insumosAdicionais: insAdics, motoboy: { ativo: false, valor: 0, nome: '' }, laboratorio: '', tubosSelecionados: [], examesSelecionados: [], hora, nota: notaProc || '', data: notaData.data });
       addAtividade({ id: 'at_' + pid, tipo: 'procedimento', cavaloId: notaData.cavaloId, insumoId: null, qtd: null, motivo: `Anotação clínica: ${notaData.titulo} — ${sv?.nome || ''}`, usuario: usuarioNome, autor: usuarioNome, mes, data: notaData.data, hora, texto: '' });
-      procsCriados.push({ procId: pid, servicoId, nota: notaProc });
+      procsCriados.push({ procId: pid, servicoId, nota: notaProc, insumosAdicionais: insAdics });
     });
 
     if (editNota) {
@@ -2586,7 +2596,15 @@ function AnotacaoCard({ nota, cavalo, insumos, servicos, showAnimal, onEdit, onD
               })}
               {(nota.procsCriados || []).map((p, i) => {
                 const sv = (servicos || []).find(s => s.id === p.servicoId);
-                return <div key={i} style={{ fontSize: 12, color: 'var(--ink-2)', padding: '2px 0' }}>🔬 {sv?.nome || p.servicoId}{p.nota ? ` — ${p.nota}` : ''}</div>;
+                return (
+                  <div key={i} style={{ padding: '2px 0' }}>
+                    <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>🔬 {sv?.nome || p.servicoId}{p.nota ? ` — ${p.nota}` : ''}</div>
+                    {(p.insumosAdicionais || []).map((a, k) => {
+                      const insumo = insumos.find(n => n.id === a.insumoId);
+                      return <div key={k} style={{ fontSize: 11, color: 'var(--ink-3)', paddingLeft: 18 }}>· {insumo?.nome || a.insumoId} ×{a.qtd} {insumo?.unidade || ''}</div>;
+                    })}
+                  </div>
+                );
               })}
             </div>
           )}
@@ -2613,13 +2631,16 @@ function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel })
       .map(c => ({ insumoId: c.insumoId, qtd: c.qtd }))
   );
   const [procsUsados, setProcsUsados] = useState(
-    (initial?.procsCriados || []).map(c => ({ servicoId: c.servicoId, notaProc: c.nota || '' }))
+    (initial?.procsCriados || []).map(c => ({ servicoId: c.servicoId, notaProc: c.nota || '', insumosAdicionais: c.insumosAdicionais || [] }))
   );
 
   const canSave = cavaloId && data && titulo.trim();
 
   const setInsumo = (i, key, val) => setInsumosUsados(prev => prev.map((x, j) => j === i ? { ...x, [key]: val } : x));
   const setProc = (i, key, val) => setProcsUsados(prev => prev.map((x, j) => j === i ? { ...x, [key]: val } : x));
+  const addProcInsumo = (i) => setProcsUsados(prev => prev.map((x, j) => j === i ? { ...x, insumosAdicionais: [...(x.insumosAdicionais||[]), { insumoId: '', qtd: 1 }] } : x));
+  const removeProcInsumo = (i, k) => setProcsUsados(prev => prev.map((x, j) => j === i ? { ...x, insumosAdicionais: (x.insumosAdicionais||[]).filter((_, kk) => kk !== k) } : x));
+  const setProcInsumo = (i, k, key, val) => setProcsUsados(prev => prev.map((x, j) => j === i ? { ...x, insumosAdicionais: (x.insumosAdicionais||[]).map((a, kk) => kk === k ? { ...a, [key]: val } : a) } : x));
 
   return (
     <div style={{ background: 'var(--soft)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
@@ -2695,18 +2716,42 @@ function AnotacaoForm({ initial, cavalos, insumos, servicos, onSave, onCancel })
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>Procedimentos / Exames</div>
           <button onClick={() => setProcsUsados(prev => [...prev, { servicoId: '', notaProc: '' }])} style={{ background: 'var(--accent-soft)', border: '1px dashed var(--accent)', borderRadius: 8, padding: '4px 10px', fontSize: 12, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Adicionar</button>
         </div>
-        {procsUsados.map((p, i) => (
-          <div key={i} style={{ marginBottom: 8 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, marginBottom: 4 }}>
-              <select value={p.servicoId} onChange={e => setProc(i, 'servicoId', e.target.value)} style={{ ...inputSt, padding: '8px 10px' }}>
-                <option value="">— Serviço / Exame —</option>
-                {[...servicos].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
-              </select>
-              <button onClick={() => setProcsUsados(prev => prev.filter((_, j) => j !== i))} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '0 10px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+        {procsUsados.map((p, i) => {
+          const sv = (servicos || []).find(s => s.id === p.servicoId);
+          const insAdics = p.insumosAdicionais || [];
+          return (
+            <div key={i} style={{ marginBottom: 10, padding: '10px 12px', background: 'var(--card)', borderRadius: 10, border: '1px solid var(--line)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr auto', gap: 6, marginBottom: 4 }}>
+                <select value={p.servicoId} onChange={e => setProc(i, 'servicoId', e.target.value)} style={{ ...inputSt, padding: '8px 10px' }}>
+                  <option value="">— Serviço / Exame —</option>
+                  {[...servicos].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                </select>
+                <button onClick={() => setProcsUsados(prev => prev.filter((_, j) => j !== i))} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '0 10px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+              </div>
+              <input value={p.notaProc} onChange={e => setProc(i, 'notaProc', e.target.value)} placeholder="Observação / resultado" style={{ ...inputSt, padding: '8px 10px', fontSize: 13, marginBottom: 8 }} />
+              {sv && (sv.descartaveisObrigatorios||[]).length > 0 && (
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 6, fontStyle: 'italic' }}>
+                  Descartáveis obrigatórios incluídos: {sv.descartaveisObrigatorios.map(d => { const ins = insumos.find(x => x.id === d.insumoId); return `${ins?.nome || d.insumoId} ×${d.qtd}`; }).join(', ')}
+                </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Insumos do procedimento</div>
+                <button onClick={() => addProcInsumo(i)} style={{ background: 'none', border: '1px dashed var(--line-2)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Insumo</button>
+              </div>
+              {insAdics.length === 0 && <div style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic' }}>Nenhum insumo adicional.</div>}
+              {insAdics.map((a, k) => (
+                <div key={k} style={{ display: 'grid', gridTemplateColumns: '1fr 80px auto', gap: 6, marginBottom: 4 }}>
+                  <select value={a.insumoId} onChange={e => setProcInsumo(i, k, 'insumoId', e.target.value)} style={{ ...inputSt, padding: '6px 8px', fontSize: 12 }}>
+                    <option value="">— Insumo —</option>
+                    {[...insumos].sort((a2, b2) => a2.nome.localeCompare(b2.nome, 'pt')).map(n => <option key={n.id} value={n.id}>{n.nome}</option>)}
+                  </select>
+                  <input type="number" min="0.1" step="0.1" value={a.qtd} onChange={e => setProcInsumo(i, k, 'qtd', e.target.value)} placeholder="Qtd" style={{ ...inputSt, padding: '6px 8px', textAlign: 'center', fontSize: 12 }} />
+                  <button onClick={() => removeProcInsumo(i, k)} style={{ background: '#fef2f2', border: 'none', borderRadius: 6, padding: '0 8px', cursor: 'pointer' }}><Icon name="x" size={10} color="#dc2626" /></button>
+                </div>
+              ))}
             </div>
-            <input value={p.notaProc} onChange={e => setProc(i, 'notaProc', e.target.value)} placeholder="Observação / resultado" style={{ ...inputSt, padding: '8px 10px', fontSize: 13 }} />
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div style={{ display: 'flex', gap: 8 }}>
