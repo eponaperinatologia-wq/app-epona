@@ -3226,6 +3226,9 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
   const [editId, setEditId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
   const [showPagos, setShowPagos] = useState(false);
+  const hojeD = new Date();
+  const mesAtualKey = `${hojeD.getFullYear()}-${String(hojeD.getMonth() + 1).padStart(2, '0')}`;
+  const [mesRef, setMesRef] = useState(mesAtualKey);
 
   const lancsBase = [...(lancamentos || [])].filter(l => l.tipo === tipo);
 
@@ -3251,23 +3254,64 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
   const listaRec = (recorrencias || []).filter(r => r.tipo === tipo && r.ativo);
   const cor = tipo === 'entrada' ? '#16a34a' : '#dc2626';
   const pagoLabel = tipo === 'entrada' ? 'Recebido' : 'Pago';
+  const verboLabel = tipo === 'entrada' ? 'Receber' : 'Pagar';
   const fmtFreq = r => r.frequencia === 'mensal' ? `todo dia ${r.diaMes}` : r.frequencia === 'quinzenal' ? 'quinzenal' : 'semanal';
-  const hojeStr = new Date().toLocaleDateString('sv-SE');
+  const hojeStr = hojeD.toLocaleDateString('sv-SE');
   const d7 = new Date(); d7.setDate(d7.getDate() + 7);
   const d7Str = d7.toLocaleDateString('sv-SE');
 
-  // Agrupamento
-  const pagos = lista.filter(l => l.pago).sort((a, b) => (b.pagoEm || b.data || '').localeCompare(a.pagoEm || a.data || ''));
-  const naoPagos = lista.filter(l => !l.pago);
-  const vencidos = naoPagos.filter(l => l.data < hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
-  const venceHoje = naoPagos.filter(l => l.data === hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
-  const proximos7 = naoPagos.filter(l => l.data > hojeStr && l.data <= d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
-  const aVencer = naoPagos.filter(l => l.data > d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  // Mês selecionado
+  const [refAno, refMes] = mesRef.split('-').map(Number);
+  const inicioMes = `${refAno}-${String(refMes).padStart(2, '0')}-01`;
+  const fimMes = `${refAno}-${String(refMes).padStart(2, '0')}-${String(new Date(refAno, refMes, 0).getDate()).padStart(2, '0')}`;
+  const MESES_NOMES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  const mesLabel = `${MESES_NOMES[refMes - 1]} ${refAno}`;
+  const isMesAtual = mesRef === mesAtualKey;
 
-  const totalGeral = lista.reduce((s, l) => s + l.valor, 0);
-  const totalPagos = pagos.reduce((s, l) => s + l.valor, 0);
-  const totalVencidos = vencidos.reduce((s, l) => s + l.valor, 0);
-  const totalPendentes = naoPagos.reduce((s, l) => s + l.valor, 0);
+  const navegarMes = (delta) => {
+    const d = new Date(refAno, refMes - 1 + delta, 1);
+    setMesRef(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`);
+  };
+
+  // ── Filtragem por mês selecionado ──
+  // Atrasados de meses ANTERIORES (sempre visíveis no mês atual ou mês selecionado se for futuro)
+  const atrasadosAnteriores = lista.filter(l => !l.pago && l.data < inicioMes);
+
+  // Itens do mês selecionado:
+  //   - Não pagos com vencimento dentro do mês
+  //   - Pagos COM pagoEm dentro do mês (caixa real)
+  const naoPagosDoMes = lista.filter(l => !l.pago && l.data >= inicioMes && l.data <= fimMes);
+  const pagosDoMes = lista.filter(l => l.pago && l.pagoEm && l.pagoEm >= inicioMes && l.pagoEm <= fimMes);
+
+  // Sub-grupos para naoPagosDoMes
+  const vencidosMes = naoPagosDoMes.filter(l => l.data < hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const venceHoje = naoPagosDoMes.filter(l => l.data === hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const proximos7 = naoPagosDoMes.filter(l => l.data > hojeStr && l.data <= d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const aVencer = naoPagosDoMes.filter(l => l.data > d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  // No mês atual, vencidos do mês entram com atrasados visualmente (mas semanticamente é "do mês")
+  // No mês futuro/passado: vencidos relevantes mudam de comportamento — se for passado, mostramos "não pagos do mês"
+  const pagosOrdenado = pagosDoMes.sort((a, b) => (b.pagoEm || b.data || '').localeCompare(a.pagoEm || a.data || ''));
+
+  const totalPagosDoMes = pagosDoMes.reduce((s, l) => s + l.valor, 0);
+  const totalPendentesDoMes = naoPagosDoMes.reduce((s, l) => s + l.valor, 0);
+  const totalAtrasados = atrasadosAnteriores.reduce((s, l) => s + l.valor, 0);
+  const totalPrevistoMes = totalPagosDoMes + totalPendentesDoMes;
+
+  // Breakdown por categoria — pagos + pendentes do mês
+  const itensParaCategoria = [...naoPagosDoMes, ...pagosDoMes];
+  const porCategoria = {};
+  itensParaCategoria.forEach(l => {
+    const cat = l.categoria || (l._isCustoFixo ? 'Custos Fixos' : 'Outras');
+    porCategoria[cat] = (porCategoria[cat] || 0) + l.valor;
+  });
+  const totalCategorias = Object.values(porCategoria).reduce((s, v) => s + v, 0);
+  const categoriasOrdenadas = Object.entries(porCategoria).sort((a, b) => b[1] - a[1]);
+  const COR_CAT = {
+    'Salários': '#dc2626', 'Encargos': '#f97316', 'Contabilidade': '#7c3aed',
+    'Energia': '#eab308', 'Internet': '#3b82f6', 'Nutrição': '#a16207',
+    'Suplementação': '#15803d', 'Farmácia': '#0f766e', 'Custos Extras': '#6b7280',
+    'Custos Fixos': '#7c3aed', 'Outras': '#94a3b8',
+  };
 
   const togglePago = (l) => {
     if (l._isCustoFixo) {
@@ -3349,22 +3393,33 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
 
   return (
     <div style={{ padding: '12px 20px 0' }}>
-      {/* Resumo: 3 cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
-        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 12, padding: 10 }}>
-          <div style={{ fontSize: 9, color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vencidos</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#991b1b', marginTop: 2 }}>{formatBRL(totalVencidos)}</div>
-          <div style={{ fontSize: 9, color: '#991b1b', marginTop: 1 }}>{vencidos.length} item(s)</div>
+      {/* Navegador de mês */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '10px 14px', marginBottom: 12 }}>
+        <button onClick={() => navegarMes(-1)} style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--accent)', cursor: 'pointer', padding: '0 8px' }}>‹</button>
+        <div style={{ textAlign: 'center', flex: 1 }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)' }}>{mesLabel}</div>
+          {!isMesAtual && <button onClick={() => setMesRef(mesAtualKey)} style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--accent)', cursor: 'pointer', padding: 0, marginTop: 2, textDecoration: 'underline' }}>voltar para hoje</button>}
         </div>
-        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 12, padding: 10 }}>
-          <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>A pagar</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#92400e', marginTop: 2 }}>{formatBRL(totalPendentes)}</div>
-          <div style={{ fontSize: 9, color: '#92400e', marginTop: 1 }}>{naoPagos.length} item(s)</div>
+        <button onClick={() => navegarMes(1)} style={{ background: 'none', border: 'none', fontSize: 20, color: 'var(--accent)', cursor: 'pointer', padding: '0 8px' }}>›</button>
+      </div>
+
+      {/* KPIs do mês selecionado */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 14 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Previsto</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalPrevistoMes)}</div>
         </div>
-        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 12, padding: 10 }}>
-          <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{pagoLabel}s</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#166534', marginTop: 2 }}>{formatBRL(totalPagos)}</div>
-          <div style={{ fontSize: 9, color: '#166534', marginTop: 1 }}>{pagos.length} item(s)</div>
+        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{pagoLabel}</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: '#166534', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalPagosDoMes)}</div>
+        </div>
+        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>A {verboLabel.toLowerCase()}</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: '#92400e', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalPendentesDoMes)}</div>
+        </div>
+        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10, padding: '8px 10px' }}>
+          <div style={{ fontSize: 9, color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Atrasados</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: '#991b1b', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalAtrasados)}</div>
         </div>
       </div>
 
@@ -3372,28 +3427,74 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
         <LancamentoForm tipo={tipo} onCancel={() => setShowForm(false)} onSave={data => { addLancamento(data); setShowForm(false); }} />
       )}
       {!showForm && (
-        <button onClick={() => setShowForm(true)} style={{ width: '100%', background: cor + '12', border: `1px dashed ${cor}60`, borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 600, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 14 }}>
+        <button onClick={() => setShowForm(true)} style={{ width: '100%', background: cor + '12', border: `1px dashed ${cor}60`, borderRadius: 12, padding: '10px', fontSize: 13, fontWeight: 600, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 14 }}>
           + Novo lançamento avulso
         </button>
       )}
 
-      {renderGrupo('Vencidos', vencidos, '#dc2626', 'Em atraso — pague ou marque como pago.')}
-      {renderGrupo('Vence hoje', venceHoje, '#b45309')}
-      {renderGrupo('Próximos 7 dias', proximos7, '#b45309')}
-      {renderGrupo('A vencer', aVencer, 'var(--ink-3)')}
+      {/* Atrasados de meses anteriores — sempre persistente no topo */}
+      {atrasadosAnteriores.length > 0 && (
+        <div style={{ background: '#fef2f2', border: '2px solid #fca5a5', borderRadius: 12, padding: 12, marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.07em' }}>🚨 Atrasados de meses anteriores ({atrasadosAnteriores.length})</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#991b1b' }}>{formatBRL(totalAtrasados)}</div>
+          </div>
+          <div style={{ fontSize: 11, color: '#991b1b', marginBottom: 8, fontStyle: 'italic' }}>
+            Persistem até serem pagos. Quando marcado como pago, conta na saída do mês de pagamento.
+          </div>
+          {atrasadosAnteriores.sort((a, b) => (a.data || '').localeCompare(b.data || '')).map(renderItem)}
+        </div>
+      )}
 
-      {/* Pagos colapsável */}
-      {pagos.length > 0 && (
+      {/* Grupos do mês selecionado */}
+      {isMesAtual && renderGrupo('Vencidos do mês', vencidosMes, '#dc2626')}
+      {!isMesAtual && renderGrupo('Não pagos do mês', vencidosMes, '#dc2626')}
+      {renderGrupo(`${verboLabel === 'Pagar' ? 'Vence' : 'Recebe'} hoje`, venceHoje, '#b45309')}
+      {renderGrupo('Próximos 7 dias', proximos7, '#b45309')}
+      {renderGrupo('A vencer no mês', aVencer, 'var(--ink-3)')}
+
+      {/* Pagos do mês colapsável */}
+      {pagosOrdenado.length > 0 && (
         <div style={{ marginBottom: 14 }}>
-          <button onClick={() => setShowPagos(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
-            <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{showPagos ? '▼' : '▶'} {pagoLabel}s ({pagos.length}) · {formatBRL(totalPagos)}</span>
+          <button onClick={() => setShowPagos(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{showPagos ? '▼' : '▶'} {pagoLabel}s em {MESES_NOMES[refMes - 1].toLowerCase()} ({pagosOrdenado.length}) · {formatBRL(totalPagosDoMes)}</span>
           </button>
-          {showPagos && <div style={{ marginTop: 8 }}>{pagos.map(renderItem)}</div>}
+          {showPagos && <div style={{ marginTop: 8 }}>{pagosOrdenado.map(renderItem)}</div>}
+        </div>
+      )}
+
+      {/* Breakdown por categoria do mês */}
+      {categoriasOrdenadas.length > 0 && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Por categoria em {MESES_NOMES[refMes - 1].toLowerCase()}</div>
+          {categoriasOrdenadas.map(([cat, v]) => {
+            const pct = totalCategorias > 0 ? (v / totalCategorias) * 100 : 0;
+            const corCat = COR_CAT[cat] || '#94a3b8';
+            return (
+              <div key={cat} style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <div style={{ width: 10, height: 10, borderRadius: 3, background: corCat }} />
+                    <span style={{ fontSize: 12, color: 'var(--ink)' }}>{cat}</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                    {formatBRL(v)} <span style={{ color: 'var(--ink-3)', fontSize: 10 }}>({pct.toFixed(0)}%)</span>
+                  </div>
+                </div>
+                <div style={{ height: 5, background: 'var(--soft)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ width: `${pct}%`, height: '100%', background: corCat }} />
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
 
       {lista.length === 0 && !showForm && (
         <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento</div>
+      )}
+      {lista.length > 0 && atrasadosAnteriores.length === 0 && naoPagosDoMes.length === 0 && pagosDoMes.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento em {mesLabel}</div>
       )}
 
       {/* ── Recorrências ── */}
