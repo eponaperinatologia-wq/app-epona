@@ -1707,6 +1707,7 @@ function OPGScreen({ cavalos, opgs, isAdmin, currentUser, addOpg, updateOpg, del
   const [filtroAnimal, setFiltroAnimal] = useState('');
 
   const opgFiltrados = [...(opgs || [])]
+    .filter(o => !o.dispensado)
     .filter(o => !filtroAnimal || o.cavaloId === filtroAnimal)
     .sort((a, b) => b.dataColeta.localeCompare(a.dataColeta));
 
