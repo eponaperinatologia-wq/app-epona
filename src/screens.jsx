@@ -3221,10 +3221,11 @@ const RecorrenciaForm = ({ tipo, onSave, onCancel, initial }) => {
   );
 };
 
-const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, custosFixos = [], setScreen }) => {
+const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, custosFixos = [], updateCustoFixo, setScreen }) => {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
+  const [showPagos, setShowPagos] = useState(false);
 
   const lancsBase = [...(lancamentos || [])].filter(l => l.tipo === tipo);
 
@@ -3234,8 +3235,9 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
     return {
       id: 'cf:' + c.id,
       _isCustoFixo: true,
+      _cfId: c.id,
       tipo: 'saida',
-      valor: c.valor, // valor puro — sem multiplicar por encargos
+      valor: c.valor,
       data: c.dataVencimento || (c.mes + '-01'),
       quem: c.descricao || CAT_LABEL[c.categoria] || c.categoria,
       motivo: `${CAT_LABEL[c.categoria] || c.categoria} · ${c.descricao || '—'}`,
@@ -3245,26 +3247,124 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
     };
   }) : [];
 
-  const lista = [...lancsBase, ...custosFixosVirt].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const lista = [...lancsBase, ...custosFixosVirt];
   const listaRec = (recorrencias || []).filter(r => r.tipo === tipo && r.ativo);
-  const total = lista.reduce((s, l) => s + l.valor, 0);
-  const pendentes = lista.filter(l => !l.pago).reduce((s, l) => s + l.valor, 0);
   const cor = tipo === 'entrada' ? '#16a34a' : '#dc2626';
   const pagoLabel = tipo === 'entrada' ? 'Recebido' : 'Pago';
   const fmtFreq = r => r.frequencia === 'mensal' ? `todo dia ${r.diaMes}` : r.frequencia === 'quinzenal' ? 'quinzenal' : 'semanal';
+  const hojeStr = new Date().toLocaleDateString('sv-SE');
+  const d7 = new Date(); d7.setDate(d7.getDate() + 7);
+  const d7Str = d7.toLocaleDateString('sv-SE');
+
+  // Agrupamento
+  const pagos = lista.filter(l => l.pago).sort((a, b) => (b.pagoEm || b.data || '').localeCompare(a.pagoEm || a.data || ''));
+  const naoPagos = lista.filter(l => !l.pago);
+  const vencidos = naoPagos.filter(l => l.data < hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const venceHoje = naoPagos.filter(l => l.data === hojeStr).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const proximos7 = naoPagos.filter(l => l.data > hojeStr && l.data <= d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const aVencer = naoPagos.filter(l => l.data > d7Str).sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+
+  const totalGeral = lista.reduce((s, l) => s + l.valor, 0);
+  const totalPagos = pagos.reduce((s, l) => s + l.valor, 0);
+  const totalVencidos = vencidos.reduce((s, l) => s + l.valor, 0);
+  const totalPendentes = naoPagos.reduce((s, l) => s + l.valor, 0);
+
+  const togglePago = (l) => {
+    if (l._isCustoFixo) {
+      if (updateCustoFixo) updateCustoFixo(l._cfId, { pago: !l.pago, pagoEm: !l.pago ? hojeStr : null });
+    } else {
+      updateLancamento(l.id, { ...l, pago: !l.pago, pagoEm: !l.pago ? hojeStr : null });
+    }
+  };
+
+  const fmtData = (d) => {
+    if (!d) return '—';
+    const [a, m, dia] = d.split('-');
+    return `${dia}/${m}/${String(a).slice(-2)}`;
+  };
+  const diasAteVenc = (d) => {
+    if (!d) return null;
+    const diff = Math.floor((new Date(d + 'T12:00:00') - new Date(hojeStr + 'T12:00:00')) / 86400000);
+    return diff;
+  };
+
+  const renderItem = (l) => {
+    if (editId === l.id) {
+      return <LancamentoForm key={l.id} tipo={tipo} initial={l} onCancel={() => setEditId(null)} onSave={data => { updateLancamento(l.id, data); setEditId(null); }} />;
+    }
+    const dias = diasAteVenc(l.data);
+    const labelDias = l.pago ? '' : (dias < 0 ? `${Math.abs(dias)} dia${Math.abs(dias) > 1 ? 's' : ''} atrás` : dias === 0 ? 'Hoje' : `em ${dias} dia${dias > 1 ? 's' : ''}`);
+    const corDias = l.pago ? 'var(--ink-3)' : (dias < 0 ? '#dc2626' : dias <= 3 ? '#b45309' : 'var(--ink-3)');
+    return (
+      <div key={l.id} style={{ background: l._isCustoFixo ? '#f9f5ff' : 'var(--card)', border: `1px solid ${l.pago ? 'var(--line)' : (dias < 0 ? '#fca5a5' : cor + '40')}`, borderRadius: 12, padding: '12px 14px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 12 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', minWidth: 36, flexShrink: 0 }}>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{l.data?.split('-')[1] ? new Date(l.data + 'T12:00:00').toLocaleString('pt-BR', { month: 'short' }).replace('.', '') : '—'}</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: l.pago ? 'var(--ink-3)' : (dias < 0 ? '#dc2626' : 'var(--ink)'), lineHeight: 1 }}>{l.data?.split('-')[2] || '—'}</div>
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            {l.motivo || '—'}
+            {l.recorrenciaId && <span style={{ fontSize: 10, color: 'var(--ink-3)', background: 'var(--soft)', borderRadius: 6, padding: '1px 5px', fontWeight: 400 }}>↻</span>}
+            {l._isCustoFixo && <span style={{ fontSize: 10, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 5px', fontWeight: 700 }}>CUSTO FIXO</span>}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {labelDias && <span style={{ color: corDias, fontWeight: 600 }}>{labelDias}</span>}
+            {l.quem && <span>· {l.quem}</span>}
+            {l.categoria && !l._isCustoFixo && <span>· {l.categoria}</span>}
+          </div>
+          {l.pago && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 2 }}>✓ {pagoLabel}{l.pagoEm ? ` em ${fmtData(l.pagoEm)}` : ''}</div>}
+        </div>
+        <div style={{ textAlign: 'right', flexShrink: 0 }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: l.pago ? 'var(--ink-2)' : cor, marginBottom: 4 }}>{formatBRL(l.valor)}</div>
+          <div style={{ display: 'flex', gap: 4, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+            <button onClick={() => togglePago(l)} style={{ background: l.pago ? '#fef3c7' : '#dcfce7', border: `1px solid ${l.pago ? '#fde68a' : '#86efac'}`, borderRadius: 6, padding: '3px 10px', fontSize: 11, color: l.pago ? '#92400e' : '#166534', cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 600 }}>
+              {l.pago ? 'Desfazer' : '✓ ' + pagoLabel}
+            </button>
+            {l._isCustoFixo
+              ? <button onClick={() => setScreen && setScreen('custosFixos')} style={{ background: 'none', border: '1px solid #c4b5fd', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: '#7c3aed', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Abrir</button>
+              : <>
+                  {!l.recorrenciaId && <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '3px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
+                  <button onClick={() => { if (window.confirm('Excluir este lançamento?')) deleteLancamento(l.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '3px 6px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                </>}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const renderGrupo = (titulo, items, corHeader, hint) => {
+    if (items.length === 0) return null;
+    const totalGrupo = items.reduce((s, l) => s + l.valor, 0);
+    return (
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: corHeader, textTransform: 'uppercase', letterSpacing: '0.07em' }}>{titulo} ({items.length})</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>{formatBRL(totalGrupo)}</div>
+        </div>
+        {hint && <div style={{ fontSize: 11, color: 'var(--ink-3)', fontStyle: 'italic', marginBottom: 6 }}>{hint}</div>}
+        {items.map(renderItem)}
+      </div>
+    );
+  };
 
   return (
     <div style={{ padding: '12px 20px 0' }}>
-      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total</div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(total)}</div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Pendente</div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: cor, marginTop: 2 }}>{formatBRL(pendentes)}</div>
-          </div>
+      {/* Resumo: 3 cards */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+        <div style={{ background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: '#991b1b', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Vencidos</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#991b1b', marginTop: 2 }}>{formatBRL(totalVencidos)}</div>
+          <div style={{ fontSize: 9, color: '#991b1b', marginTop: 1 }}>{vencidos.length} item(s)</div>
+        </div>
+        <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>A pagar</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#92400e', marginTop: 2 }}>{formatBRL(totalPendentes)}</div>
+          <div style={{ fontSize: 9, color: '#92400e', marginTop: 1 }}>{naoPagos.length} item(s)</div>
+        </div>
+        <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{pagoLabel}s</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#166534', marginTop: 2 }}>{formatBRL(totalPagos)}</div>
+          <div style={{ fontSize: 9, color: '#166534', marginTop: 1 }}>{pagos.length} item(s)</div>
         </div>
       </div>
 
@@ -3272,46 +3372,28 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
         <LancamentoForm tipo={tipo} onCancel={() => setShowForm(false)} onSave={data => { addLancamento(data); setShowForm(false); }} />
       )}
       {!showForm && (
-        <button onClick={() => setShowForm(true)} style={{ width: '100%', background: cor + '12', border: `1px dashed ${cor}60`, borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 600, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10 }}>
+        <button onClick={() => setShowForm(true)} style={{ width: '100%', background: cor + '12', border: `1px dashed ${cor}60`, borderRadius: 12, padding: '12px', fontSize: 14, fontWeight: 600, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 14 }}>
           + Novo lançamento avulso
         </button>
       )}
 
-      {lista.map(l => (
-        <div key={l.id}>
-          {editId === l.id ? (
-            <LancamentoForm tipo={tipo} initial={l} onCancel={() => setEditId(null)} onSave={data => { updateLancamento(l.id, data); setEditId(null); }} />
-          ) : (
-            <div style={{ background: l._isCustoFixo ? '#f9f5ff' : 'var(--card)', border: `1px solid ${l.pago ? 'var(--line)' : cor + '50'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-              <div style={{ width: 8, height: 8, borderRadius: 4, background: l.pago ? '#9ca3af' : cor, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                  {l.motivo || '—'}
-                  {l.recorrenciaId && <span style={{ fontSize: 10, color: 'var(--ink-3)', background: 'var(--soft)', borderRadius: 6, padding: '1px 5px', fontWeight: 400 }}>↻</span>}
-                  {l._isCustoFixo && <span style={{ fontSize: 10, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 5px', fontWeight: 700 }}>CUSTO FIXO</span>}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                  {l.data} {l.quem ? `· ${l.quem}` : ''} {l.categoria ? `· ${l.categoria}` : ''}
-                </div>
-                {l.pago && <div style={{ fontSize: 11, color: '#16a34a', marginTop: 1 }}>✓ {pagoLabel}{l.pagoEm ? ` em ${l.pagoEm}` : ''}</div>}
-              </div>
-              <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: l.pago ? 'var(--ink-2)' : cor }}>{formatBRL(l.valor)}</div>
-                <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                  {l._isCustoFixo
-                    ? <button onClick={() => setScreen && setScreen('custosFixos')} style={{ background: 'none', border: '1px solid #c4b5fd', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#7c3aed', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Abrir</button>
-                    : <>
-                        {!l.recorrenciaId && <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
-                        <button onClick={() => { if (window.confirm('Excluir este lançamento?')) deleteLancamento(l.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
-                      </>}
-                </div>
-              </div>
-            </div>
-          )}
+      {renderGrupo('Vencidos', vencidos, '#dc2626', 'Em atraso — pague ou marque como pago.')}
+      {renderGrupo('Vence hoje', venceHoje, '#b45309')}
+      {renderGrupo('Próximos 7 dias', proximos7, '#b45309')}
+      {renderGrupo('A vencer', aVencer, 'var(--ink-3)')}
+
+      {/* Pagos colapsável */}
+      {pagos.length > 0 && (
+        <div style={{ marginBottom: 14 }}>
+          <button onClick={() => setShowPagos(s => !s)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10, cursor: 'pointer', fontFamily: 'var(--sans)' }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.07em' }}>{showPagos ? '▼' : '▶'} {pagoLabel}s ({pagos.length}) · {formatBRL(totalPagos)}</span>
+          </button>
+          {showPagos && <div style={{ marginTop: 8 }}>{pagos.map(renderItem)}</div>}
         </div>
-      ))}
+      )}
+
       {lista.length === 0 && !showForm && (
-        <div style={{ textAlign: 'center', padding: '16px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento avulso</div>
+        <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum lançamento</div>
       )}
 
       {/* ── Recorrências ── */}
@@ -3889,7 +3971,7 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [] }) => {
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
@@ -3931,7 +4013,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
       )}
       {subTab === 'saidas' && isAdmin && (
-        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} custosFixos={custosFixos} setScreen={setScreen} />
+        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} setScreen={setScreen} />
       )}
       {subTab === 'grafico' && isAdmin && (
         <GraficoFinanceiroSubScreen lancamentos={lancamentos} custosFixos={custosFixos} faturasFechadas={faturasFechadas} cavalos={cavalos} />
