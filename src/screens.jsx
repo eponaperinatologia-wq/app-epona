@@ -174,20 +174,21 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
   const findIns = (id) => (insumos || []).find(i => i.id === id);
+  const isIncluso = (ins) => !!ins?.incluidoMensalidade || ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao';
   const linhas = [];
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
-    if (oleoIns) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
+    if (oleoIns && !isIncluso(oleoIns)) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
-    if (!ins) continue;
+    if (!ins || isIncluso(ins)) continue;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
     linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
-    if (!ins) continue;
+    if (!ins || isIncluso(ins)) continue;
     const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
@@ -3992,6 +3993,9 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
   const cavIds = new Set(cavalosObj.map(c => c.id));
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
+    const ins = insumos.find(i => i.id === r.insumoId);
+    if (ins?.incluidoMensalidade) return false;
+    if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
     if (!r.data) return true;
     const d = new Date(r.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;

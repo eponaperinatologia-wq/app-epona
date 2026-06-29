@@ -25,6 +25,7 @@ export const fromDbInsumo = r => ({
   fornecedor: r.fornecedor || '', valorCompra: Number(r.valor_compra) || 0,
   markup: Number(r.markup) || 0, valorVenda: Number(r.valor_venda) || 0,
   injetavel: !!r.injetavel, descartaveis: r.descartaveis || [],
+  incluidoMensalidade: !!r.incluido_mensalidade,
 });
 
 export const fromDbServico = r => ({
@@ -138,6 +139,7 @@ export const toDbInsumo = i => ({
   fornecedor: i.fornecedor || '', valor_compra: i.valorCompra || 0,
   markup: i.markup || 0, valor_venda: i.valorVenda || 0,
   injetavel: !!i.injetavel, descartaveis: i.descartaveis || [],
+  incluido_mensalidade: !!i.incluidoMensalidade,
 });
 
 export const toDbServico = s => ({
@@ -388,7 +390,7 @@ export const toDbVermifugacaoAnimal = v => ({
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };
-const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda' };
+const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
 

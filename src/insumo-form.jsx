@@ -67,6 +67,7 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
     initialValues.valorVenda != null ? String(initialValues.valorVenda) : ''
   );
   const [injetavel, setInjetavel] = useState(initialValues.injetavel || false);
+  const [incluidoMensalidade, setIncluidoMensalidade] = useState(initialValues.incluidoMensalidade || false);
   const [usaDescartaveis, setUsaDescartaveis] = useState(
     !!(initialValues.descartaveis?.length && !initialValues.injetavel)
   );
@@ -120,6 +121,7 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
     onSave({
       nome: nome.trim(),
       categoria,
+      incluidoMensalidade,
       fornecedor,
       unidade: unidade.trim() || 'unidade',
       valorCompra: parseFloat(valorCompraStr) || 0,
@@ -151,10 +153,19 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
           </select>
         </Field>
         {(categoria === 'nutricao_base' || categoria === 'racao') && (
-          <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#78350f', marginTop: -6 }}>
-            Incluso na mensalidade · não cobrado à parte nas faturas. Use para controle de consumo e estoque.
+          <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 12px', fontSize: 12, color: '#78350f', marginTop: -6, marginBottom: 14 }}>
+            Categoria já inclusa na mensalidade · não cobrado à parte nas faturas.
           </div>
         )}
+
+        <Field label="Cobrança na mensalidade">
+          <Toggle
+            value={incluidoMensalidade}
+            onChange={setIncluidoMensalidade}
+            label="Incluso na mensalidade"
+            desc="Quando marcado, o consumo deste insumo não aparece nem é cobrado na fatura do proprietário."
+          />
+        </Field>
 
         <Field label="Fornecedor (opcional)">
           <input
