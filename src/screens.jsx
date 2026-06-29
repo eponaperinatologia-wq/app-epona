@@ -1280,7 +1280,9 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
   const [busca, setBusca] = useState('');
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
   const filtered = (filtro === 'all' ? insumos : insumos.filter(i => i.categoria === filtro))
-    .filter(i => !busca.trim() || norm(i.nome).includes(norm(busca.trim())));
+    .filter(i => !busca.trim() || norm(i.nome).includes(norm(busca.trim())))
+    .slice()
+    .sort((a, b) => (a.nome||'').localeCompare(b.nome||'', 'pt'));
 
   return (
     <div style={{ paddingBottom: 90 }}>
