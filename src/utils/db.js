@@ -322,6 +322,33 @@ export const toDbCampanhaVacinacao = c => ({
   obs: c.obs || '', status: c.status || 'pendente',
 });
 
+export const fromDbCustoFixo = r => ({
+  id: r.id,
+  categoria: r.categoria,
+  descricao: r.descricao || '',
+  valor: Number(r.valor) || 0,
+  mes: r.mes,
+  dataVencimento: r.data_vencimento || '',
+  pago: !!r.pago,
+  pagoEm: r.pago_em || '',
+  funcionarioId: r.funcionario_id || '',
+  encargosPct: Number(r.encargos_pct) || 0,
+  observacoes: r.observacoes || '',
+});
+export const toDbCustoFixo = c => ({
+  id: c.id,
+  categoria: c.categoria,
+  descricao: c.descricao || '',
+  valor: Number(c.valor) || 0,
+  mes: c.mes,
+  data_vencimento: c.dataVencimento || null,
+  pago: !!c.pago,
+  pago_em: c.pagoEm || null,
+  funcionario_id: c.funcionarioId || null,
+  encargos_pct: Number(c.encargosPct) || 0,
+  observacoes: c.observacoes || '',
+});
+
 export const fromDbVacinacaoAnimal = r => ({
   id: r.id, protocoloId: r.protocolo_id || null, doseIdx: r.dose_idx ?? null,
   cavaloId: r.cavalo_id || null, dataPrevista: r.data_prevista || null,

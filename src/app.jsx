@@ -12,6 +12,7 @@ import {
 } from './screens';
 import { AvisosScreen, MovimentacaoScreen } from './extra-screens';
 import { ListaComprasScreen } from './compras';
+import { CustosFixosScreen } from './custos-fixos';
 import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor } from './register';
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
@@ -39,6 +40,7 @@ import {
   fromDbVacinacaoAnimal, toDbVacinacaoAnimal,
   fromDbVermifugacaoAnimal, toDbVermifugacaoAnimal,
   fromDbOpg, toDbOpg,
+  fromDbCustoFixo, toDbCustoFixo,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
@@ -89,6 +91,7 @@ function AppEpona() {
   const [anotacoesClinicas, setAnotacoesClinicas] = useState([]);
   const [exames, setExames] = useState([]);
   const [registrosReproducao, setRegistrosReproducao] = useState([]);
+  const [custosFixos, setCustosFixos] = useState([]);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -113,7 +116,7 @@ const loadAllData = async () => {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
-      protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData
+      protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -143,6 +146,7 @@ const loadAllData = async () => {
       fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [] })),
       fetchAll('exames_complementares', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, tipo: r.tipo, descricao: r.descricao || '', arquivoUrl: r.arquivo_url || '', arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '', mes: r.mes })),
       fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes })),
+      fetchAll('custos_fixos', fromDbCustoFixo),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -169,6 +173,7 @@ const loadAllData = async () => {
     setAnotacoesClinicas(anotacoesData || []);
     setExames(examesData || []);
     setRegistrosReproducao(reprosData || []);
+    setCustosFixos(custosFixosData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -517,6 +522,22 @@ const loadAllData = async () => {
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
     dbDelete('reproducao_registros', id);
+  };
+
+  // ── Custos Fixos CRUD ────────────────────────────────────
+  const addCustoFixo = (c) => {
+    setCustosFixos(prev => [c, ...prev]);
+    dbInsert('custos_fixos', toDbCustoFixo(c));
+  };
+  const updateCustoFixo = (id, data) => {
+    setCustosFixos(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+    const dbRow = toDbCustoFixo({ id, ...data });
+    delete dbRow.id;
+    dbUpdate('custos_fixos', id, dbRow);
+  };
+  const deleteCustoFixo = (id) => {
+    setCustosFixos(prev => prev.filter(c => c.id !== id));
+    dbDelete('custos_fixos', id);
   };
 
   // ── Ordem dos grupos de nutrição ─────────────────────────
@@ -1032,8 +1053,9 @@ const loadAllData = async () => {
   else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} />;
-  else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} />;
+  else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} custosFixos={custosFixos} />;
+  else if (screen === 'custosFixos') content = <CustosFixosScreen custosFixos={custosFixos} funcionarios={funcionarios} cavalos={cavalos} addCustoFixo={addCustoFixo} updateCustoFixo={updateCustoFixo} deleteCustoFixo={deleteCustoFixo} onBack={() => goScreen('faturas')} />;
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;

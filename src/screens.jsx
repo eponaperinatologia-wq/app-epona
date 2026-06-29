@@ -3684,6 +3684,13 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
             color: 'var(--ink-3)', cursor: 'pointer', whiteSpace: 'nowrap',
           }}>Consumo ›</button>
         )}
+        {isAdmin && (
+          <button onClick={() => setScreen('custosFixos')} style={{
+            flexShrink: 0, border: 'none', background: 'none', padding: '10px 8px',
+            fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 400,
+            color: 'var(--ink-3)', cursor: 'pointer', whiteSpace: 'nowrap',
+          }}>Custos Fixos ›</button>
+        )}
       </div>
       {subTab === 'faturas' && (
         <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} />
@@ -3759,7 +3766,7 @@ const consumoDiarioCavaloLive = (cav, insumos) => {
   return linhas;
 };
 
-const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [] }) => {
+const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = [] }) => {
   const [periodo, setPeriodo] = useState('semana');
   const [busca, setBusca] = useState('');
   const p = PERIODOS.find(x => x.id === periodo) || PERIODOS[1];
@@ -3812,7 +3819,7 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [] }) => {
       <div style={{ padding: '0 16px', marginBottom: 14 }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Total projetado / {p.label.toLowerCase()}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Consumo nutricional / {p.label.toLowerCase()}</div>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(totalGeral)}</div>
           </div>
           <div style={{ textAlign: 'right' }}>
@@ -3821,6 +3828,36 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [] }) => {
           </div>
         </div>
       </div>
+
+      {/* Custo Fixo rateado por cavalo (mês corrente) */}
+      {(() => {
+        const hoje = new Date();
+        const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+        const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+        const CATEGORIAS_COM_ENCARGOS = ['salario'];
+        const doMes = (custosFixos || []).filter(c => c.mes === mesAtual);
+        const totalRateavel = doMes.reduce((s, c) => {
+          if (!CATEGORIAS_RATEAVEIS.includes(c.categoria)) return s;
+          const comEncargos = CATEGORIAS_COM_ENCARGOS.includes(c.categoria)
+            ? c.valor * (1 + (c.encargosPct || 0) / 100)
+            : c.valor;
+          return s + comEncargos;
+        }, 0);
+        const nPresentes = presentes.length;
+        const custoFixoPorCavalo = nPresentes > 0 ? totalRateavel / nPresentes : 0;
+        return (
+          <div style={{ padding: '0 16px', marginBottom: 14 }}>
+            <div onClick={() => setScreen('custosFixos')} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #3d6043, #2d4a32)', borderRadius: 14, padding: '12px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / cavalo (mês)</div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 22, marginTop: 2 }}>{formatBRL(custoFixoPorCavalo)}</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>{formatBRL(totalRateavel)} ÷ {nPresentes} cavalos · não cobrado na fatura</div>
+              </div>
+              <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}>›</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {Object.keys(porInsumo).length > 0 && (
         <div style={{ padding: '0 16px', marginBottom: 14 }}>
