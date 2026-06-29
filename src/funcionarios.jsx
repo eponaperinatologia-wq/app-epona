@@ -238,6 +238,9 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
   const [mostrarSenha, setMostrarSenha] = useState(false);
   const [escala, setEscala] = useState(JSON.parse(JSON.stringify(escalaInicial)));
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [salarioBase, setSalarioBase] = useState(existing?.salarioBase != null ? String(existing.salarioBase) : '');
+  const [regimePagamento, setRegimePagamento] = useState(existing?.regimePagamento || 'mensal_dia_05');
+  const [encargosPct, setEncargosPct] = useState(existing?.encargosPct != null ? String(existing.encargosPct) : '47.44');
 
   const setDiaTurno = (dia, field, value) =>
     setEscala(prev => ({ ...prev, [dia]: { ...prev[dia], [field]: value } }));
@@ -252,7 +255,13 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
 
   const handleSave = () => {
     if (!nome.trim()) return;
-    const data = { nome: nome.trim(), funcao, aniversario, login: login.trim().toLowerCase(), senha, escala };
+    const data = {
+      nome: nome.trim(), funcao, aniversario,
+      login: login.trim().toLowerCase(), senha, escala,
+      salarioBase: parseFloat(String(salarioBase).replace(',', '.')) || 0,
+      regimePagamento,
+      encargosPct: parseFloat(String(encargosPct).replace(',', '.')) || 0,
+    };
     if (existing) updateFuncionario(existing.id, data);
     else addFuncionario(data);
     setScreen(volta);
@@ -300,6 +309,46 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
         <div style={{ marginBottom: 14 }}>
           <LabelField t="Data de aniversário" />
           <input type="date" value={aniversario} onChange={e => setAniversario(e.target.value)} style={inputStyle} />
+        </div>
+
+        {/* Salário */}
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ padding: '12px 14px' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+              Salário e regime
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Salário base (R$ por mês)</div>
+              <input type="number" min="0" step="0.01" value={salarioBase} onChange={e => setSalarioBase(e.target.value)} placeholder="0,00" style={{ ...inputStyle, padding: '10px 12px', fontSize: 14 }} />
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>Total mensal a pagar. As parcelas serão geradas conforme o regime escolhido.</div>
+            </div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Regime de pagamento</div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                {[
+                  { v: 'mensal_dia_05', l: 'Mensal · dia 5' },
+                  { v: 'mensal_dia_20', l: 'Mensal · dia 20' },
+                  { v: 'split_60_40', l: '60% dia 5 + 40% dia 20' },
+                  { v: 'semanal', l: 'Semanal (toda sexta)' },
+                ].map(opt => {
+                  const sel = regimePagamento === opt.v;
+                  return (
+                    <button key={opt.v} onClick={() => setRegimePagamento(opt.v)} style={{
+                      padding: '10px 8px', borderRadius: 9, border: `1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                      background: sel ? 'var(--accent)' : 'var(--card)',
+                      color: sel ? '#fff' : 'var(--ink)',
+                      fontSize: 12, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer',
+                    }}>{opt.l}</button>
+                  );
+                })}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Encargos (%) sobre o salário base</div>
+              <input type="number" min="0" step="0.01" value={encargosPct} onChange={e => setEncargosPct(e.target.value)} placeholder="47.44" style={{ ...inputStyle, padding: '10px 12px', fontSize: 14 }} />
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>Padrão CLT: 47,44% (FGTS 8 + Férias 11,11 + 13º 8,33 + INSS 20). Simples Nacional: ~27,44% (sem INSS).</div>
+            </div>
+          </div>
         </div>
 
         {/* Acesso */}

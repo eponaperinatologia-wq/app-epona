@@ -158,6 +158,52 @@ function CustoFixoForm({ initial, funcionarios = [], onSave, onCancel, mes }) {
   );
 }
 
+// Gera entradas de custo_fixo para um mês conforme o regime de cada funcionário
+export function gerarSalariosDoMes(funcionarios, mes, custosFixosExistentes, addCustoFixo) {
+  const [ano, mesNum] = mes.split('-').map(Number);
+  const lastDay = new Date(ano, mesNum, 0).getDate();
+  const jaCriados = new Set(custosFixosExistentes.filter(c => c.mes === mes && c.categoria === 'salario').map(c => c.funcionarioId + '|' + (c.dataVencimento || '')));
+  let count = 0;
+
+  funcionarios.filter(f => Number(f.salarioBase) > 0).forEach(f => {
+    const enc = Number.isFinite(Number(f.encargosPct)) ? Number(f.encargosPct) : ENCARGOS_TOTAL_PADRAO;
+    const sal = Number(f.salarioBase);
+    const push = (descricao, valor, dia) => {
+      const venc = `${mes}-${String(dia).padStart(2, '0')}`;
+      if (jaCriados.has(f.id + '|' + venc)) return; // evita duplicar
+      addCustoFixo({
+        id: 'cf_sal_' + f.id + '_' + mes + '_' + dia + '_' + Math.random().toString(36).slice(2, 6),
+        categoria: 'salario', descricao, valor, mes,
+        dataVencimento: venc, pago: false, pagoEm: null,
+        funcionarioId: f.id, encargosPct: enc, observacoes: '',
+      });
+      count += 1;
+    };
+
+    if (f.regimePagamento === 'semanal') {
+      // Sextas-feiras do mês
+      const sextas = [];
+      for (let d = 1; d <= lastDay; d++) {
+        const date = new Date(ano, mesNum - 1, d);
+        if (date.getDay() === 5) sextas.push(d);
+      }
+      if (sextas.length > 0) {
+        const valor = sal / sextas.length;
+        sextas.forEach((dia, i) => push(`${f.nome} · semana ${i + 1}`, valor, dia));
+      }
+    } else if (f.regimePagamento === 'split_60_40') {
+      push(`${f.nome} · 60% (1ª)`, sal * 0.6, 5);
+      push(`${f.nome} · 40% (2ª)`, sal * 0.4, 20);
+    } else if (f.regimePagamento === 'mensal_dia_20') {
+      push(f.nome, sal, 20);
+    } else {
+      // mensal_dia_05 (padrão)
+      push(f.nome, sal, 5);
+    }
+  });
+  return count;
+}
+
 export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos = [], addCustoFixo, updateCustoFixo, deleteCustoFixo, onBack }) {
   const hoje = new Date();
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
@@ -264,6 +310,19 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
             <br />Apenas informativo — não cobrado na fatura.
           </div>
         </div>
+
+        {/* Geração automática de salários */}
+        {funcionarios.some(f => Number(f.salarioBase) > 0) && (
+          <button onClick={() => {
+            const semSalarioConfig = funcionarios.filter(f => !(Number(f.salarioBase) > 0)).length;
+            const msg = `Gerar parcelas de salário para ${mesLabel}?\n\nSerá criada uma entrada por funcionário com salário cadastrado, conforme o regime de cada um (mensal, split 60/40 ou semanal).\n\nFuncionários já cadastrados para este mês não serão duplicados.${semSalarioConfig ? `\n\n${semSalarioConfig} funcionário(s) sem salário configurado — abra o cadastro para incluir.` : ''}`;
+            if (!window.confirm(msg)) return;
+            const n = gerarSalariosDoMes(funcionarios, mesRef, custosFixos, addCustoFixo);
+            window.alert(n === 0 ? 'Nenhuma parcela nova criada (todas já existem).' : `${n} parcela(s) criada(s).`);
+          }} style={{ width: '100%', background: '#fef3c7', border: '1px solid #f59e0b', borderRadius: 12, padding: '10px 14px', fontSize: 13, fontWeight: 600, color: '#92400e', cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+            ⚡ Gerar parcelas de salário do mês
+          </button>
+        )}
 
         {showForm && (
           <CustoFixoForm initial={editing} mes={mesRef} funcionarios={funcionarios} onSave={handleSave} onCancel={() => { setShowForm(false); setEditing(null); }} />

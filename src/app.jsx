@@ -44,7 +44,7 @@ import {
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
-  partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP,
+  partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP,
 } from './utils/db';
 import { subscribeToPush, sendPush } from './utils/push';
 
@@ -654,7 +654,7 @@ const loadAllData = async () => {
   };
   const updateFuncionario = (id, data) => {
     setFuncionarios(prev => prev.map(f => f.id === id ? { ...f, ...data } : f));
-    dbUpdate('funcionarios', id, data);
+    dbUpdate('funcionarios', id, partialToDb(data, FUNCIONARIO_MAP));
   };
   const deleteFuncionario = (id) => {
     setFuncionarios(prev => prev.filter(f => f.id !== id));

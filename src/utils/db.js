@@ -36,6 +36,9 @@ export const fromDbServico = r => ({
 export const fromDbFuncionario = r => ({
   id: r.id, nome: r.nome, funcao: r.funcao, aniversario: r.aniversario || '',
   login: r.login || '', senha: r.senha || '', escala: r.escala || {},
+  salarioBase: Number(r.salario_base) || 0,
+  regimePagamento: r.regime_pagamento || 'mensal_dia_05',
+  encargosPct: Number(r.encargos_pct) || 0,
 });
 
 export const fromDbRegistro = r => ({
@@ -150,6 +153,9 @@ export const toDbServico = s => ({
 export const toDbFuncionario = f => ({
   id: f.id, nome: f.nome, funcao: f.funcao, aniversario: f.aniversario || '',
   login: f.login || null, senha: f.senha || '', escala: f.escala || {},
+  salario_base: Number(f.salarioBase) || 0,
+  regime_pagamento: f.regimePagamento || 'mensal_dia_05',
+  encargos_pct: Number(f.encargosPct) || 0,
 });
 
 export const toDbRegistro = r => ({
@@ -420,6 +426,7 @@ const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'pro
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
+const FUNCIONARIO_MAP = { salarioBase: 'salario_base', regimePagamento: 'regime_pagamento', encargosPct: 'encargos_pct' };
 
 export function partialToDb(partial, keyMap) {
   const result = {};
@@ -429,7 +436,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP };
+export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 
