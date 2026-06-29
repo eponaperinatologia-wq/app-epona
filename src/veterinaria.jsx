@@ -88,6 +88,22 @@ function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   return items;
 }
 
+// ─── Categorias de protocolo (filtros para pré-seleção) ──────
+const CATEGORIAS_PROTOCOLO = [
+  { key: 'tropa_geral',   label: 'Tropa geral',     filter: () => true },
+  { key: 'recem_nascido', label: 'Recém-nascidos',  filter: c => c.nascimento && diffDays(todayStr(), c.nascimento) <= 30 },
+  { key: 'potro_ao_pe',   label: 'Potros ao pé',    filter: c => (c.categorias||[]).includes('Potro ao pé') || (c.nascimento && diffDays(todayStr(), c.nascimento) > 30 && diffDays(todayStr(), c.nascimento) <= 180) },
+  { key: 'potro',         label: 'Potros',          filter: c => (c.categorias||[]).includes('Potro') || (c.nascimento && diffDays(todayStr(), c.nascimento) <= 730) },
+  { key: 'jovem',         label: 'Jovens',          filter: c => (c.categorias||[]).includes('Jovem') },
+  { key: 'adulto',        label: 'Adultos',         filter: c => (c.categorias||[]).includes('Adulto') },
+  { key: 'gestante',      label: 'Éguas gestantes', filter: c => (c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao },
+  { key: 'matriz',        label: 'Matrizes',        filter: c => (c.categorias||[]).includes('Matriz') },
+  { key: 'doadora',       label: 'Doadoras',        filter: c => (c.categorias||[]).includes('Doadora') },
+  { key: 'receptora',     label: 'Receptoras',      filter: c => (c.categorias||[]).includes('Receptora') },
+  { key: 'garanhao',      label: 'Garanhões',       filter: c => (c.categorias||[]).includes('Garanhão') },
+  { key: 'castrado',      label: 'Castrados',       filter: c => (c.categorias||[]).includes('Castrado') },
+];
+
 // ─── Vermifugação: cálculo de agenda ──────────────────────────
 function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   const items = [];
@@ -112,8 +128,11 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
       }
       continue;
     }
+    const isPotroEtapas = prot.tipo === 'potro' && (prot.etapas||[]).length > 0;
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
+      if (isPotroEtapas) return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
+      if (prot.animaisAlvo && prot.animaisAlvo.length > 0) return prot.animaisAlvo.includes(c.id);
       if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
       if (prot.tipo === 'potro') return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
       return true;
@@ -228,6 +247,7 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
     if (prot.subtipo !== 'opg') continue;
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
+      if (prot.animaisAlvo && prot.animaisAlvo.length > 0) return prot.animaisAlvo.includes(c.id);
       if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
       if (prot.tipo === 'potro') return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
       return true;
@@ -1204,6 +1224,7 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
   const intervOpt = INTERVALO_OPTIONS.find(o => o.value === protocolo.intervaloDias);
   const isPotroEtapas = protocolo.tipo === 'potro' && (protocolo.etapas||[]).length > 0;
   const isUnico = !!protocolo.eventoUnico || protocolo.tipo === 'unico';
+  const nAnimais = (protocolo.animaisAlvo||[]).length;
   return (
     <div style={{ background:'var(--card)', border:`1px solid ${cor}30`, borderRadius:14, marginBottom:10, overflow:'hidden' }}>
       <button onClick={()=>setOpen(o=>!o)} style={{ width:'100%', background:'none', border:'none', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, textAlign:'left', cursor:'pointer' }}>
@@ -1215,12 +1236,11 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
             {protocolo.subtipo==='opg' && !isPotroEtapas && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
             {isUnico && <span style={{ fontSize:10, background:'#fff7ed', color:'#9a3412', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>EVENTO ÚNICO</span>}
-            {TIPO_LABELS[protocolo.tipo]||'Tropa geral'}
             {isPotroEtapas
-              ? ` · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
+              ? `Potros · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
               : isUnico
-                ? ` · ${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${(protocolo.animaisAlvo||[]).length} animal(is)`
-                : ` · ${intervOpt?.label||`${protocolo.intervaloDias} dias`}`}
+                ? `${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${nAnimais} animal(is)`
+                : `${intervOpt?.label||`${protocolo.intervaloDias} dias`} · ${nAnimais} animal(is)`}
           </div>
         </div>
         <span style={{ fontSize:16, color:'var(--ink-3)', transform:open?'rotate(90deg)':'none', transition:'transform 0.15s' }}>›</span>
@@ -1297,10 +1317,9 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
 // ─── ProtocoloVermForm ────────────────────────────────────────
 function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
-  const [tipo, setTipo] = useState(initial?.tipo === 'unico' ? 'geral' : (initial?.tipo || 'geral'));
+  const [modoEtapas, setModoEtapas] = useState(initial?.tipo === 'potro' && (initial?.etapas||[]).length > 0);
   const [subtipo, setSubtipo] = useState(initial?.subtipo||'vermifugacao');
   const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
-  const [servicoId, setServicoId] = useState(initial?.servicoId||'');
   const [laboratorio, setLaboratorio] = useState(initial?.laboratorio||'');
   const [intervaloDias, setIntervaloDias] = useState(initial?.intervaloDias||90);
   const [observacoes, setObservacoes] = useState(initial?.observacoes||'');
@@ -1316,7 +1335,24 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const opgServico = (servicos||[]).find(s => (s.nome||'').toUpperCase().includes('OPG'));
   const cavalosPresentes = (cavalos||[]).filter(c=>c.presente).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const cavalosFiltrados = animalSearch.trim() ? cavalosPresentes.filter(c=>c.nome.toLowerCase().includes(animalSearch.trim().toLowerCase())) : cavalosPresentes;
-  const isPotro = tipo === 'potro';
+
+  // Categorias que estão "totalmente marcadas" (todos os animais matching estão em animaisAlvo)
+  const categoriasMarcadas = CATEGORIAS_PROTOCOLO.filter(cat => {
+    const matches = cavalosPresentes.filter(cat.filter);
+    return matches.length > 0 && matches.every(c => animaisAlvo.includes(c.id));
+  }).map(c => c.key);
+
+  const toggleCategoria = (catKey) => {
+    const cat = CATEGORIAS_PROTOCOLO.find(c => c.key === catKey);
+    if (!cat) return;
+    const matchingIds = cavalosPresentes.filter(cat.filter).map(c => c.id);
+    if (categoriasMarcadas.includes(catKey)) {
+      setAnimaisAlvo(prev => prev.filter(id => !matchingIds.includes(id)));
+    } else {
+      setAnimaisAlvo(prev => Array.from(new Set([...prev, ...matchingIds])));
+    }
+  };
+
   const addEtapa = () => setEtapas(e=>[...e,{diasDesdeNascimento:0,subtipo:'vermifugacao',insumoId:'',servicoId:'',laboratorio:'',label:''}]);
   const removeEtapa = i => setEtapas(e=>e.filter((_,idx)=>idx!==i));
   const updateEtapa = (i,field,val) => setEtapas(e=>e.map((e2,idx)=>idx===i?{...e2,[field]:val}:e2));
@@ -1324,20 +1360,20 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const selectAllAnimais = () => setAnimaisAlvo(cavalosPresentes.map(c=>c.id));
   const clearAnimais = () => setAnimaisAlvo([]);
   const canSave = nome.trim() && (
-    isPotro ? etapas.length>0 :
+    modoEtapas ? etapas.length>0 :
     eventoUnico ? (dataFixa && animaisAlvo.length>0) :
-    intervaloDias>0
+    (intervaloDias>0 && animaisAlvo.length>0)
   );
 
   const handleSave = () => {
     const opgId = opgServico?.id || '';
-    if (isPotro) {
+    if (modoEtapas) {
       const etapasFinal = etapas.map(e => e.subtipo === 'opg' ? { ...e, servicoId: opgId } : e);
-      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'potro', subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
     } else if (eventoUnico) {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo, observacoes, ativo:true });
     }
   };
 
@@ -1349,15 +1385,16 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
         <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Ex: Protocolo Potros…" style={inputSt} />
       </div>
       <div style={{ marginBottom:12 }}>
-        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Aplicar em</div>
-        <select value={tipo} onChange={e=>setTipo(e.target.value)} style={inputSt}>
-          <option value="geral">Tropa geral</option>
-          <option value="gestante">Éguas gestantes</option>
-          <option value="potro">Potros (por data de nascimento)</option>
-        </select>
+        <label style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:modoEtapas?'#f0fdf4':'var(--card)', border:`1px solid ${modoEtapas?'#15803d':'var(--line)'}`, borderRadius:10, cursor:'pointer' }}>
+          <input type="checkbox" checked={modoEtapas} onChange={e=>setModoEtapas(e.target.checked)} style={{ width:18, height:18, cursor:'pointer' }} />
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Programar por etapas baseadas em data de nascimento</div>
+            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Use para potros: cada etapa é agendada a partir do nascimento de cada animal.</div>
+          </div>
+        </label>
       </div>
 
-      {isPotro ? (
+      {modoEtapas ? (
         <>
           <div style={{ background:'#f0fdf4', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#15803d', marginBottom:14 }}>
             Cada etapa é agendada com base na data de nascimento do potro.
@@ -1476,32 +1513,50 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
                 <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Data do evento</div>
                 <input type="date" value={dataFixa} onChange={e=>setDataFixa(e.target.value)} style={inputSt} />
               </div>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
-                  <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisAlvo.length}/{cavalosPresentes.length})</div>
-                  <div style={{ display:'flex', gap:8 }}>
-                    <button onClick={selectAllAnimais} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
-                    <button onClick={clearAnimais} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
-                  </div>
-                </div>
-                <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
-                <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
-                  {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
-                  {cavalosFiltrados.map(c => {
-                    const checked = animaisAlvo.includes(c.id);
-                    return (
-                      <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#f0fdf4':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
-                        <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
-                          {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
-                        </div>
-                        <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
             </>
           )}
+          {/* Aplicar em — chips de categoria (sempre visível) */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:6 }}>Aplicar em (marque uma ou mais categorias)</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {CATEGORIAS_PROTOCOLO.map(cat => {
+                const matches = cavalosPresentes.filter(cat.filter);
+                if (matches.length === 0 && cat.key !== 'tropa_geral') return null;
+                const ativo = categoriasMarcadas.includes(cat.key);
+                return (
+                  <button key={cat.key} onClick={()=>toggleCategoria(cat.key)} style={{ padding:'6px 12px', borderRadius:18, border:`1.5px solid ${ativo?'#15803d':'var(--line)'}`, background:ativo?'#15803d':'var(--card)', color:ativo?'#fff':'var(--ink)', fontSize:12, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                    {ativo && <span style={{ fontSize:11 }}>✓</span>}
+                    {cat.label} <span style={{ opacity:0.7, fontSize:11 }}>({matches.length})</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          {/* Lista de animais — sempre visível */}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+              <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisAlvo.length}/{cavalosPresentes.length})</div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={selectAllAnimais} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
+                <button onClick={clearAnimais} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
+              </div>
+            </div>
+            <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
+            <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
+              {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
+              {cavalosFiltrados.map(c => {
+                const checked = animaisAlvo.includes(c.id);
+                return (
+                  <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#f0fdf4':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
+                    <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
+                      {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </>
       )}
       <div style={{ marginBottom:14 }}>
