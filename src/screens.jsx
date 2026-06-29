@@ -123,7 +123,21 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   const { dias, total, parcial } = calcDias(cav, ref, movimentacoes);
   const rawBase = Number(cav.mensalidade);
   const valorBase = Number.isFinite(rawBase) ? rawBase : 0;
-  return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
+  const valor = total > 0 ? valorBase * (dias / total) : 0;
+  if (cav.nome && (cav.nome.toUpperCase().includes('CAMILA') || cav.nome.toUpperCase().includes('WB 36'))) {
+    console.log('[EPONA DEBUG mensalidade]', {
+      nome: cav.nome, id: cav.id,
+      cav_mensalidade_raw: cav.mensalidade,
+      cav_mensalidade_typeof: typeof cav.mensalidade,
+      rawBase, valorBase,
+      dias, total, parcial,
+      valor,
+      ref,
+      proprietarioId: cav.proprietarioId, proprietarioIds: cav.proprietarioIds,
+      dataEntrada: cav.dataEntrada, presente: cav.presente,
+    });
+  }
+  return { dias, total, parcial, valor, valorBase };
 };
 
 const calcDosesPeriodico = (p, ref) => {
