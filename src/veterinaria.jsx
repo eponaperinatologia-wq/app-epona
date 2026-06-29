@@ -62,8 +62,54 @@ function calcDoseDate(protocolo, doseIdx, cavalo) {
 function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   const feitas = new Set(vacinacoesAnimais.filter(v => v.feito).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
   const items = [];
+  const today = todayStr();
   for (const prot of protocolos) {
     if (!prot.ativo) continue;
+
+    // Evento único
+    if (prot.eventoUnico) {
+      const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
+      for (const cavalo of alvo) {
+        const key = `${prot.id}_0_${cavalo.id}`;
+        if (feitas.has(key)) continue;
+        items.push({
+          key, protocoloId: prot.id, protocoloNome: prot.nome,
+          doseIdx: 0, dose: { insumoId: prot.insumoId, label: 'Aplicação única' },
+          cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+          dataPrevista: prot.dataFixa, feito: false,
+          diasRestantes: diffDays(prot.dataFixa),
+        });
+      }
+      continue;
+    }
+
+    // Recorrente por intervalo + animaisAlvo (sem doses por evento)
+    const isEtapas = (prot.tipo === 'gestante' || prot.tipo === 'potro') && (prot.doses||[]).length > 0 && !(prot.animaisAlvo||[]).length;
+    if (!isEtapas && (prot.animaisAlvo||[]).length > 0 && prot.intervaloDias > 0) {
+      const alvo = cavalos.filter(c => c.presente && prot.animaisAlvo.includes(c.id));
+      for (const cavalo of alvo) {
+        const historico = vacinacoesAnimais
+          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.feito)
+          .sort((a, b) => (b.feitoEm||'').localeCompare(a.feitoEm||''));
+        const ultimo = historico[0];
+        const dataPrev = ultimo
+          ? addDays((ultimo.feitoEm||'').slice(0,10) || ultimo.dataPrevista, prot.intervaloDias)
+          : addDays(today, -1);
+        const nextIdx = historico.length;
+        const key = `${prot.id}_${nextIdx}_${cavalo.id}`;
+        if (feitas.has(key)) continue;
+        items.push({
+          key, protocoloId: prot.id, protocoloNome: prot.nome,
+          doseIdx: nextIdx, dose: { insumoId: prot.insumoId, label: 'Recorrente' },
+          cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+          dataPrevista: dataPrev, feito: false,
+          diasRestantes: diffDays(dataPrev),
+        });
+      }
+      continue;
+    }
+
+    // Etapas (legacy: gestante/potro com doses por evento)
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
       if (prot.tipo === 'gestante') return !!c.gestacao?.dataCobricao;
@@ -585,7 +631,8 @@ function VacinacaoScreen({
     const data = dataRealizada || today;
     const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
     const cavalo = cavalos.find(c => c.id === item.cavaloId);
-    const vacina = insumos.find(i => i.id === item.dose?.insumoId);
+    const vacinaId = item.dose?.insumoId || item.insumoId;
+    const vacina = insumos.find(i => i.id === vacinaId);
     const ehMesAtual = data.slice(0, 7) === today.slice(0, 7);
 
     upsertVacinacao({
@@ -691,7 +738,7 @@ function VacinacaoScreen({
               </button>
             )}
             {showProtForm && (
-              <ProtocoloVacForm initial={editProt} insumos={insumos}
+              <ProtocoloVacForm initial={editProt} insumos={insumos} cavalos={cavalos||[]}
                 onSave={data => { if (editProt) updateProtocolo(editProt.id, data); else addProtocolo({ id: 'prot_'+Date.now(), ...data }); setShowProtForm(false); setEditProt(null); }}
                 onCancel={() => { setShowProtForm(false); setEditProt(null); }} />
             )}
@@ -779,6 +826,10 @@ const TIPO_EVENTO = { gestante: 'data de cobertura', potro: 'data de nascimento'
 
 function ProtocoloVacCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor }) {
   const [open, setOpen] = useState(false);
+  const hasDoses = (protocolo.doses||[]).length > 0 && !(protocolo.animaisAlvo||[]).length;
+  const isUnico = !!protocolo.eventoUnico;
+  const nAnimais = (protocolo.animaisAlvo||[]).length;
+  const insumoUnico = insumos.find(i => i.id === protocolo.insumoId);
   return (
     <div style={{ background: 'var(--card)', border: `1px solid ${cor}30`, borderRadius: 14, marginBottom: 10, overflow: 'hidden' }}>
       <button onClick={() => setOpen(o => !o)} style={{ width: '100%', background: 'none', border: 'none', padding: '14px 16px', display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', cursor: 'pointer' }}>
@@ -788,7 +839,12 @@ function ProtocoloVacCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor }
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{protocolo.nome}</div>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-            {TIPO_LABELS[protocolo.tipo]} · {(protocolo.doses||[]).length} dose{(protocolo.doses||[]).length!==1?'s':''}
+            {isUnico && <span style={{ fontSize:10, background:'#fff7ed', color:'#9a3412', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>EVENTO ÚNICO</span>}
+            {hasDoses
+              ? `${TIPO_LABELS[protocolo.tipo]} · ${protocolo.doses.length} dose${protocolo.doses.length!==1?'s':''}`
+              : isUnico
+                ? `${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${nAnimais} animal(is)`
+                : `Recorrente · ${protocolo.intervaloDias} dias · ${nAnimais} animal(is)`}
           </div>
         </div>
         <span style={{ fontSize: 16, color: 'var(--ink-3)', transform: open?'rotate(90deg)':'none', transition: 'transform 0.15s' }}>›</span>
@@ -796,19 +852,41 @@ function ProtocoloVacCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor }
       {open && (
         <div style={{ padding: '0 16px 14px' }}>
           {protocolo.descricao && <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 10, fontStyle: 'italic' }}>{protocolo.descricao}</div>}
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Doses · a partir da {TIPO_EVENTO[protocolo.tipo]||''}</div>
-          {(protocolo.doses||[]).map((dose, i) => {
-            const vacina = insumos.find(ins => ins.id === dose.insumoId);
-            return (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i<protocolo.doses.length-1?'1px solid var(--line)':'none' }}>
-                <div style={{ width: 24, height: 24, borderRadius: 12, background: cor+'20', color: cor, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i+1}</div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{vacina?.nome||<span style={{color:'#dc2626'}}>Insumo não encontrado</span>}</div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{dose.label||`Dose ${i+1}`} · {dose.diasDesdeEvento} dias (≈{Math.round(dose.diasDesdeEvento/30)} mês)</div>
-                </div>
+          {hasDoses ? (
+            <>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.07em' }}>Doses · a partir da {TIPO_EVENTO[protocolo.tipo]||''}</div>
+              {protocolo.doses.map((dose, i) => {
+                const vacina = insumos.find(ins => ins.id === dose.insumoId);
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0', borderBottom: i<protocolo.doses.length-1?'1px solid var(--line)':'none' }}>
+                    <div style={{ width: 24, height: 24, borderRadius: 12, background: cor+'20', color: cor, display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{i+1}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{vacina?.nome||<span style={{color:'#dc2626'}}>Insumo não encontrado</span>}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{dose.label||`Dose ${i+1}`} · {dose.diasDesdeEvento} dias (≈{Math.round(dose.diasDesdeEvento/30)} mês)</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+                <span style={{ color: 'var(--ink-3)' }}>Vacina: </span>{insumoUnico?.nome||'—'}
               </div>
-            );
-          })}
+              {isUnico ? (
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+                  <span style={{ color: 'var(--ink-3)' }}>Data: </span>{protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'}
+                </div>
+              ) : (
+                <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+                  <span style={{ color: 'var(--ink-3)' }}>Intervalo: </span>{protocolo.intervaloDias} dias
+                </div>
+              )}
+              <div style={{ fontSize: 13, color: 'var(--ink)', marginBottom: 6 }}>
+                <span style={{ color: 'var(--ink-3)' }}>Animais: </span>{nAnimais}
+              </div>
+            </>
+          )}
           {isAdmin && (
             <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
               <button onClick={onEdit} style={{ flex: 1, padding: '9px 0', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--soft)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)' }}>Editar</button>
@@ -822,73 +900,203 @@ function ProtocoloVacCard({ protocolo, insumos, isAdmin, onEdit, onDelete, cor }
 }
 
 // ─── ProtocoloVacForm ─────────────────────────────────────────
-function ProtocoloVacForm({ initial, insumos, onSave, onCancel }) {
+function ProtocoloVacForm({ initial, insumos, cavalos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
-  const [tipo, setTipo] = useState(initial?.tipo||'gestante');
+  const hasLegacyDoses = (initial?.doses||[]).length > 0 && (initial?.tipo === 'gestante' || initial?.tipo === 'potro') && !(initial?.animaisAlvo||[]).length;
+  const [modoEtapas, setModoEtapas] = useState(hasLegacyDoses);
+  const [tipo, setTipo] = useState(initial?.tipo === 'gestante' || initial?.tipo === 'potro' ? initial.tipo : 'gestante');
   const [descricao, setDescricao] = useState(initial?.descricao||'');
   const [doses, setDoses] = useState(initial?.doses?.length ? initial.doses : [{ insumoId:'', diasDesdeEvento:150, label:'' }]);
+  const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
+  const [intervaloDias, setIntervaloDias] = useState(initial?.intervaloDias||365);
+  const [eventoUnico, setEventoUnico] = useState(!!initial?.eventoUnico);
+  const [dataFixa, setDataFixa] = useState(initial?.dataFixa||'');
+  const [animaisAlvo, setAnimaisAlvo] = useState(initial?.animaisAlvo||[]);
+  const [animalSearch, setAnimalSearch] = useState('');
+
+  const insumosVacina = [...insumos].filter(i=>i.categoria==='vacina').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const cavalosPresentes = (cavalos||[]).filter(c=>c.presente).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const cavalosFiltrados = animalSearch.trim() ? cavalosPresentes.filter(c=>c.nome.toLowerCase().includes(animalSearch.trim().toLowerCase())) : cavalosPresentes;
+
+  const categoriasMarcadas = CATEGORIAS_PROTOCOLO.filter(cat => {
+    const matches = cavalosPresentes.filter(cat.filter);
+    return matches.length > 0 && matches.every(c => animaisAlvo.includes(c.id));
+  }).map(c => c.key);
+
+  const toggleCategoria = (catKey) => {
+    const cat = CATEGORIAS_PROTOCOLO.find(c => c.key === catKey);
+    if (!cat) return;
+    const matchingIds = cavalosPresentes.filter(cat.filter).map(c => c.id);
+    if (categoriasMarcadas.includes(catKey)) {
+      setAnimaisAlvo(prev => prev.filter(id => !matchingIds.includes(id)));
+    } else {
+      setAnimaisAlvo(prev => Array.from(new Set([...prev, ...matchingIds])));
+    }
+  };
 
   const addDose = () => setDoses(d => [...d, { insumoId:'', diasDesdeEvento:0, label:'' }]);
   const removeDose = i => setDoses(d => d.filter((_,idx) => idx!==i));
   const updateDose = (i, field, val) => setDoses(d => d.map((d2,idx) => idx===i ? {...d2,[field]:val} : d2));
-  const canSave = nome.trim() && doses.length>0 && doses.every(d => d.insumoId && d.diasDesdeEvento>0);
-  const EVENTO_LABEL = { gestante:'data de cobertura', potro:'data de nascimento', geral:'data da campanha' };
+  const toggleAnimal = id => setAnimaisAlvo(a => a.includes(id) ? a.filter(x=>x!==id) : [...a, id]);
+  const selectAllAnimais = () => setAnimaisAlvo(cavalosPresentes.map(c=>c.id));
+  const clearAnimais = () => setAnimaisAlvo([]);
+  const canSave = nome.trim() && (
+    modoEtapas ? (doses.length>0 && doses.every(d => d.insumoId && d.diasDesdeEvento>0)) :
+    eventoUnico ? (insumoId && dataFixa && animaisAlvo.length>0) :
+    (insumoId && intervaloDias>0 && animaisAlvo.length>0)
+  );
+  const EVENTO_LABEL = { gestante:'data de cobertura', potro:'data de nascimento' };
+
+  const handleSave = () => {
+    if (modoEtapas) {
+      onSave({ nome:nome.trim(), tipo, descricao, doses, insumoId:'', intervaloDias:0, eventoUnico:false, dataFixa:'', animaisAlvo:[], ativo:true });
+    } else if (eventoUnico) {
+      onSave({ nome:nome.trim(), tipo:'geral', descricao, doses:[], insumoId, intervaloDias:0, eventoUnico:true, dataFixa, animaisAlvo, ativo:true });
+    } else {
+      onSave({ nome:nome.trim(), tipo:'geral', descricao, doses:[], insumoId, intervaloDias, eventoUnico:false, dataFixa:'', animaisAlvo, ativo:true });
+    }
+  };
 
   return (
     <div style={{ background: 'var(--soft)', borderRadius: 16, padding: 16, marginBottom: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 14 }}>{initial?'Editar protocolo':'Novo protocolo vacinal'}</div>
       <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Nome do protocolo</div>
-        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Ex: Protocolo Gestantes…" style={inputSt} />
+        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder="Ex: Influenza Tropa…" style={inputSt} />
       </div>
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Aplicar em</div>
-        <select value={tipo} onChange={e=>setTipo(e.target.value)} style={inputSt}>
-          <option value="gestante">Éguas gestantes</option>
-          <option value="potro">Potros</option>
-          <option value="geral">Tropa geral</option>
-        </select>
-      </div>
-      {tipo!=='geral' && (
-        <div style={{ background:'#dbeafe', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#1d4ed8', marginBottom:14 }}>
-          Os dias são contados a partir da <strong>{EVENTO_LABEL[tipo]}</strong>.
-        </div>
-      )}
-      <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Doses</div>
-      {doses.map((dose, i) => (
-        <div key={i} style={{ background:'var(--card)', borderRadius:12, padding:'12px 14px', marginBottom:8, border:'1px solid var(--line)' }}>
-          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
-            <span style={{ width:22, height:22, borderRadius:11, background:'#dbeafe', color:'#1d4ed8', fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center' }}>{i+1}</span>
-            {doses.length>1 && <button onClick={()=>removeDose(i)} style={{ background:'none', border:'none', color:'#dc2626', cursor:'pointer', padding:'2px 6px', fontSize:14 }}>×</button>}
+
+      <div style={{ marginBottom:12 }}>
+        <label style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:modoEtapas?'#dbeafe':'var(--card)', border:`1px solid ${modoEtapas?'#1d4ed8':'var(--line)'}`, borderRadius:10, cursor:'pointer' }}>
+          <input type="checkbox" checked={modoEtapas} onChange={e=>setModoEtapas(e.target.checked)} style={{ width:18, height:18, cursor:'pointer' }} />
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Programar por etapas (data de cobertura ou nascimento)</div>
+            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Use para protocolos vacinais de gestantes ou potros com doses agendadas a partir do evento.</div>
           </div>
-          <div style={{ marginBottom:8 }}>
-            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Vacina (insumo)</div>
-            <select value={dose.insumoId} onChange={e=>updateDose(i,'insumoId',e.target.value)} style={inputSt}>
-              <option value="">— selecionar —</option>
-              {[...insumos].filter(i=>i.categoria==='vacina').sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
+        </label>
+      </div>
+
+      {modoEtapas ? (
+        <>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Aplicar em</div>
+            <select value={tipo} onChange={e=>setTipo(e.target.value)} style={inputSt}>
+              <option value="gestante">Éguas gestantes</option>
+              <option value="potro">Potros</option>
             </select>
           </div>
-          <div style={{ display:'flex', gap:8 }}>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Dias desde evento</div>
-              <input type="number" min="1" value={dose.diasDesdeEvento} onChange={e=>updateDose(i,'diasDesdeEvento',Number(e.target.value))} style={inputSt} />
-              {dose.diasDesdeEvento>0 && <div style={{ fontSize:10, color:'var(--ink-3)', marginTop:3 }}>≈ {Math.round(dose.diasDesdeEvento/30)} mês(es)</div>}
+          <div style={{ background:'#dbeafe', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#1d4ed8', marginBottom:14 }}>
+            Os dias são contados a partir da <strong>{EVENTO_LABEL[tipo]}</strong>.
+          </div>
+          <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Doses</div>
+          {doses.map((dose, i) => (
+            <div key={i} style={{ background:'var(--card)', borderRadius:12, padding:'12px 14px', marginBottom:8, border:'1px solid var(--line)' }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                <span style={{ width:22, height:22, borderRadius:11, background:'#dbeafe', color:'#1d4ed8', fontSize:11, fontWeight:700, display:'inline-flex', alignItems:'center', justifyContent:'center' }}>{i+1}</span>
+                {doses.length>1 && <button onClick={()=>removeDose(i)} style={{ background:'none', border:'none', color:'#dc2626', cursor:'pointer', padding:'2px 6px', fontSize:14 }}>×</button>}
+              </div>
+              <div style={{ marginBottom:8 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Vacina (insumo)</div>
+                <select value={dose.insumoId} onChange={e=>updateDose(i,'insumoId',e.target.value)} style={inputSt}>
+                  <option value="">— selecionar —</option>
+                  {insumosVacina.map(ins=><option key={ins.id} value={ins.id}>{ins.nome}</option>)}
+                </select>
+              </div>
+              <div style={{ display:'flex', gap:8 }}>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Dias desde evento</div>
+                  <input type="number" min="1" value={dose.diasDesdeEvento} onChange={e=>updateDose(i,'diasDesdeEvento',Number(e.target.value))} style={inputSt} />
+                  {dose.diasDesdeEvento>0 && <div style={{ fontSize:10, color:'var(--ink-3)', marginTop:3 }}>≈ {Math.round(dose.diasDesdeEvento/30)} mês(es)</div>}
+                </div>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Rótulo (opcional)</div>
+                  <input value={dose.label} onChange={e=>updateDose(i,'label',e.target.value)} placeholder="Ex: 5º mês…" style={inputSt} />
+                </div>
+              </div>
             </div>
-            <div style={{ flex:1 }}>
-              <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Rótulo (opcional)</div>
-              <input value={dose.label} onChange={e=>updateDose(i,'label',e.target.value)} placeholder="Ex: 5º mês…" style={inputSt} />
+          ))}
+          <button onClick={addDose} style={{ width:'100%', background:'none', border:'1px dashed var(--line-2)', borderRadius:10, padding:'10px 0', fontSize:13, color:'var(--ink-3)', cursor:'pointer', marginBottom:14, fontFamily:'var(--sans)' }}>+ Adicionar dose</button>
+        </>
+      ) : (
+        <>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Vacina (insumo)</div>
+            <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
+              <option value="">— selecionar —</option>
+              {insumosVacina.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+            </select>
+          </div>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre aplicações</div>
+            <select value={eventoUnico ? 'unico' : String(intervaloDias)} onChange={e=>{
+              if (e.target.value === 'unico') setEventoUnico(true);
+              else { setEventoUnico(false); setIntervaloDias(Number(e.target.value)); }
+            }} style={inputSt}>
+              <option value={90}>Trimestral (90 dias)</option>
+              <option value={180}>Semestral (180 dias)</option>
+              <option value={365}>Anual (365 dias)</option>
+              <option value="unico">Evento único (data fixa, sem recorrência)</option>
+            </select>
+          </div>
+          {eventoUnico && (
+            <>
+              <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#9a3412', marginBottom:12 }}>
+                Agendamento único. Após aplicado em cada animal, o item sai da agenda.
+              </div>
+              <div style={{ marginBottom:12 }}>
+                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Data do evento</div>
+                <input type="date" value={dataFixa} onChange={e=>setDataFixa(e.target.value)} style={inputSt} />
+              </div>
+            </>
+          )}
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:6 }}>Aplicar em (marque uma ou mais categorias)</div>
+            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+              {CATEGORIAS_PROTOCOLO.map(cat => {
+                const matches = cavalosPresentes.filter(cat.filter);
+                if (matches.length === 0 && cat.key !== 'tropa_geral') return null;
+                const ativo = categoriasMarcadas.includes(cat.key);
+                return (
+                  <button key={cat.key} onClick={()=>toggleCategoria(cat.key)} style={{ padding:'6px 12px', borderRadius:18, border:`1.5px solid ${ativo?'var(--accent)':'var(--line)'}`, background:ativo?'var(--accent)':'var(--card)', color:ativo?'#fff':'var(--ink)', fontSize:12, fontWeight:600, fontFamily:'var(--sans)', cursor:'pointer', display:'flex', alignItems:'center', gap:5 }}>
+                    {ativo && <span style={{ fontSize:11 }}>✓</span>}
+                    {cat.label} <span style={{ opacity:0.7, fontSize:11 }}>({matches.length})</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
-        </div>
-      ))}
-      <button onClick={addDose} style={{ width:'100%', background:'none', border:'1px dashed var(--line-2)', borderRadius:10, padding:'10px 0', fontSize:13, color:'var(--ink-3)', cursor:'pointer', marginBottom:14, fontFamily:'var(--sans)' }}>+ Adicionar dose</button>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+              <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisAlvo.length}/{cavalosPresentes.length})</div>
+              <div style={{ display:'flex', gap:8 }}>
+                <button onClick={selectAllAnimais} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
+                <button onClick={clearAnimais} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
+              </div>
+            </div>
+            <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
+            <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
+              {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
+              {cavalosFiltrados.map(c => {
+                const checked = animaisAlvo.includes(c.id);
+                return (
+                  <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#dbeafe':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
+                    <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'var(--accent)':'var(--line-2)'}`, background:checked?'var(--accent)':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
+                      {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
+                    </div>
+                    <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </>
+      )}
       <div style={{ marginBottom:14 }}>
         <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Observações</div>
         <input value={descricao} onChange={e=>setDescricao(e.target.value)} style={inputSt} />
       </div>
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:14, fontFamily:'var(--sans)' }}>Cancelar</button>
-        <button disabled={!canSave} onClick={()=>onSave({nome:nome.trim(),tipo,descricao,doses,ativo:true})} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'var(--accent)':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
+        <button disabled={!canSave} onClick={handleSave} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'var(--accent)':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
       </div>
     </div>
   );
