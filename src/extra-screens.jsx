@@ -233,7 +233,7 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
 // ─────────────────────────────────────────────────────────────
 // MOVIMENTAÇÃO · Entrada/Saída de animais
 // ─────────────────────────────────────────────────────────────
-const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento, updateCavalo, insumos = [], addRegistro }) => {
+const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade, cavalos, proprietarios = PROPRIETARIOS, novoCavaloPendente, setNovoCavaloPendente, setPendingEntradaCavalo, servicos = [], addProcedimento, updateCavalo, insumos = [], addRegistro, currentUser }) => {
   const [tipo, setTipo] = useStateE('saida');
   const [cavaloId, setCavaloId] = useStateE(null);
   const [data, setData] = useStateE(new Date().toLocaleDateString('sv-SE'));
@@ -272,7 +272,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
       id: mvId,
       cavaloId, tipo, data,
       motivo: motivo.trim() || (tipo === 'entrada' ? 'Início de hospedagem' : 'Saída'),
-      usuario: 'João T.',
+      usuario: currentUser?.nome || '',
       ...(tipo === 'entrada' ? { gtaConfirmada } : {}),
     });
 
@@ -325,7 +325,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
     if (tipo === 'saida' && insumosAdicionais.length > 0 && addRegistro) {
       const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       insumosAdicionais.forEach(item => {
-        addRegistro({ id: 'r' + Date.now() + '_' + item.insumoId, cavaloId, insumoId: item.insumoId, qtd: item.qtd, hora, usuario: 'João T.', data });
+        addRegistro({ id: 'r' + Date.now() + '_' + item.insumoId, cavaloId, insumoId: item.insumoId, qtd: item.qtd, hora, usuario: currentUser?.nome || '', data });
       });
     }
 
@@ -334,7 +334,7 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
       id: 'at_' + Date.now(), tipo,
       data, hora: new Date().toTimeString().slice(0, 5),
       cavaloId, motivo: motivo.trim() || (tipo === 'entrada' ? 'Início de hospedagem' : 'Saída'),
-      usuario: 'João T.', mes,
+      usuario: currentUser?.nome || '', mes,
     });
     setToast(`${tipo === 'entrada' ? 'Entrada' : 'Saída'} de ${cav?.nome || 'desconhecido'} registrada`);
     setTimeout(() => setScreen('home'), 1400);
