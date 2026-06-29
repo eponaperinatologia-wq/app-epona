@@ -1313,6 +1313,7 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   );
 
   const insumosVerm = [...insumos].filter(i=>i.categoria==='vermifugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const opgServico = (servicos||[]).find(s => (s.nome||'').toUpperCase().includes('OPG'));
   const cavalosPresentes = (cavalos||[]).filter(c=>c.presente).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const cavalosFiltrados = animalSearch.trim() ? cavalosPresentes.filter(c=>c.nome.toLowerCase().includes(animalSearch.trim().toLowerCase())) : cavalosPresentes;
   const isPotro = tipo === 'potro';
@@ -1329,12 +1330,14 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   );
 
   const handleSave = () => {
+    const opgId = opgServico?.id || '';
     if (isPotro) {
-      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      const etapasFinal = etapas.map(e => e.subtipo === 'opg' ? { ...e, servicoId: opgId } : e);
+      onSave({ nome:nome.trim(), tipo, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
     } else if (eventoUnico) {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?servicoId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo, subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
     }
   };
 
@@ -1391,13 +1394,17 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
                 </div>
               ) : (
                 <>
-                  <div style={{ marginBottom:8 }}>
-                    <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Procedimento OPG</div>
-                    <select value={etapa.servicoId} onChange={e=>updateEtapa(i,'servicoId',e.target.value)} style={inputSt}>
-                      <option value="">— selecionar serviço —</option>
-                      {(servicos||[]).sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
-                    </select>
-                  </div>
+                  {opgServico ? (
+                    <div style={{ background:'#f5f3ff', border:'1px solid #c4b5fd', borderRadius:9, padding:'8px 10px', marginBottom:8 }}>
+                      <div style={{ fontSize:10, color:'#7c3aed', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.05em' }}>Procedimento vinculado</div>
+                      <div style={{ fontSize:13, color:'var(--ink)', fontWeight:600 }}>{opgServico.nome}</div>
+                      <div style={{ fontSize:10, color:'var(--ink-3)' }}>R$ {Number(opgServico.valor||0).toFixed(2)}</div>
+                    </div>
+                  ) : (
+                    <div style={{ background:'#fef2f2', border:'1px solid #fecaca', borderRadius:9, padding:'8px 10px', marginBottom:8, fontSize:11, color:'#dc2626', fontWeight:600 }}>
+                      ⚠ Cadastre serviço "OPG" em Cadastros
+                    </div>
+                  )}
                   <div>
                     <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Laboratório</div>
                     <input value={etapa.laboratorio} onChange={e=>updateEtapa(i,'laboratorio',e.target.value)} placeholder="Ex: Lab Vet…" style={inputSt} />
@@ -1427,16 +1434,22 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
             </div>
           ) : (
             <>
-              <div style={{ background:'#ede9fe', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#7c3aed', marginBottom:12 }}>
-                Protocolo sequencial: após cada OPG, você define a data do próximo.
-              </div>
-              <div style={{ marginBottom:12 }}>
-                <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Procedimento OPG</div>
-                <select value={servicoId} onChange={e=>setServicoId(e.target.value)} style={inputSt}>
-                  <option value="">— selecionar serviço —</option>
-                  {(servicos||[]).sort((a,b)=>a.nome.localeCompare(b.nome,'pt')).map(s=><option key={s.id} value={s.id}>{s.nome}</option>)}
-                </select>
-              </div>
+              {!eventoUnico && (
+                <div style={{ background:'#ede9fe', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#7c3aed', marginBottom:12 }}>
+                  Protocolo sequencial: após cada OPG, você define a data do próximo.
+                </div>
+              )}
+              {opgServico ? (
+                <div style={{ marginBottom:12, background:'#f5f3ff', border:'1px solid #c4b5fd', borderRadius:10, padding:'10px 12px' }}>
+                  <div style={{ fontSize:11, color:'#7c3aed', fontWeight:700, marginBottom:4, textTransform:'uppercase', letterSpacing:'0.05em' }}>Procedimento vinculado</div>
+                  <div style={{ fontSize:14, color:'var(--ink)', fontWeight:600 }}>{opgServico.nome}</div>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginTop:2 }}>R$ {Number(opgServico.valor||0).toFixed(2)} · {(opgServico.descartaveisObrigatorios||[]).length} descartável(eis) obrigatório(s) · editar em Cadastros → Serviços</div>
+                </div>
+              ) : (
+                <div style={{ marginBottom:12, background:'#fef2f2', border:'1px solid #fecaca', borderRadius:10, padding:'10px 12px', fontSize:12, color:'#dc2626', fontWeight:600 }}>
+                  ⚠ Cadastre o serviço "OPG" em Cadastros → Serviços para usar este protocolo.
+                </div>
+              )}
               <div style={{ marginBottom:12 }}>
                 <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Laboratório</div>
                 <input value={laboratorio} onChange={e=>setLaboratorio(e.target.value)} placeholder="Ex: Exame Vet, Lab Central…" style={inputSt} />
