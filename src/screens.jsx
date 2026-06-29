@@ -3221,12 +3221,32 @@ const RecorrenciaForm = ({ tipo, onSave, onCancel, initial }) => {
   );
 };
 
-const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia }) => {
+const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, custosFixos = [], setScreen }) => {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
 
-  const lista = [...(lancamentos || [])].filter(l => l.tipo === tipo).sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  const lancsBase = [...(lancamentos || [])].filter(l => l.tipo === tipo);
+
+  // Saídas virtuais: itens de custos_fixos aparecem como saídas
+  const custosFixosVirt = tipo === 'saida' ? (custosFixos || []).map(c => {
+    const CAT_LABEL = { salario: 'Salários', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
+    const comEncargos = c.categoria === 'salario' ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
+    return {
+      id: 'cf:' + c.id,
+      _isCustoFixo: true,
+      tipo: 'saida',
+      valor: comEncargos,
+      data: c.dataVencimento || (c.mes + '-01'),
+      quem: c.descricao || CAT_LABEL[c.categoria] || c.categoria,
+      motivo: `${CAT_LABEL[c.categoria] || c.categoria} · ${c.descricao || '—'}`,
+      categoria: CAT_LABEL[c.categoria] || c.categoria,
+      pago: !!c.pago,
+      pagoEm: c.pagoEm || null,
+    };
+  }) : [];
+
+  const lista = [...lancsBase, ...custosFixosVirt].sort((a, b) => (b.data || '').localeCompare(a.data || ''));
   const listaRec = (recorrencias || []).filter(r => r.tipo === tipo && r.ativo);
   const total = lista.reduce((s, l) => s + l.valor, 0);
   const pendentes = lista.filter(l => !l.pago).reduce((s, l) => s + l.valor, 0);
@@ -3263,12 +3283,13 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
           {editId === l.id ? (
             <LancamentoForm tipo={tipo} initial={l} onCancel={() => setEditId(null)} onSave={data => { updateLancamento(l.id, data); setEditId(null); }} />
           ) : (
-            <div style={{ background: 'var(--card)', border: `1px solid ${l.pago ? 'var(--line)' : cor + '50'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ background: l._isCustoFixo ? '#f9f5ff' : 'var(--card)', border: `1px solid ${l.pago ? 'var(--line)' : cor + '50'}`, borderRadius: 12, padding: '12px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
               <div style={{ width: 8, height: 8, borderRadius: 4, background: l.pago ? '#9ca3af' : cor, flexShrink: 0 }} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
                   {l.motivo || '—'}
                   {l.recorrenciaId && <span style={{ fontSize: 10, color: 'var(--ink-3)', background: 'var(--soft)', borderRadius: 6, padding: '1px 5px', fontWeight: 400 }}>↻</span>}
+                  {l._isCustoFixo && <span style={{ fontSize: 10, color: '#7c3aed', background: '#ede9fe', borderRadius: 6, padding: '1px 5px', fontWeight: 700 }}>CUSTO FIXO</span>}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
                   {l.data} {l.quem ? `· ${l.quem}` : ''} {l.categoria ? `· ${l.categoria}` : ''}
@@ -3278,8 +3299,12 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
               <div style={{ textAlign: 'right', flexShrink: 0 }}>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: l.pago ? 'var(--ink-2)' : cor }}>{formatBRL(l.valor)}</div>
                 <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
-                  {!l.recorrenciaId && <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
-                  <button onClick={() => { if (window.confirm('Excluir este lançamento?')) deleteLancamento(l.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                  {l._isCustoFixo
+                    ? <button onClick={() => setScreen && setScreen('custosFixos')} style={{ background: 'none', border: '1px solid #c4b5fd', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#7c3aed', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Abrir</button>
+                    : <>
+                        {!l.recorrenciaId && <button onClick={() => setEditId(l.id)} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
+                        <button onClick={() => { if (window.confirm('Excluir este lançamento?')) deleteLancamento(l.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                      </>}
                 </div>
               </div>
             </div>
@@ -3312,6 +3337,214 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
               </div>
             </div>
             <button onClick={() => { if (window.confirm('Excluir recorrência? Os lançamentos gerados são mantidos.')) deleteRecorrencia(r.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── GraficoFinanceiroSubScreen ──────────────────────────────
+const COR_CATEGORIA = {
+  'Salários': '#dc2626',
+  'Contabilidade': '#7c3aed',
+  'Energia': '#eab308',
+  'Internet': '#3b82f6',
+  'Nutrição': '#a16207',
+  'Suplementação': '#15803d',
+  'Farmácia': '#0f766e',
+  'Custos Extras': '#6b7280',
+  'Outras': '#94a3b8',
+};
+const MESES_ABREV = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'];
+
+const GraficoFinanceiroSubScreen = ({ lancamentos = [], custosFixos = [], faturasFechadas = [], cavalos = [] }) => {
+  const [periodo, setPeriodo] = useState(6); // 6 ou 12 meses
+  const hoje = new Date();
+  const nPresentes = cavalos.filter(c => c.presente !== false).length;
+
+  // Constrói série de meses
+  const meses = [];
+  for (let i = periodo - 1; i >= 0; i--) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    meses.push({ key, label: `${MESES_ABREV[d.getMonth()]}/${String(d.getFullYear()).slice(2)}`, ano: d.getFullYear(), mes: d.getMonth() + 1 });
+  }
+
+  // Para cada mês: saídas totais por categoria + entradas
+  const dadosPorMes = meses.map(m => {
+    const saidasLanc = lancamentos.filter(l => l.tipo === 'saida' && l.data?.slice(0, 7) === m.key);
+    const entradasLanc = lancamentos.filter(l => l.tipo === 'entrada' && l.data?.slice(0, 7) === m.key);
+    const cfMes = custosFixos.filter(c => c.mes === m.key);
+
+    const porCategoria = {};
+    cfMes.forEach(c => {
+      const CAT_LABEL = { salario: 'Salários', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
+      const label = CAT_LABEL[c.categoria] || c.categoria;
+      const valor = c.categoria === 'salario' ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
+      porCategoria[label] = (porCategoria[label] || 0) + valor;
+    });
+    const totalCfMes = Object.values(porCategoria).reduce((s, v) => s + v, 0);
+    const totalLancAvulso = saidasLanc.reduce((s, l) => s + l.valor, 0);
+    if (totalLancAvulso > 0) porCategoria['Outras'] = (porCategoria['Outras'] || 0) + totalLancAvulso;
+
+    const totalSaida = totalCfMes + totalLancAvulso;
+    const totalEntrada = entradasLanc.reduce((s, l) => s + l.valor, 0);
+    const ff = faturasFechadas.filter(f => `${f.ano}-${String(f.mes).padStart(2, '0')}` === m.key);
+    const totalFaturas = ff.reduce((s, f) => s + (f.total || 0), 0);
+
+    return { ...m, porCategoria, totalSaida, totalEntrada, totalFaturas, saldo: (totalEntrada + totalFaturas) - totalSaida };
+  });
+
+  // Escala do gráfico — maior valor entre todos os meses
+  const maxValor = Math.max(...dadosPorMes.flatMap(d => [d.totalSaida, d.totalEntrada + d.totalFaturas]), 1);
+  const totalGeralPeriodo = dadosPorMes.reduce((s, d) => s + d.totalSaida, 0);
+  const mediaMes = totalGeralPeriodo / dadosPorMes.length;
+  const ultimoMes = dadosPorMes[dadosPorMes.length - 1];
+  const penultimoMes = dadosPorMes[dadosPorMes.length - 2];
+  const variacao = penultimoMes && penultimoMes.totalSaida > 0
+    ? ((ultimoMes.totalSaida - penultimoMes.totalSaida) / penultimoMes.totalSaida) * 100
+    : 0;
+
+  // Categorias agregadas no período (para o gráfico de pizza/proporção)
+  const categoriasAgregadas = {};
+  dadosPorMes.forEach(d => {
+    Object.entries(d.porCategoria).forEach(([cat, v]) => {
+      categoriasAgregadas[cat] = (categoriasAgregadas[cat] || 0) + v;
+    });
+  });
+  const categoriasOrdenadas = Object.entries(categoriasAgregadas).sort((a, b) => b[1] - a[1]);
+  const totalCategorias = categoriasOrdenadas.reduce((s, [, v]) => s + v, 0);
+
+  return (
+    <div style={{ padding: '12px 20px 30px' }}>
+      {/* Header com seletor */}
+      <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+        {[6, 12].map(n => (
+          <button key={n} onClick={() => setPeriodo(n)} style={{
+            flex: 1, padding: '8px 0', borderRadius: 10,
+            border: `1px solid ${periodo === n ? 'var(--accent)' : 'var(--line)'}`,
+            background: periodo === n ? 'var(--accent)' : 'var(--card)',
+            color: periodo === n ? '#fff' : 'var(--ink-2)',
+            fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer',
+          }}>Últimos {n} meses</button>
+        ))}
+      </div>
+
+      {/* KPIs */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 14 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total saídas</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#dc2626', marginTop: 2 }}>{formatBRL(totalGeralPeriodo)}</div>
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Média / mês</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(mediaMes)}</div>
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 10 }}>
+          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>vs mês ant.</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: variacao > 0 ? '#dc2626' : variacao < 0 ? '#16a34a' : 'var(--ink)', marginTop: 2 }}>
+            {variacao > 0 ? '↑' : variacao < 0 ? '↓' : '='} {Math.abs(variacao).toFixed(1)}%
+          </div>
+        </div>
+      </div>
+
+      {/* Gráfico de barras empilhadas */}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Saídas mensais por categoria</div>
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 180, paddingBottom: 22 }}>
+          {dadosPorMes.map(d => {
+            const altura = (d.totalSaida / maxValor) * 158;
+            const cats = Object.entries(d.porCategoria).sort((a, b) => b[1] - a[1]);
+            return (
+              <div key={d.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', position: 'relative', minWidth: 0 }}>
+                <div style={{ fontSize: 9, color: 'var(--ink-3)', marginBottom: 4, whiteSpace: 'nowrap' }}>{formatBRL(d.totalSaida).replace('R$ ', '').replace(',00', '')}</div>
+                <div style={{ width: '85%', height: altura || 1, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', borderRadius: 4, overflow: 'hidden', background: 'var(--soft)' }}>
+                  {cats.map(([cat, v]) => (
+                    <div key={cat} style={{ height: `${(v / d.totalSaida) * 100}%`, background: COR_CATEGORIA[cat] || '#94a3b8', minHeight: 1 }} title={`${cat}: ${formatBRL(v)}`} />
+                  ))}
+                </div>
+                <div style={{ position: 'absolute', bottom: -18, fontSize: 9, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{d.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        {/* Legenda */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
+          {Object.entries(COR_CATEGORIA).filter(([cat]) => categoriasAgregadas[cat]).map(([cat, cor]) => (
+            <div key={cat} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <div style={{ width: 10, height: 10, borderRadius: 3, background: cor }} />
+              <span style={{ fontSize: 10, color: 'var(--ink-2)' }}>{cat}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Categoria ranking */}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Distribuição por categoria no período</div>
+        {categoriasOrdenadas.map(([cat, v]) => {
+          const pct = totalCategorias > 0 ? (v / totalCategorias) * 100 : 0;
+          return (
+            <div key={cat} style={{ marginBottom: 10 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: COR_CATEGORIA[cat] || '#94a3b8' }} />
+                  <span style={{ fontSize: 12, color: 'var(--ink)' }}>{cat}</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>
+                  {formatBRL(v)} <span style={{ color: 'var(--ink-3)', fontSize: 10 }}>({pct.toFixed(1)}%)</span>
+                </div>
+              </div>
+              <div style={{ height: 6, background: 'var(--soft)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${pct}%`, height: '100%', background: COR_CATEGORIA[cat] || '#94a3b8', transition: 'width 0.3s' }} />
+              </div>
+            </div>
+          );
+        })}
+        {categoriasOrdenadas.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--ink-3)', textAlign: 'center', padding: 16 }}>Nenhum custo registrado no período</div>
+        )}
+      </div>
+
+      {/* Custo por cavalo mês a mês */}
+      {nPresentes > 0 && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 14 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>
+            Custo / cavalo (mensal) <span style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 400 }}>· dividindo pelo nº atual de cavalos ({nPresentes})</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 4, height: 100, paddingBottom: 22 }}>
+            {dadosPorMes.map(d => {
+              const porCavalo = d.totalSaida / nPresentes;
+              const maxPorCavalo = maxValor / nPresentes;
+              const altura = (porCavalo / maxPorCavalo) * 78;
+              return (
+                <div key={d.key} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', position: 'relative', minWidth: 0 }}>
+                  <div style={{ fontSize: 8, color: 'var(--ink-3)', marginBottom: 2, whiteSpace: 'nowrap' }}>{formatBRL(porCavalo).replace('R$ ', '').replace(',00', '')}</div>
+                  <div style={{ width: '85%', height: altura || 1, background: 'var(--accent)', borderRadius: 4 }} />
+                  <div style={{ position: 'absolute', bottom: -18, fontSize: 9, color: 'var(--ink-3)', whiteSpace: 'nowrap' }}>{d.label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Tabela detalhada */}
+      <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', marginBottom: 12 }}>Detalhamento mensal</div>
+        <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 4, fontSize: 11, color: 'var(--ink-3)', fontWeight: 600, paddingBottom: 6, borderBottom: '1px solid var(--line)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <div>Mês</div>
+          <div style={{ textAlign: 'right' }}>Saídas</div>
+          <div style={{ textAlign: 'right' }}>Receitas</div>
+          <div style={{ textAlign: 'right' }}>Saldo</div>
+        </div>
+        {dadosPorMes.map(d => (
+          <div key={d.key} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 1fr 1fr', gap: 4, padding: '6px 0', borderBottom: '1px solid var(--line)', fontSize: 12 }}>
+            <div style={{ color: 'var(--ink-2)' }}>{d.label}</div>
+            <div style={{ textAlign: 'right', color: '#dc2626' }}>{formatBRL(d.totalSaida)}</div>
+            <div style={{ textAlign: 'right', color: '#16a34a' }}>{formatBRL(d.totalEntrada + d.totalFaturas)}</div>
+            <div style={{ textAlign: 'right', color: d.saldo >= 0 ? '#16a34a' : '#dc2626', fontWeight: 700 }}>{formatBRL(d.saldo)}</div>
           </div>
         ))}
       </div>
@@ -3657,11 +3890,11 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser }) => {
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [] }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
-    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'estoque', label: 'Estoque' }, { id: 'resumo', label: 'Resumo' }]
+    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'grafico', label: 'Gráfico' }, { id: 'estoque', label: 'Estoque' }, { id: 'resumo', label: 'Resumo' }]
     : [{ id: 'faturas', label: 'Faturas' }];
 
   return (
@@ -3699,7 +3932,10 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
       )}
       {subTab === 'saidas' && isAdmin && (
-        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
+        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} custosFixos={custosFixos} setScreen={setScreen} />
+      )}
+      {subTab === 'grafico' && isAdmin && (
+        <GraficoFinanceiroSubScreen lancamentos={lancamentos} custosFixos={custosFixos} faturasFechadas={faturasFechadas} cavalos={cavalos} />
       )}
       {subTab === 'estoque' && isAdmin && (
         <EstoqueSubScreen cavalos={cavalos} insumos={insumos} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} />
