@@ -174,20 +174,26 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
       }
       continue;
     }
-    const isPotroEtapas = prot.tipo === 'potro' && (prot.etapas||[]).length > 0;
+    const isEtapas = (prot.etapas||[]).length > 0 && (prot.tipo === 'potro' || prot.tipo === 'gestante' || prot.eventoReferencia);
+    const ref = prot.eventoReferencia || (prot.tipo === 'gestante' ? 'cobertura' : 'nascimento');
+    const getBase = (c) => ref === 'cobertura' ? c.gestacao?.dataCobricao : c.nascimento;
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
-      if (isPotroEtapas) return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
+      if (isEtapas) {
+        if (ref === 'cobertura') return !!c.gestacao?.dataCobricao;
+        return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
+      }
       if (prot.animaisAlvo && prot.animaisAlvo.length > 0) return prot.animaisAlvo.includes(c.id);
       if (prot.tipo === 'gestante') return !!(c.categorias||[]).includes('Gestante') || !!c.gestacao?.dataCobricao;
       if (prot.tipo === 'potro') return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
       return true;
     });
     for (const cavalo of alvo) {
-      if (prot.tipo === 'potro' && (prot.etapas||[]).length > 0) {
+      if (isEtapas) {
+        const baseDate = getBase(cavalo);
         prot.etapas.forEach((etapa, etapaIdx) => {
           if (etapa.subtipo === 'opg') return;
-          const dataPrevista = addDays(cavalo.nascimento, etapa.diasDesdeNascimento);
+          const dataPrevista = addDays(baseDate, etapa.diasDesdeNascimento);
           if (!dataPrevista) return;
           const feito = (vermifugacoesAnimais || []).find(v =>
             v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === etapaIdx
@@ -257,13 +263,19 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
       continue;
     }
 
-    // Potro protocol with etapas — OPG etapas
-    if (prot.tipo === 'potro' && (prot.etapas||[]).length > 0) {
-      const alvo = cavalos.filter(c => c.presente && !!c.nascimento && diffDays(today, c.nascimento) <= 730);
+    // Etapas com OPG (potro ou gestante)
+    if ((prot.etapas||[]).length > 0 && (prot.tipo === 'potro' || prot.tipo === 'gestante' || prot.eventoReferencia)) {
+      const ref = prot.eventoReferencia || (prot.tipo === 'gestante' ? 'cobertura' : 'nascimento');
+      const alvo = cavalos.filter(c => {
+        if (!c.presente) return false;
+        if (ref === 'cobertura') return !!c.gestacao?.dataCobricao;
+        return !!c.nascimento && diffDays(today, c.nascimento) <= 730;
+      });
       for (const cavalo of alvo) {
+        const baseDate = ref === 'cobertura' ? cavalo.gestacao?.dataCobricao : cavalo.nascimento;
         prot.etapas.forEach((etapa, etapaIdx) => {
           if (etapa.subtipo !== 'opg') return;
-          const dataPrevista = addDays(cavalo.nascimento, etapa.diasDesdeNascimento);
+          const dataPrevista = addDays(baseDate, etapa.diasDesdeNascimento);
           if (!dataPrevista) return;
           const feito = (opgs || []).find(o =>
             o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.etapaIdx === etapaIdx && o.aplicado
@@ -1430,7 +1442,9 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
   const [open, setOpen] = useState(false);
   const insumo = insumos.find(i => i.id === protocolo.insumoId);
   const intervOpt = INTERVALO_OPTIONS.find(o => o.value === protocolo.intervaloDias);
-  const isPotroEtapas = protocolo.tipo === 'potro' && (protocolo.etapas||[]).length > 0;
+  const isPotroEtapas = (protocolo.tipo === 'potro' || protocolo.tipo === 'gestante') && (protocolo.etapas||[]).length > 0;
+  const refEtapas = protocolo.eventoReferencia || (protocolo.tipo === 'gestante' ? 'cobertura' : 'nascimento');
+  const labelEtapas = refEtapas === 'cobertura' ? 'Gestantes' : 'Potros';
   const isUnico = !!protocolo.eventoUnico || protocolo.tipo === 'unico';
   const nAnimais = (protocolo.animaisAlvo||[]).length;
   return (
@@ -1445,7 +1459,7 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
             {protocolo.subtipo==='opg' && !isPotroEtapas && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
             {isUnico && <span style={{ fontSize:10, background:'#fff7ed', color:'#9a3412', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>EVENTO ÚNICO</span>}
             {isPotroEtapas
-              ? `Potros · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
+              ? `${labelEtapas} · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
               : isUnico
                 ? `${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${nAnimais} animal(is)`
                 : `${intervOpt?.label||`${protocolo.intervaloDias} dias`} · ${nAnimais} animal(is)`}
@@ -1525,7 +1539,8 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
 // ─── ProtocoloVermForm ────────────────────────────────────────
 function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCancel }) {
   const [nome, setNome] = useState(initial?.nome||'');
-  const [modoEtapas, setModoEtapas] = useState(initial?.tipo === 'potro' && (initial?.etapas||[]).length > 0);
+  const [modoEtapas, setModoEtapas] = useState((initial?.tipo === 'potro' || initial?.tipo === 'gestante') && (initial?.etapas||[]).length > 0);
+  const [eventoReferencia, setEventoReferencia] = useState(initial?.eventoReferencia || (initial?.tipo === 'gestante' ? 'cobertura' : 'nascimento'));
   const [subtipo, setSubtipo] = useState(initial?.subtipo||'vermifugacao');
   const [insumoId, setInsumoId] = useState(initial?.insumoId||'');
   const [laboratorio, setLaboratorio] = useState(initial?.laboratorio||'');
@@ -1577,7 +1592,8 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
     const opgId = opgServico?.id || '';
     if (modoEtapas) {
       const etapasFinal = etapas.map(e => e.subtipo === 'opg' ? { ...e, servicoId: opgId } : e);
-      onSave({ nome:nome.trim(), tipo:'potro', subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      const tipoFromEvento = eventoReferencia === 'cobertura' ? 'gestante' : 'potro';
+      onSave({ nome:nome.trim(), tipo:tipoFromEvento, eventoReferencia, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
     } else if (eventoUnico) {
       onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
     } else {
@@ -1604,8 +1620,15 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
 
       {modoEtapas ? (
         <>
+          <div style={{ marginBottom:12 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Evento de referência</div>
+            <select value={eventoReferencia} onChange={e=>setEventoReferencia(e.target.value)} style={inputSt}>
+              <option value="nascimento">Data de nascimento (potros)</option>
+              <option value="cobertura">Data de cobertura (éguas gestantes)</option>
+            </select>
+          </div>
           <div style={{ background:'#f0fdf4', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#15803d', marginBottom:14 }}>
-            Cada etapa é agendada com base na data de nascimento do potro.
+            Cada etapa é agendada com base na {eventoReferencia==='cobertura'?'data de cobertura da égua':'data de nascimento do potro'}.
           </div>
           <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:10 }}>Etapas</div>
           {etapas.map((etapa, i) => (
@@ -1620,7 +1643,7 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
               </div>
               <div style={{ display:'flex', gap:8, marginBottom:8 }}>
                 <div style={{ flex:1 }}>
-                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Dias desde nascimento</div>
+                  <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Dias desde {eventoReferencia==='cobertura'?'cobertura':'nascimento'}</div>
                   <input type="number" min="0" value={etapa.diasDesdeNascimento} onChange={e=>updateEtapa(i,'diasDesdeNascimento',Number(e.target.value))} style={inputSt} />
                   {etapa.diasDesdeNascimento>0 && <div style={{ fontSize:10, color:'var(--ink-3)', marginTop:3 }}>≈ {Math.round(etapa.diasDesdeNascimento/30)} mês(es)</div>}
                 </div>
