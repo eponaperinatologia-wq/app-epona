@@ -961,11 +961,11 @@ function ProtocoloVacForm({ initial, insumos, cavalos, onSave, onCancel }) {
 
   const handleSave = () => {
     if (modoEtapas) {
-      onSave({ nome:nome.trim(), tipo, descricao, doses, insumoId:'', intervaloDias:0, eventoUnico:false, dataFixa:'', animaisAlvo:[], ativo:true });
+      onSave({ nome:nome.trim(), tipo, descricao, doses, insumoId:'', intervaloDias:0, eventoUnico:false, dataFixa:null, animaisAlvo:[], ativo:true });
     } else if (eventoUnico) {
       onSave({ nome:nome.trim(), tipo:'geral', descricao, doses:[], insumoId, intervaloDias:0, eventoUnico:true, dataFixa, animaisAlvo, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo:'geral', descricao, doses:[], insumoId, intervaloDias, eventoUnico:false, dataFixa:'', animaisAlvo, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', descricao, doses:[], insumoId, intervaloDias, eventoUnico:false, dataFixa:null, animaisAlvo, ativo:true });
     }
   };
 
@@ -1593,11 +1593,11 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
     if (modoEtapas) {
       const etapasFinal = etapas.map(e => e.subtipo === 'opg' ? { ...e, servicoId: opgId } : e);
       const tipoFromEvento = eventoReferencia === 'cobertura' ? 'gestante' : 'potro';
-      onSave({ nome:nome.trim(), tipo:tipoFromEvento, eventoReferencia, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:'', animaisAlvo:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:tipoFromEvento, eventoReferencia, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:null, animaisAlvo:[], observacoes, ativo:true });
     } else if (eventoUnico) {
       onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:'', animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:null, animaisAlvo, observacoes, ativo:true });
     }
   };
 
