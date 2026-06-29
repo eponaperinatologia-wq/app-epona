@@ -981,8 +981,8 @@ function ProtocoloVacForm({ initial, insumos, cavalos, onSave, onCancel }) {
         <label style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:modoEtapas?'#dbeafe':'var(--card)', border:`1px solid ${modoEtapas?'#1d4ed8':'var(--line)'}`, borderRadius:10, cursor:'pointer' }}>
           <input type="checkbox" checked={modoEtapas} onChange={e=>setModoEtapas(e.target.checked)} style={{ width:18, height:18, cursor:'pointer' }} />
           <div>
-            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Programar por etapas (data de cobertura ou nascimento)</div>
-            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Use para protocolos vacinais de gestantes ou potros com doses agendadas a partir do evento.</div>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Etapas baseadas em datas</div>
+            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Cada dose é agendada a partir da data de cobertura (gestantes) ou nascimento (potros) de cada animal.</div>
           </div>
         </label>
       </div>
@@ -1612,8 +1612,8 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
         <label style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:modoEtapas?'#f0fdf4':'var(--card)', border:`1px solid ${modoEtapas?'#15803d':'var(--line)'}`, borderRadius:10, cursor:'pointer' }}>
           <input type="checkbox" checked={modoEtapas} onChange={e=>setModoEtapas(e.target.checked)} style={{ width:18, height:18, cursor:'pointer' }} />
           <div>
-            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Programar por etapas baseadas em data de nascimento</div>
-            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Use para potros: cada etapa é agendada a partir do nascimento de cada animal.</div>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Etapas baseadas em datas</div>
+            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Cada etapa é agendada a partir da data de nascimento (potros) ou cobertura (gestantes) de cada animal.</div>
           </div>
         </label>
       </div>
