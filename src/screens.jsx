@@ -49,14 +49,24 @@ const calcDias = (cavalo, ref, movimentacoes) => {
   }
 
   if (dentroMes.length === 0) {
-    if (!presente) return { dias: 0, total: diasTotais, parcial: true };
-    let dataInicio = new Date(inicioMes);
-    if (cavalo.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < inicioMes)) {
-      const dataEntradaDate = new Date(cavalo.dataEntrada + 'T00:00:00');
-      if (dataEntradaDate > inicioMes) dataInicio = dataEntradaDate;
+    if (presente) {
+      let dataInicio = new Date(inicioMes);
+      if (cavalo.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < inicioMes)) {
+        const dataEntradaDate = new Date(cavalo.dataEntrada + 'T00:00:00');
+        if (dataEntradaDate > inicioMes) dataInicio = dataEntradaDate;
+      }
+      const diasEfetivos = Math.floor((fimEfetivo - dataInicio) / (1000 * 60 * 60 * 24)) + 1;
+      return { dias: Math.min(Math.max(diasEfetivos, 0), diasTotais), total: diasTotais, parcial: true };
     }
-    const diasEfetivos = Math.floor((fimEfetivo - dataInicio) / (1000 * 60 * 60 * 24)) + 1;
-    return { dias: Math.min(Math.max(diasEfetivos, 0), diasTotais), total: diasTotais, parcial: true };
+    // Não estava presente no início do mês — mas pode ter entrado no mês via dataEntrada (sem movimentação)
+    if (cavalo.dataEntrada) {
+      const dataEntradaDate = new Date(cavalo.dataEntrada + 'T00:00:00');
+      if (dataEntradaDate >= inicioMes && dataEntradaDate <= fimEfetivo) {
+        const diasEfetivos = Math.floor((fimEfetivo - dataEntradaDate) / (1000 * 60 * 60 * 24)) + 1;
+        return { dias: Math.min(Math.max(diasEfetivos, 0), diasTotais), total: diasTotais, parcial: true };
+      }
+    }
+    return { dias: 0, total: diasTotais, parcial: true };
   }
 
   let dias = 0;
@@ -99,14 +109,23 @@ const calcDiasItem = (cav, ref, movimentacoes, dataInicio, dataFim) => {
     presente = antes.length > 0 ? antes[antes.length - 1].tipo === 'entrada' : true;
   }
   if (dentroPeriodo.length === 0) {
-    if (!presente) return 0;
-    let contStart = new Date(efStart);
-    if (cav.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < efStart)) {
-      const ent = new Date(cav.dataEntrada + 'T00:00:00');
-      if (ent > efStart) contStart = ent;
+    if (presente) {
+      let contStart = new Date(efStart);
+      if (cav.dataEntrada && !cavMovs.find(m => m.tipo === 'entrada' && m.d < efStart)) {
+        const ent = new Date(cav.dataEntrada + 'T00:00:00');
+        if (ent > efStart) contStart = ent;
+      }
+      if (contStart > efEnd) return 0;
+      return Math.max(0, Math.floor((efEnd - contStart) / 86400000) + 1);
     }
-    if (contStart > efEnd) return 0;
-    return Math.max(0, Math.floor((efEnd - contStart) / 86400000) + 1);
+    // Não estava presente no início do período — pode ter entrado dentro dele via dataEntrada
+    if (cav.dataEntrada) {
+      const ent = new Date(cav.dataEntrada + 'T00:00:00');
+      if (ent >= efStart && ent <= efEnd) {
+        return Math.max(0, Math.floor((efEnd - ent) / 86400000) + 1);
+      }
+    }
+    return 0;
   }
   let dias = 0;
   let cursor = new Date(efStart);
@@ -123,21 +142,7 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   const { dias, total, parcial } = calcDias(cav, ref, movimentacoes);
   const rawBase = Number(cav.mensalidade);
   const valorBase = Number.isFinite(rawBase) ? rawBase : 0;
-  const valor = total > 0 ? valorBase * (dias / total) : 0;
-  if (cav.nome && (cav.nome.toUpperCase().includes('CAMILA') || cav.nome.toUpperCase().includes('WB 36'))) {
-    console.log('[EPONA DEBUG mensalidade]', {
-      nome: cav.nome, id: cav.id,
-      cav_mensalidade_raw: cav.mensalidade,
-      cav_mensalidade_typeof: typeof cav.mensalidade,
-      rawBase, valorBase,
-      dias, total, parcial,
-      valor,
-      ref,
-      proprietarioId: cav.proprietarioId, proprietarioIds: cav.proprietarioIds,
-      dataEntrada: cav.dataEntrada, presente: cav.presente,
-    });
-  }
-  return { dias, total, parcial, valor, valorBase };
+  return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
 const calcDosesPeriodico = (p, ref) => {
