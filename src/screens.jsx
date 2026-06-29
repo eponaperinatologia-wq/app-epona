@@ -121,7 +121,8 @@ const calcDiasItem = (cav, ref, movimentacoes, dataInicio, dataFim) => {
 
 const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   const { dias, total, parcial } = calcDias(cav, ref, movimentacoes);
-  const valorBase = cav.mensalidade || 0;
+  const rawBase = Number(cav.mensalidade);
+  const valorBase = Number.isFinite(rawBase) ? rawBase : 0;
   return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
@@ -1519,7 +1520,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     cavalos.forEach(cv => { if (cv.baia) vals.add(cv.baia); if (cv.piquete) vals.add(cv.piquete); });
     return [...vals].sort((a, b) => a.localeCompare(b, 'pt'));
   }, [cavalos]);
-  const [mensalidade, setMensalidade] = useState(c.mensalidade);
+  const [mensalidade, setMensalidade] = useState(Number.isFinite(Number(c.mensalidade)) ? c.mensalidade : 0);
   const [obs, setObs] = useState(c.obs || '');
   const [sexo, setSexo] = useState(c.sexo || '');
   const [pelagem, setPelagem] = useState(c.pelagem || 'Tordilho');
@@ -1635,7 +1636,9 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
     const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
     const categoriasArr = Array.from(categorias);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: parseInt(mensalidade), obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    const parsedMens = parseInt(mensalidade);
+    const safeMens = Number.isFinite(parsedMens) && parsedMens >= 0 ? parsedMens : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
