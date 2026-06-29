@@ -3230,13 +3230,12 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
 
   // Saídas virtuais: itens de custos_fixos aparecem como saídas
   const custosFixosVirt = tipo === 'saida' ? (custosFixos || []).map(c => {
-    const CAT_LABEL = { salario: 'Salários', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
-    const comEncargos = c.categoria === 'salario' ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
+    const CAT_LABEL = { salario: 'Salários', encargos: 'Encargos', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
     return {
       id: 'cf:' + c.id,
       _isCustoFixo: true,
       tipo: 'saida',
-      valor: comEncargos,
+      valor: c.valor, // valor puro — sem multiplicar por encargos
       data: c.dataVencimento || (c.mes + '-01'),
       quem: c.descricao || CAT_LABEL[c.categoria] || c.categoria,
       motivo: `${CAT_LABEL[c.categoria] || c.categoria} · ${c.descricao || '—'}`,
@@ -3347,6 +3346,7 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
 // ─── GraficoFinanceiroSubScreen ──────────────────────────────
 const COR_CATEGORIA = {
   'Salários': '#dc2626',
+  'Encargos': '#f97316',
   'Contabilidade': '#7c3aed',
   'Energia': '#eab308',
   'Internet': '#3b82f6',
@@ -3379,10 +3379,9 @@ const GraficoFinanceiroSubScreen = ({ lancamentos = [], custosFixos = [], fatura
 
     const porCategoria = {};
     cfMes.forEach(c => {
-      const CAT_LABEL = { salario: 'Salários', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
+      const CAT_LABEL = { salario: 'Salários', encargos: 'Encargos', contabilidade: 'Contabilidade', energia: 'Energia', internet: 'Internet', nutricao: 'Nutrição', suplementacao: 'Suplementação', farmacia: 'Farmácia', extras: 'Custos Extras' };
       const label = CAT_LABEL[c.categoria] || c.categoria;
-      const valor = c.categoria === 'salario' ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
-      porCategoria[label] = (porCategoria[label] || 0) + valor;
+      porCategoria[label] = (porCategoria[label] || 0) + c.valor;
     });
     const totalCfMes = Object.values(porCategoria).reduce((s, v) => s + v, 0);
     const totalLancAvulso = saidasLanc.reduce((s, l) => s + l.valor, 0);
@@ -4070,15 +4069,15 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
         const hoje = new Date();
         const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
         const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
-        const CATEGORIAS_COM_ENCARGOS = ['salario'];
         const doMes = (custosFixos || []).filter(c => c.mes === mesAtual);
-        const totalRateavel = doMes.reduce((s, c) => {
+        const actuals = doMes.reduce((s, c) => {
           if (!CATEGORIAS_RATEAVEIS.includes(c.categoria)) return s;
-          const comEncargos = CATEGORIAS_COM_ENCARGOS.includes(c.categoria)
-            ? c.valor * (1 + (c.encargosPct || 0) / 100)
-            : c.valor;
-          return s + comEncargos;
+          return s + c.valor;
         }, 0);
+        const provisao = doMes
+          .filter(c => c.categoria === 'salario')
+          .reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+        const totalRateavel = actuals + provisao;
         const nPresentes = presentes.length;
         const custoFixoPorCavalo = nPresentes > 0 ? totalRateavel / nPresentes : 0;
         return (
@@ -4087,7 +4086,9 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
               <div>
                 <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / cavalo (mês)</div>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 22, marginTop: 2 }}>{formatBRL(custoFixoPorCavalo)}</div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>{formatBRL(totalRateavel)} ÷ {nPresentes} cavalos · não cobrado na fatura</div>
+                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
+                  {formatBRL(actuals)} reais + {formatBRL(provisao)} provisão encargos = {formatBRL(totalRateavel)} ÷ {nPresentes} cavalos
+                </div>
               </div>
               <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}>›</div>
             </div>

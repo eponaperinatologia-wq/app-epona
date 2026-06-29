@@ -5,14 +5,15 @@ import { Icon } from './icons';
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 export const CATEGORIAS_CUSTO_FIXO = [
-  { id: 'salario',        nome: 'Salários',        cor: '#dc2626', icone: 'users',        incluiEncargos: true,  rateavel: true },
-  { id: 'contabilidade',  nome: 'Contabilidade',   cor: '#7c3aed', icone: 'file',         rateavel: true },
-  { id: 'energia',        nome: 'Energia',         cor: '#eab308', icone: 'zap',          rateavel: true },
-  { id: 'internet',       nome: 'Internet',        cor: '#3b82f6', icone: 'wifi',         rateavel: true },
-  { id: 'nutricao',       nome: 'Nutrição',        cor: '#a16207', icone: 'wheat',        rateavel: false, hint: 'Ração, feno, sal mineral, óleo de soja — já considerado no consumo individual' },
-  { id: 'suplementacao',  nome: 'Suplementação',   cor: '#15803d', icone: 'leaf',         rateavel: false, hint: 'Já considerado no perfil nutricional individual' },
-  { id: 'farmacia',       nome: 'Farmácia',        cor: '#0f766e', icone: 'medkit',       rateavel: false, hint: 'Já considerado nos procedimentos individuais' },
-  { id: 'extras',         nome: 'Custos Extras',   cor: '#6b7280', icone: 'more',         rateavel: true },
+  { id: 'salario',        nome: 'Salários',        cor: '#dc2626', icone: 'users',  temEncargos: true, rateavel: true },
+  { id: 'encargos',       nome: 'Encargos pagos',  cor: '#f97316', icone: 'file',   rateavel: false, hint: 'FGTS, INSS, 13º, Férias quando efetivamente pagos. Já estão considerados no rateio como provisão automática — registrar aqui evita duplicar.' },
+  { id: 'contabilidade',  nome: 'Contabilidade',   cor: '#7c3aed', icone: 'file',   rateavel: true },
+  { id: 'energia',        nome: 'Energia',         cor: '#eab308', icone: 'zap',    rateavel: true },
+  { id: 'internet',       nome: 'Internet',        cor: '#3b82f6', icone: 'wifi',   rateavel: true },
+  { id: 'nutricao',       nome: 'Nutrição',        cor: '#a16207', icone: 'wheat',  rateavel: false, hint: 'Ração, feno, sal mineral, óleo de soja — já considerado no consumo individual' },
+  { id: 'suplementacao',  nome: 'Suplementação',   cor: '#15803d', icone: 'leaf',   rateavel: false, hint: 'Já considerado no perfil nutricional individual' },
+  { id: 'farmacia',       nome: 'Farmácia',        cor: '#0f766e', icone: 'medkit', rateavel: false, hint: 'Já considerado nos procedimentos individuais' },
+  { id: 'extras',         nome: 'Custos Extras',   cor: '#6b7280', icone: 'more',   rateavel: true },
 ];
 
 // Encargos trabalhistas padrão (Brasil, CLT)
@@ -48,7 +49,7 @@ function CustoFixoForm({ initial, funcionarios = [], onSave, onCancel, mes }) {
   const cat = CATEGORIAS_CUSTO_FIXO.find(c => c.id === categoria);
   const valorNum = parseFloat(String(valor).replace(',', '.')) || 0;
   const encargosNum = parseFloat(String(encargosPct).replace(',', '.')) || 0;
-  const totalComEncargos = cat?.incluiEncargos ? valorNum * (1 + encargosNum / 100) : valorNum;
+  const provisaoEncargos = cat?.temEncargos ? valorNum * encargosNum / 100 : 0;
 
   const canSave = categoria && valorNum > 0;
 
@@ -68,7 +69,7 @@ function CustoFixoForm({ initial, funcionarios = [], onSave, onCancel, mes }) {
       pago,
       pagoEm: pago ? (pagoEm || todayStr()) : null,
       funcionarioId: categoria === 'salario' ? funcionarioId : '',
-      encargosPct: cat?.incluiEncargos ? encargosNum : 0,
+      encargosPct: cat?.temEncargos ? encargosNum : 0,
       observacoes: observacoes.trim(),
     });
   };
@@ -102,8 +103,9 @@ function CustoFixoForm({ initial, funcionarios = [], onSave, onCancel, mes }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
         <div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>{cat?.incluiEncargos ? 'Salário base (R$)' : 'Valor (R$)'}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>{cat?.temEncargos ? 'Valor da parcela (R$)' : 'Valor (R$)'}</div>
           <input type="number" min="0" step="0.01" value={valor} onChange={e => setValor(e.target.value)} placeholder="0,00" style={inputSt} />
+          {cat?.temEncargos && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3 }}>Apenas o valor que será efetivamente pago. Encargos não entram aqui.</div>}
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Vencimento</div>
@@ -111,23 +113,20 @@ function CustoFixoForm({ initial, funcionarios = [], onSave, onCancel, mes }) {
         </div>
       </div>
 
-      {cat?.incluiEncargos && (
+      {cat?.temEncargos && (
         <div style={{ background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 10, padding: '10px 12px', marginBottom: 12 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Encargos trabalhistas</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#78350f', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6 }}>Provisão de encargos (estimativa)</div>
           <div style={{ fontSize: 11, color: '#78350f', marginBottom: 6 }}>
-            Padrão CLT: FGTS 8% + Férias 11,11% + 13º 8,33% + INSS patronal 20% = <strong>{ENCARGOS_TOTAL_PADRAO.toFixed(2)}%</strong>
-          </div>
-          <div style={{ fontSize: 11, color: '#78350f', marginBottom: 8 }}>
-            (Se for Simples Nacional / MEI, ajuste o INSS para 0%. Outras adições típicas: vale-transporte, vale-alimentação, plano de saúde.)
+            Apenas referência para o rateio — <strong>não é pago junto com a parcela</strong>. FGTS, INSS, 13º e Férias são pagos em momentos próprios e devem ser cadastrados em "Encargos pagos" quando saírem do caixa.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'end' }}>
             <div>
-              <div style={{ fontSize: 11, color: '#78350f', marginBottom: 4 }}>% encargos sobre salário</div>
+              <div style={{ fontSize: 11, color: '#78350f', marginBottom: 4 }}>% encargos s/ esta parcela</div>
               <input type="number" min="0" step="0.01" value={encargosPct} onChange={e => setEncargosPct(e.target.value)} style={inputSt} />
             </div>
             <div style={{ background: '#fff', borderRadius: 8, padding: '8px 10px' }}>
-              <div style={{ fontSize: 10, color: '#78350f', fontWeight: 600 }}>Total com encargos</div>
-              <div style={{ fontSize: 16, fontWeight: 700, color: '#78350f' }}>{formatBRL(totalComEncargos)}</div>
+              <div style={{ fontSize: 10, color: '#78350f', fontWeight: 600 }}>Provisão (entra no rateio)</div>
+              <div style={{ fontSize: 16, fontWeight: 700, color: '#78350f' }}>{formatBRL(provisaoEncargos)}</div>
             </div>
           </div>
         </div>
@@ -219,8 +218,7 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
     const map = {};
     CATEGORIAS_CUSTO_FIXO.forEach(c => { map[c.id] = { total: 0, count: 0, pago: 0 }; });
     doMes.forEach(c => {
-      const cat = CATEGORIAS_CUSTO_FIXO.find(x => x.id === c.categoria);
-      const totalItem = cat?.incluiEncargos ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
+      const totalItem = c.valor; // valor puro — encargos não são multiplicados
       if (map[c.categoria]) {
         map[c.categoria].total += totalItem;
         map[c.categoria].count += 1;
@@ -230,9 +228,16 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
     return map;
   }, [doMes]);
 
-  const totalRateavel = CATEGORIAS_CUSTO_FIXO
+  // Provisão de encargos — calculada automaticamente sobre salários, entra só no rateio
+  const provisaoEncargos = useMemo(() => doMes
+    .filter(c => c.categoria === 'salario')
+    .reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0),
+  [doMes]);
+
+  const totalRateavelActuals = CATEGORIAS_CUSTO_FIXO
     .filter(c => c.rateavel)
     .reduce((s, c) => s + (totalPorCategoria[c.id]?.total || 0), 0);
+  const totalRateavel = totalRateavelActuals + provisaoEncargos;
 
   const custoPorCavalo = cavalosPresentes > 0 ? totalRateavel / cavalosPresentes : 0;
 
@@ -304,10 +309,14 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
         {/* Custo por cavalo */}
         <div style={{ background: 'linear-gradient(135deg, #3d6043, #2d4a32)', borderRadius: 14, padding: 16, marginBottom: 16, color: '#fff' }}>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Custo fixo rateado por cavalo</div>
-          <div style={{ fontSize: 28, fontFamily: 'var(--serif)', fontWeight: 400, marginBottom: 4 }}>{formatBRL(custoPorCavalo)}</div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.75)', lineHeight: 1.4 }}>
-            {formatBRL(totalRateavel)} (salários, contabilidade, energia, internet, extras) ÷ {cavalosPresentes} cavalos presentes.
-            <br />Apenas informativo — não cobrado na fatura.
+          <div style={{ fontSize: 28, fontFamily: 'var(--serif)', fontWeight: 400, marginBottom: 8 }}>{formatBRL(custoPorCavalo)}</div>
+          <div style={{ background: 'rgba(255,255,255,0.1)', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: 'rgba(255,255,255,0.95)', marginBottom: 6, lineHeight: 1.6 }}>
+            <div>Salários, contabilidade, energia, internet, extras: <strong>{formatBRL(totalRateavelActuals)}</strong></div>
+            {provisaoEncargos > 0 && <div>+ Provisão encargos (FGTS/INSS/13º/Férias): <strong>{formatBRL(provisaoEncargos)}</strong></div>}
+            <div style={{ borderTop: '1px solid rgba(255,255,255,0.2)', marginTop: 4, paddingTop: 4 }}>= <strong>{formatBRL(totalRateavel)}</strong> ÷ {cavalosPresentes} cavalos</div>
+          </div>
+          <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)' }}>
+            Informativo · não cobrado na fatura. A provisão estima o custo recorrente real mesmo que FGTS/INSS/13º saiam em outros meses.
           </div>
         </div>
 
@@ -341,17 +350,16 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
                 <div style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 700 }}>{formatBRL(stats.total)}</div>
               </div>
               {items.map(item => {
-                const totalItem = cat.incluiEncargos ? item.valor * (1 + (item.encargosPct || 0) / 100) : item.valor;
+                const totalItem = item.valor;
+                const provisaoItem = cat.temEncargos ? item.valor * (Number(item.encargosPct) || 0) / 100 : 0;
                 return (
                   <div key={item.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '10px 14px', marginBottom: 6, borderLeft: `3px solid ${cat.cor}` }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{item.descricao || cat.nome}</div>
                         <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                          {cat.incluiEncargos
-                            ? `Base ${formatBRL(item.valor)} + ${(item.encargosPct || 0).toFixed(2)}% encargos`
-                            : ''}
-                          {item.dataVencimento ? `${cat.incluiEncargos ? ' · ' : ''}vence ${new Date(item.dataVencimento + 'T12:00:00').toLocaleDateString('pt-BR')}` : ''}
+                          {provisaoItem > 0 && `+ provisão ${formatBRL(provisaoItem)} (${(item.encargosPct || 0).toFixed(2)}%) no rateio · `}
+                          {item.dataVencimento ? `vence ${new Date(item.dataVencimento + 'T12:00:00').toLocaleDateString('pt-BR')}` : 'sem vencimento'}
                         </div>
                         <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                           <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 700, background: item.pago ? '#dcfce7' : '#fef3c7', color: item.pago ? '#166534' : '#92400e' }}>
@@ -386,24 +394,23 @@ export function CustosFixosScreen({ custosFixos = [], funcionarios = [], cavalos
   );
 }
 
-// Helper: retorna total rateável + custo / cavalo para um mês
+// Helper: retorna total rateável (incluindo provisão de encargos) + custo / cavalo
 export function custosRateaveisMes(custosFixos, mes, cavalosPresentes) {
   const doMes = custosFixos.filter(c => c.mes === mes);
-  const total = doMes.reduce((s, c) => {
+  const actuals = doMes.reduce((s, c) => {
     const cat = CATEGORIAS_CUSTO_FIXO.find(x => x.id === c.categoria);
     if (!cat?.rateavel) return s;
-    const itemTotal = cat.incluiEncargos ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
-    return s + itemTotal;
+    return s + c.valor;
   }, 0);
-  return { total, porCavalo: cavalosPresentes > 0 ? total / cavalosPresentes : 0 };
+  const provisao = doMes
+    .filter(c => c.categoria === 'salario')
+    .reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+  const total = actuals + provisao;
+  return { total, actuals, provisao, porCavalo: cavalosPresentes > 0 ? total / cavalosPresentes : 0 };
 }
 
-// Helper: total geral do mês (todos os custos)
+// Helper: total geral do mês (saída real — sem provisão, pois ela não é desembolsada)
 export function custosTotaisMes(custosFixos, mes) {
   const doMes = custosFixos.filter(c => c.mes === mes);
-  return doMes.reduce((s, c) => {
-    const cat = CATEGORIAS_CUSTO_FIXO.find(x => x.id === c.categoria);
-    const itemTotal = cat?.incluiEncargos ? c.valor * (1 + (c.encargosPct || 0) / 100) : c.valor;
-    return s + itemTotal;
-  }, 0);
+  return doMes.reduce((s, c) => s + c.valor, 0);
 }
