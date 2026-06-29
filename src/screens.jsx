@@ -3168,7 +3168,7 @@ const RecorrenciaForm = ({ tipo, onSave, onCancel, initial }) => {
 
   return (
     <div style={{ background: 'var(--card)', border: `1px solid ${cor}40`, borderRadius: 14, padding: 16, marginBottom: 12 }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: cor, marginBottom: 12 }}>↻ {tipo === 'entrada' ? 'Recebimento Recorrente' : 'Pagamento Recorrente'}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: cor, marginBottom: 12 }}>↻ {initial ? 'Editar' : (tipo === 'entrada' ? 'Recebimento' : 'Pagamento')} Recorrente</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 3 }}>Valor (R$) *</div>
@@ -3221,10 +3221,11 @@ const RecorrenciaForm = ({ tipo, onSave, onCancel, initial }) => {
   );
 };
 
-const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, custosFixos = [], updateCustoFixo, setScreen }) => {
+const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, custosFixos = [], updateCustoFixo, setScreen }) => {
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showRecForm, setShowRecForm] = useState(false);
+  const [editRecId, setEditRecId] = useState(null);
   const [showPagos, setShowPagos] = useState(false);
   const hojeD = new Date();
   const mesAtualKey = `${hojeD.getFullYear()}-${String(hojeD.getMonth() + 1).padStart(2, '0')}`;
@@ -3505,20 +3506,29 @@ const LancamentosSubScreen = ({ tipo, lancamentos, addLancamento, updateLancamen
             <button onClick={() => setShowRecForm(true)} style={{ background: cor + '12', border: `1px solid ${cor}40`, borderRadius: 8, padding: '4px 10px', fontSize: 12, color: cor, cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 600 }}>+ Nova</button>
           )}
         </div>
-        {showRecForm && <RecorrenciaForm tipo={tipo} onCancel={() => setShowRecForm(false)} onSave={data => { addRecorrencia(data); setShowRecForm(false); }} />}
+        {showRecForm && !editRecId && <RecorrenciaForm tipo={tipo} onCancel={() => setShowRecForm(false)} onSave={data => { addRecorrencia(data); setShowRecForm(false); }} />}
         {listaRec.length === 0 && !showRecForm && (
           <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '4px 0' }}>Nenhuma recorrência cadastrada</div>
         )}
         {listaRec.map(r => (
-          <div key={r.id} style={{ background: cor + '08', border: `1px solid ${cor}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{ fontSize: 16, color: cor }}>↻</div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{r.descricao || '—'}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                {formatBRL(r.valor)} · {fmtFreq(r)} · desde {r.dataInicio}{r.dataFim ? ` até ${r.dataFim}` : ' · sem fim'}
+          <div key={r.id}>
+            {editRecId === r.id ? (
+              <RecorrenciaForm tipo={tipo} initial={r} onCancel={() => setEditRecId(null)} onSave={data => { if (updateRecorrencia) updateRecorrencia(r.id, data); setEditRecId(null); }} />
+            ) : (
+              <div style={{ background: cor + '08', border: `1px solid ${cor}30`, borderRadius: 10, padding: '10px 14px', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ fontSize: 16, color: cor }}>↻</div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{r.descricao || '—'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                    {formatBRL(r.valor)} · {fmtFreq(r)} · desde {r.dataInicio}{r.dataFim ? ` até ${r.dataFim}` : ' · sem fim'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {updateRecorrencia && <button onClick={() => { setEditRecId(r.id); setShowRecForm(false); }} style={{ background: 'none', border: '1px solid var(--line)', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>}
+                  <button onClick={() => { if (window.confirm('Excluir recorrência? Os lançamentos gerados são mantidos.')) deleteRecorrencia(r.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+                </div>
               </div>
-            </div>
-            <button onClick={() => { if (window.confirm('Excluir recorrência? Os lançamentos gerados são mantidos.')) deleteRecorrencia(r.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)' }}>×</button>
+            )}
           </div>
         ))}
       </div>
@@ -4072,7 +4082,7 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo }) => {
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
@@ -4111,10 +4121,10 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} />
       )}
       {subTab === 'entradas' && isAdmin && (
-        <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} />
+        <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} />
       )}
       {subTab === 'saidas' && isAdmin && (
-        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} setScreen={setScreen} />
+        <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} setScreen={setScreen} />
       )}
       {subTab === 'grafico' && isAdmin && (
         <GraficoFinanceiroSubScreen lancamentos={lancamentos} custosFixos={custosFixos} faturasFechadas={faturasFechadas} cavalos={cavalos} />

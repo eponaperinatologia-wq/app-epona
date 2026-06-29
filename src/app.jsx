@@ -395,6 +395,10 @@ const loadAllData = async () => {
       return [...prev, ...novos];
     });
   };
+  const updateRecorrencia = (id, data) => {
+    setRecorrencias(prev => prev.map(r => r.id === id ? { ...r, ...data } : r));
+    dbUpdate('lancamentos_recorrentes', id, toDbRecorrencia({ id, ...data }));
+  };
   const deleteRecorrencia = (id) => {
     setRecorrencias(prev => prev.filter(r => r.id !== id));
     dbDelete('lancamentos_recorrentes', id);
@@ -1053,7 +1057,7 @@ const loadAllData = async () => {
   else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} />;
   else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} custosFixos={custosFixos} />;
   else if (screen === 'custosFixos') content = <CustosFixosScreen custosFixos={custosFixos} funcionarios={funcionarios} cavalos={cavalos} addCustoFixo={addCustoFixo} updateCustoFixo={updateCustoFixo} deleteCustoFixo={deleteCustoFixo} onBack={() => goScreen('faturas')} />;
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen id={selected} setScreen={goScreen} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} />;
