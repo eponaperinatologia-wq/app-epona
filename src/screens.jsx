@@ -4532,7 +4532,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
               </button>
               {aberto && (
                 <div style={{ background: 'var(--soft)', padding: '4px 10px 10px' }}>
-                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo, share, absorvidoPeriodo, mensalidadeCobrada, margem, ehPotroAoPe }) => {
+                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, inclusoPeriodo, custoFixoPeriodo, totalPeriodo, share, absorvidoPeriodo, mensalidadeCobrada, margem, ehPotroAoPe }) => {
+                    const cobradoNaFatura = nutricaoPeriodo - inclusoPeriodo;
                     const lucrativo = margem >= 0;
                     return (
                     <div key={cav.id + '_' + grupo.proprietario.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 6 }}>
@@ -4553,10 +4554,25 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
                           </div>
                         </div>
                       </div>
-                      {/* Análise de margem — não exibe para potro ao pé (financeiramente vinculado à mãe) */}
+                      {/* Análise de margem — potro ao pé mostra absorvido vs cobrado */}
                       {ehPotroAoPe ? (
-                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 11, color: '#1e40af', fontStyle: 'italic' }}>
-                          Custo absorvido pela mensalidade da mãe. Sem custo fixo rateado próprio.
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '8px 10px', marginBottom: 6 }}>
+                          <div style={{ fontSize: 10, color: '#1e40af', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Potro ao pé · vinculado à mãe</div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                            <div>
+                              <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>🌾 Absorvido pelo haras</div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#92400e' }}>{formatBRL(inclusoPeriodo)}</div>
+                              <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>ração / feno / sal</div>
+                            </div>
+                            <div>
+                              <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>💊 Cobrado na fatura</div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: '#15803d' }}>{formatBRL(cobradoNaFatura)}</div>
+                              <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>óleo / suplementos</div>
+                            </div>
+                          </div>
+                          <div style={{ fontSize: 10, color: '#1e40af', marginTop: 6, fontStyle: 'italic' }}>
+                            Sem custo fixo próprio · sem mensalidade extra · custo nutricional incluso na mensalidade da mãe é o que o haras absorve por este potro.
+                          </div>
                         </div>
                       ) : (
                         <div style={{ background: lucrativo ? '#f0fdf4' : '#fef2f2', border: `1px solid ${lucrativo ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '6px 10px', marginBottom: 6, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
