@@ -4963,7 +4963,11 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, procLinhas, mensTotal, perfilTotal, insumosTotal, procedimentosTotal, total, empresa });
   const fileName = nomePdfFatura(p, ref, mesNome);
   const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+  const saudacao = new Date().getHours() < 12 ? 'Bom dia' : 'Boa tarde';
+  const primeiroNome = (p.nome || '').trim().split(/\s+/)[0] || p.nome || '';
   const summary = [
+    `${saudacao}, ${primeiroNome}! 😊 Tudo bem por aí? Segue em anexo a fatura do mês de ${mesNome} do Epona Stud.`,
+    ``,
     `*Fatura ${mesNome} ${ref.ano} — ${p.nome}*`,
     `Haras Epona`,
     ``,
