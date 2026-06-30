@@ -5293,7 +5293,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     });
   };
 
-  const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, procLinhas, mensTotal, perfilTotal, insumosTotal, procedimentosTotal, total, empresa });
+  const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, procLinhas, cfLinhas, custoFixoTotal, mensTotal, perfilTotal, insumosTotal, procedimentosTotal, total, empresa });
   const fileName = nomePdfFatura(p, ref, mesNome);
   const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
   const saudacao = new Date().getHours() < 12 ? 'Bom dia' : 'Boa tarde';
