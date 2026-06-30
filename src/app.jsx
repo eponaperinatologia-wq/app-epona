@@ -906,6 +906,10 @@ const loadAllData = async () => {
   const removeFaturaFechada = (id) => {
     setFaturasFechadas(prev => prev.filter(f => f.id !== id));
     dbDelete('faturas_fechadas', id);
+    // Remove o lançamento de entrada vinculado, se existir
+    const lanId = `lan_${id}`;
+    setLancamentos(prev => prev.filter(l => l.id !== lanId));
+    dbDelete('financeiro_lancamentos', lanId);
   };
 
   // ── Lista de Compras ──────────────────────────────────────────
@@ -955,6 +959,29 @@ const loadAllData = async () => {
   const addFaturaFechada = (f) => {
     setFaturasFechadas(prev => [...prev.filter(x => !(x.proprietarioId === f.proprietarioId && x.ano === f.ano && x.mes === f.mes)), f]);
     dbInsert('faturas_fechadas', toDbFaturaFechada(f));
+    // Cria lançamento de entrada vinculado para tracking de cash-flow
+    if ((f.total || 0) > 0) {
+      const prop = proprietarios.find(p => p.id === f.proprietarioId);
+      const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
+      const proxMes = f.mes === 12 ? 1 : f.mes + 1;
+      const proxAno = f.mes === 12 ? f.ano + 1 : f.ano;
+      const vencimento = `${proxAno}-${String(proxMes).padStart(2, '0')}-10`;
+      const lanc = {
+        id: `lan_${f.id}`,
+        tipo: 'entrada',
+        valor: f.total,
+        data: vencimento,
+        quem: prop?.nome || f.proprietarioNome || '',
+        motivo: `Fatura ${mesNome}/${f.ano} — ${prop?.nome || f.proprietarioNome || ''}`,
+        categoria: 'Faturamento clientes',
+        pago: false,
+        pagoEm: null,
+        recorrenciaId: null,
+        _faturaFechadaId: f.id,
+      };
+      setLancamentos(prev => [lanc, ...prev.filter(l => l.id !== lanc.id)]);
+      dbInsert('financeiro_lancamentos', toDbLancamento(lanc));
+    }
   };
 
   // ── Minha conta ───────────────────────────────────────────────
