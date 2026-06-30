@@ -3758,15 +3758,25 @@ const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], regist
     return proprietarios.map(prop => {
       const faturaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ref.ano && f.mes === ref.mes);
       if (faturaFechada) return { propId: prop.id, total: faturaFechada.total || 0 };
-      const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id));
+      const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id);
+      const cavIds = new Set(cavalosObj.map(c => c.id));
       const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
       const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
-      const regTotal = (registros || []).filter(r => (r.proprietarioId === prop.id || (cavalosObj.find(c => c.id === r.cavaloId))) && r.mes === ref.mes && r.ano === ref.ano)
-        .reduce((s, r) => {
-          const cav = cavalos.find(c => c.id === r.cavaloId);
-          const share = shareCount(cav || {});
-          return s + ((insumos.find(i => i.id === r.insumoId)?.valorVenda ?? 0) * r.qtd) / share;
-        }, 0);
+      // Insumos avulsos — mesma regra da FaturaDetalheScreen
+      const regTotal = (registros || []).filter(r => {
+        if (!cavIds.has(r.cavaloId)) return false;
+        const ins = insumos.find(i => i.id === r.insumoId);
+        if (ins?.incluidoMensalidade) return false;
+        if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
+        if (!r.data) return true;
+        const d = new Date(r.data + 'T12:00:00');
+        return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+      }).reduce((s, r) => {
+        const cav = cavalos.find(c => c.id === r.cavaloId);
+        const share = shareCount(cav || {});
+        const ins = insumos.find(i => i.id === r.insumoId);
+        return s + ((ins?.valorVenda ?? 0) * r.qtd) / share;
+      }, 0);
       return { propId: prop.id, total: mensalidades + perfilTotal + regTotal };
     });
   }, [proprietarios, cavalos, registros, insumos, movimentacoes, faturasFechadas, ref]);
@@ -4033,6 +4043,11 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
                 {estoqueAtual % 1 === 0 ? estoqueAtual : estoqueAtual.toFixed(1)} {ins.unidade || 'un'} em estoque
                 {qtdDiaTotal > 0 && ` · ${qtdDiaTotal % 1 === 0 ? qtdDiaTotal : qtdDiaTotal.toFixed(2)} ${ins.unidade || 'un'}/dia`}
               </div>
+              {ehRacaoSaca30(ins.nome) && (ins.unidade || 'un') === 'kg' && (
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1, fontStyle: 'italic' }}>
+                  {fmtSacos(estoqueAtual)} (30 kg) em estoque{qtdDiaTotal > 0 ? ` · ${((qtdDiaTotal * 30) / 30).toFixed(2).replace('.', ',')} sacos consumidos/mês` : ''}
+                </div>
+              )}
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               {diasRestantes !== null ? (
@@ -4053,6 +4068,7 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                       {c.qtd % 1 === 0 ? c.qtd : c.qtd.toFixed(2)} {c.unidade}
+                      {ehRacaoSaca30(ins.nome) && c.unidade === 'kg' && <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>({fmtSacos(c.qtd)})</span>}
                       {c.fornecedor ? ` · ${c.fornecedor}` : ''}
                       {c.tipo === 'ajuste' && <span style={{ fontSize: 10, background: '#fef9c3', color: '#854d0e', border: '1px solid #fde68a', borderRadius: 5, padding: '1px 5px' }}>saldo inicial</span>}
                     </div>
@@ -4142,6 +4158,19 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
 // ─────────────────────────────────────────────────────────────
 // CONSUMO · Projeção nutricional por período
 // ─────────────────────────────────────────────────────────────
+// Rações em saco de 30kg (Potros Prime e Pro Horse)
+const ehRacaoSaca30 = (nome) => {
+  if (!nome) return false;
+  const n = norm(nome);
+  return n.includes('potros prime') || n.includes('prohorse') || n.includes('pro horse');
+};
+const fmtSacos = (kg) => {
+  if (kg <= 0) return '';
+  const sacos = kg / 30;
+  if (Math.abs(sacos - Math.round(sacos)) < 0.05) return `≈ ${Math.round(sacos)} saco${Math.round(sacos) !== 1 ? 's' : ''}`;
+  return `≈ ${sacos.toFixed(2).replace('.', ',')} sacos`;
+};
+
 const PERIODOS = [
   { id: 'dia', label: 'Dia', dias: 1 },
   { id: 'semana', label: 'Semana', dias: 7 },
@@ -4313,11 +4342,11 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
             <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 10px' }}>
-              <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🌾 Nutrição</div>
+              <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🌾 Itens de Consumo</div>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#92400e', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalNutricaoGeral)}</div>
             </div>
             <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '8px 10px' }}>
-              <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🏛️ Custo fixo rateado</div>
+              <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🏛️ Custo Fixo</div>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#166534', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalCustoFixoGeral)}</div>
             </div>
           </div>
@@ -4342,12 +4371,18 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
         <div style={{ padding: '0 16px', marginBottom: 14 }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Totais por insumo</div>
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
-            {Object.entries(porInsumo).map(([nome, info], idx, arr) => (
-              <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: idx < arr.length - 1 ? '1px solid var(--line)' : 'none' }}>
-                <span style={{ fontSize: 13, color: 'var(--ink)' }}>{nome}</span>
-                <span style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 600 }}>{info.qtd % 1 === 0 ? info.qtd : info.qtd.toFixed(1)} {info.unidade} · {formatBRL(info.valor)}</span>
-              </div>
-            ))}
+            {Object.entries(porInsumo).map(([nome, info], idx, arr) => {
+              const mostrarSacos = ehRacaoSaca30(nome) && info.unidade === 'kg';
+              return (
+                <div key={nome} style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 14px', borderBottom: idx < arr.length - 1 ? '1px solid var(--line)' : 'none' }}>
+                  <span style={{ fontSize: 13, color: 'var(--ink)' }}>{nome}</span>
+                  <span style={{ fontSize: 13, color: 'var(--ink-2)', fontWeight: 600, textAlign: 'right' }}>
+                    {info.qtd % 1 === 0 ? info.qtd : info.qtd.toFixed(1)} {info.unidade} · {formatBRL(info.valor)}
+                    {mostrarSacos && <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 400, marginTop: 2 }}>{fmtSacos(info.qtd)} (30 kg)</div>}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -4396,15 +4431,20 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
                           <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>{formatBRL(nutricaoPeriodo)} + {formatBRL(custoFixoPeriodo)} fixo</div>
                         </div>
                       </div>
-                      {linhas.map(l => (
-                        <div key={l.insumoId} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderTop: '1px solid var(--line)' }}>
-                          <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{l.nome}</span>
-                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                            {(l.qtdDia * p.dias) % 1 === 0 ? (l.qtdDia * p.dias) : (l.qtdDia * p.dias).toFixed(1)} {l.unidade}
-                            {' · '}{formatBRL(l.valorUnit * l.qtdDia * p.dias)}
-                          </span>
-                        </div>
-                      ))}
+                      {linhas.map(l => {
+                        const qtdTotal = l.qtdDia * p.dias;
+                        const mostrarSacos = ehRacaoSaca30(l.nome) && l.unidade === 'kg';
+                        return (
+                          <div key={l.insumoId} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderTop: '1px solid var(--line)' }}>
+                            <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{l.nome}</span>
+                            <span style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'right' }}>
+                              {qtdTotal % 1 === 0 ? qtdTotal : qtdTotal.toFixed(1)} {l.unidade}
+                              {' · '}{formatBRL(l.valorUnit * qtdTotal)}
+                              {mostrarSacos && <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>{fmtSacos(qtdTotal)}</div>}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   ))}
                 </div>
