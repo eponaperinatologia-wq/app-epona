@@ -209,8 +209,51 @@ const loadAllData = async () => {
 
     const novosLans = _gerarLansRecorrentes(recorrenciasData || [], lancamentosData || []);
     const lansEstoqueLimpos = lansEstoque.map(({ _ecId, _novoId, ...l }) => l);
-    setLancamentos([...(lancamentosData || []), ...novosLans, ...lansEstoqueLimpos]);
+
+    // Backfill: lançamentos de fatura fechada que ficaram com data errada (vencimento futuro)
+    // são corrigidos para o último dia da competência, e qualquer fatura fechada sem
+    // lançamento gera um novo.
+    const lancamentosCorrigidos = [...(lancamentosData || [])];
+    const idxPorId = new Map(lancamentosCorrigidos.map((l, i) => [l.id, i]));
+    const lansParaInserir = [];
+    const lansParaAtualizar = [];
+    (ffData || []).forEach(f => {
+      if (!f.total || f.total <= 0) return;
+      const lanId = `lan_${f.id}`;
+      const propLocal = (propsData || []).find(p => p.id === f.proprietarioId);
+      const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
+      const proxMes = f.mes === 12 ? 1 : f.mes + 1;
+      const proxAno = f.mes === 12 ? f.ano + 1 : f.ano;
+      const vencimentoStr = `10/${String(proxMes).padStart(2, '0')}/${proxAno}`;
+      const ultimoDia = new Date(f.ano, f.mes, 0).getDate();
+      const dataLanc = `${f.ano}-${String(f.mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+      const nomeProp = propLocal?.nome || f.proprietarioNome || '';
+      const motivoCorreto = `Fatura ${mesNome}/${f.ano} — ${nomeProp} (venc. ${vencimentoStr})`;
+      const idx = idxPorId.get(lanId);
+      if (idx === undefined) {
+        // Não existe — cria
+        const lanc = {
+          id: lanId, tipo: 'entrada', valor: f.total, data: dataLanc,
+          quem: nomeProp, motivo: motivoCorreto, categoria: 'Faturamento clientes',
+          pago: false, pagoEm: null, recorrenciaId: null,
+        };
+        lancamentosCorrigidos.push(lanc);
+        lansParaInserir.push(lanc);
+      } else {
+        // Existe mas com data potencialmente errada — corrige se data > último dia da competência
+        const existente = lancamentosCorrigidos[idx];
+        if (existente.data > dataLanc) {
+          const corrigido = { ...existente, data: dataLanc, motivo: motivoCorreto };
+          lancamentosCorrigidos[idx] = corrigido;
+          lansParaAtualizar.push(corrigido);
+        }
+      }
+    });
+
+    setLancamentos([...lancamentosCorrigidos, ...novosLans, ...lansEstoqueLimpos]);
     if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
+    lansParaInserir.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
+    lansParaAtualizar.forEach(l => dbUpdate('financeiro_lancamentos', l.id, toDbLancamento(l)));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
     setNutricaoOrdem(configResult?.data?.nutricao_ordem || []);
   } catch (err) {
@@ -965,14 +1008,18 @@ const loadAllData = async () => {
       const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
       const proxMes = f.mes === 12 ? 1 : f.mes + 1;
       const proxAno = f.mes === 12 ? f.ano + 1 : f.ano;
-      const vencimento = `${proxAno}-${String(proxMes).padStart(2, '0')}-10`;
+      const vencimentoStr = `10/${String(proxMes).padStart(2, '0')}/${proxAno}`;
+      // Data = último dia da competência (ex: 30/06 para fatura de Junho) — fica visível
+      // no mês em que a fatura foi fechada, e vira "atrasada" no dia seguinte.
+      const ultimoDia = new Date(f.ano, f.mes, 0).getDate();
+      const dataLanc = `${f.ano}-${String(f.mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
       const lanc = {
         id: `lan_${f.id}`,
         tipo: 'entrada',
         valor: f.total,
-        data: vencimento,
+        data: dataLanc,
         quem: prop?.nome || f.proprietarioNome || '',
-        motivo: `Fatura ${mesNome}/${f.ano} — ${prop?.nome || f.proprietarioNome || ''}`,
+        motivo: `Fatura ${mesNome}/${f.ano} — ${prop?.nome || f.proprietarioNome || ''} (venc. ${vencimentoStr})`,
         categoria: 'Faturamento clientes',
         pago: false,
         pagoEm: null,
