@@ -4965,11 +4965,11 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
   const saudacao = new Date().getHours() < 12 ? 'Bom dia' : 'Boa tarde';
   const primeiroNome = (p.nome || '').trim().split(/\s+/)[0] || p.nome || '';
+  const nomeEmpresa = empresa.nome || 'Epona Stud';
   const summary = [
-    `${saudacao}, ${primeiroNome}! 😊 Tudo bem por aí? Segue em anexo a fatura do mês de ${mesNome} do Epona Stud.`,
+    `${saudacao}, ${primeiroNome}! 😊 Tudo bem por aí? Segue em anexo a fatura do mês de ${mesNome} do ${nomeEmpresa}.`,
     ``,
     `*Fatura ${mesNome} ${ref.ano} — ${p.nome}*`,
-    `Haras Epona`,
     ``,
     ...propMens.map(m => `• ${m.cav.nome}: ${BRL(m.valor / m.share)}${m.parcial ? ` (${m.dias}/${m.total} dias)` : ''}${m.share > 1 ? ` (${m.share} proprietários)` : ''}`),
     ``,
