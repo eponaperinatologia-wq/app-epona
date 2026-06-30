@@ -996,7 +996,8 @@ const loadAllData = async () => {
   // ── Faturas fechadas ──────────────────────────────────────────
   const addFaturaFechada = (f) => {
     setFaturasFechadas(prev => [...prev.filter(x => !(x.proprietarioId === f.proprietarioId && x.ano === f.ano && x.mes === f.mes)), f]);
-    dbInsert('faturas_fechadas', toDbFaturaFechada(f));
+    // Upsert: refechar (após Desfazer) ou auto-fechar bater com manual sobrescreve em vez de quebrar com PK duplicada.
+    dbUpsert('faturas_fechadas', toDbFaturaFechada(f));
     // Cria lançamento de entrada apenas para faturas com competência >= cutoff (junho/2026).
     // Competências anteriores são fechadas sem lançar — o usuário cadastrará atrasos manualmente.
     if ((f.total || 0) > 0 && isCompetenciaAptaParaLancamento(f.ano, f.mes)) {
@@ -1022,7 +1023,8 @@ const loadAllData = async () => {
         _faturaFechadaId: f.id,
       };
       setLancamentos(prev => [lanc, ...prev.filter(l => l.id !== lanc.id)]);
-      dbInsert('financeiro_lancamentos', toDbLancamento(lanc));
+      // Upsert para tolerar PK duplicada quando a fatura é reaberta e refechada.
+      dbUpsert('financeiro_lancamentos', toDbLancamento(lanc));
     }
   };
 
