@@ -5367,7 +5367,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const proxMes = ref.mes === 12 ? 1 : ref.mes + 1;
   const proxAno = ref.mes === 12 ? ref.ano + 1 : ref.ano;
 
-  const handleFecharFatura = () => {
+  const handleFecharFatura = async () => {
     if (faturaExistente || !addFaturaFechada) return;
     const linhas = [
       ...propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase, share: m.share })),
@@ -5379,7 +5379,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
       ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total, share: l.share })),
       ...cfLinhas.map(l => ({ tipo: 'custoFixo', cavaloId: l.cav.id, cavaloNome: l.cav.nome, dias: l.dias, totalDias: l.totalDias, valor: l.valor, share: l.share, cotaMensal: custoFixoPorCavaloMes })),
     ];
-    addFaturaFechada({
+    const ok = await addFaturaFechada({
       id: `ff_${id}_${ref.ano}_${ref.mes}`,
       proprietarioId: id, proprietarioNome: p.nome,
       ano: ref.ano, mes: ref.mes,
@@ -5389,6 +5389,9 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
       linhas, fechadaPor: currentUser?.nome || '',
       fechadaEm: new Date().toISOString(),
     });
+    if (ok === false) {
+      window.dispatchEvent(new CustomEvent('db-error', { detail: { op: 'fechar', table: 'faturas_fechadas', msg: 'Fatura NÃO foi salva no servidor. Rode a migração SQL no Supabase (migration_2026_06_30.sql) para garantir que todas as colunas existam.' } }));
+    }
   };
 
   const getPdf = () => gerarPdfFatura({ proprietario: p, ref, mesNome, propMens, propPerfil, insumosLinhas, procLinhas, cfLinhas, custoFixoTotal, mensTotal, perfilTotal, insumosTotal, procedimentosTotal, total, empresa });
