@@ -4204,13 +4204,30 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
     ? presentes.filter(c => norm(c.nome).includes(norm(busca)) || norm(c.baia || '').includes(norm(busca)))
     : presentes;
 
+  // ── Custo Fixo rateado por cavalo (mês corrente) ──
+  const hoje = new Date();
+  const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+  const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+  const cfDoMes = (custosFixos || []).filter(c => c.mes === mesAtual);
+  const cfActuals = cfDoMes.reduce((s, c) => (CATEGORIAS_RATEAVEIS.includes(c.categoria) ? s + c.valor : s), 0);
+  const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+  const cfTotalMes = cfActuals + cfProvisao;
+  const nPresentes = presentes.length;
+  const custoFixoPorCavaloMes = nPresentes > 0 ? cfTotalMes / nPresentes : 0;
+  const custoFixoPorCavaloDia = custoFixoPorCavaloMes / 30; // base 30 dias
+  const custoFixoPorCavaloPeriodo = custoFixoPorCavaloDia * p.dias;
+
   const rows = filtrados.map(cav => {
     const linhas = consumoDiarioCavaloLive(cav, insumos);
-    const totalDia = linhas.reduce((s, l) => s + l.valorUnit * l.qtdDia, 0);
-    return { cav, linhas, totalDia, totalPeriodo: totalDia * p.dias };
+    const nutricaoDia = linhas.reduce((s, l) => s + l.valorUnit * l.qtdDia, 0);
+    const nutricaoPeriodo = nutricaoDia * p.dias;
+    const totalPeriodo = nutricaoPeriodo + custoFixoPorCavaloPeriodo;
+    return { cav, linhas, nutricaoDia, nutricaoPeriodo, custoFixoPeriodo: custoFixoPorCavaloPeriodo, totalPeriodo };
   }).filter(r => r.linhas.length > 0 || busca.trim());
 
-  const totalGeral = rows.reduce((s, r) => s + r.totalPeriodo, 0);
+  const totalNutricaoGeral = rows.reduce((s, r) => s + r.nutricaoPeriodo, 0);
+  const totalCustoFixoGeral = rows.reduce((s, r) => s + r.custoFixoPeriodo, 0);
+  const totalGeral = totalNutricaoGeral + totalCustoFixoGeral;
 
   const porInsumo = {};
   rows.forEach(r => r.linhas.forEach(l => {
@@ -4244,50 +4261,46 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
         </div>
       </div>
 
-      <div style={{ padding: '0 16px', marginBottom: 14 }}>
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Consumo nutricional / {p.label.toLowerCase()}</div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(totalGeral)}</div>
+      {/* Total geral com breakdown */}
+      <div style={{ padding: '0 16px', marginBottom: 12 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo total / {p.label.toLowerCase()}</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(totalGeral)}</div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Base de cálculo</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}>valor de compra</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>{rows.length} cavalos · {p.dias} dia{p.dias !== 1 ? 's' : ''}</div>
+            </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{rows.length} cavalos</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>{p.dias} dia{p.dias !== 1 ? 's' : ''}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            <div style={{ background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10, padding: '8px 10px' }}>
+              <div style={{ fontSize: 9, color: '#92400e', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🌾 Nutrição</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#92400e', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalNutricaoGeral)}</div>
+            </div>
+            <div style={{ background: '#dcfce7', border: '1px solid #86efac', borderRadius: 10, padding: '8px 10px' }}>
+              <div style={{ fontSize: 9, color: '#166534', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>🏛️ Custo fixo rateado</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: '#166534', marginTop: 2, fontWeight: 600 }}>{formatBRL(totalCustoFixoGeral)}</div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Custo Fixo rateado por cavalo (mês corrente) */}
-      {(() => {
-        const hoje = new Date();
-        const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
-        const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
-        const doMes = (custosFixos || []).filter(c => c.mes === mesAtual);
-        const actuals = doMes.reduce((s, c) => {
-          if (!CATEGORIAS_RATEAVEIS.includes(c.categoria)) return s;
-          return s + c.valor;
-        }, 0);
-        const provisao = doMes
-          .filter(c => c.categoria === 'salario')
-          .reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
-        const totalRateavel = actuals + provisao;
-        const nPresentes = presentes.length;
-        const custoFixoPorCavalo = nPresentes > 0 ? totalRateavel / nPresentes : 0;
-        return (
-          <div style={{ padding: '0 16px', marginBottom: 14 }}>
-            <div onClick={() => setScreen('custosFixos')} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #3d6043, #2d4a32)', borderRadius: 14, padding: '12px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / cavalo (mês)</div>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 22, marginTop: 2 }}>{formatBRL(custoFixoPorCavalo)}</div>
-                <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
-                  {formatBRL(actuals)} reais + {formatBRL(provisao)} provisão encargos = {formatBRL(totalRateavel)} ÷ {nPresentes} cavalos
-                </div>
-              </div>
-              <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}>›</div>
+      {/* Custo fixo rateado / cavalo no período */}
+      <div style={{ padding: '0 16px', marginBottom: 14 }}>
+        <div onClick={() => setScreen('custosFixos')} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #3d6043, #2d4a32)', borderRadius: 14, padding: '12px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / cavalo / {p.label.toLowerCase()}</div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, marginTop: 2 }}>{formatBRL(custoFixoPorCavaloPeriodo)}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
+              Base mês: {formatBRL(custoFixoPorCavaloMes)} · {formatBRL(cfActuals)} reais + {formatBRL(cfProvisao)} provisão ÷ {nPresentes} cavalos
             </div>
           </div>
-        );
-      })()}
+          <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}>›</div>
+        </div>
+      </div>
 
       {Object.keys(porInsumo).length > 0 && (
         <div style={{ padding: '0 16px', marginBottom: 14 }}>
@@ -4304,26 +4317,30 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       )}
 
       <div style={{ padding: '0 16px' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Por cavalo</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Por cavalo · {p.label.toLowerCase()}</div>
         {rows.length === 0 && (
           <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>
             {busca ? 'Nenhum cavalo encontrado' : 'Nenhum cavalo com plano nutricional'}
           </div>
         )}
-        {rows.map(({ cav, linhas, totalPeriodo }) => (
+        {rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo }) => (
           <div key={cav.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: linhas.length > 0 ? 8 : 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{cav.nome}</div>
                 {cav.baia && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{cav.baia}</div>}
               </div>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(totalPeriodo)}</div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(totalPeriodo)}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{formatBRL(nutricaoPeriodo)} nutrição + {formatBRL(custoFixoPeriodo)} fixo</div>
+              </div>
             </div>
             {linhas.map(l => (
               <div key={l.insumoId} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderTop: '1px solid var(--line)' }}>
                 <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{l.nome}</span>
                 <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {(l.qtdDia * p.dias) % 1 === 0 ? (l.qtdDia * p.dias) : (l.qtdDia * p.dias).toFixed(1)} {l.unidade}
+                  {' · '}{formatBRL(l.valorUnit * l.qtdDia * p.dias)}
                 </span>
               </div>
             ))}
