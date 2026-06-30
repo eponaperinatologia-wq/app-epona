@@ -1,7 +1,7 @@
 // screens.jsx — All app screens for App Epona
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Icon, CATEGORIA_ICONS } from './icons';
-import { getEmpresa, saveEmpresa } from './utils/empresa';
+import { getEmpresa, saveEmpresa, isProprietarioProprio, getProprietarioProprioId } from './utils/empresa';
 import { gerarPdfFatura, nomePdfFatura } from './utils/pdfFatura';
 import {
   CAVALOS, PROPRIETARIOS, INSUMOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS,
@@ -215,6 +215,45 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
     const qtdDia = p.qtd / freqDias;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
     linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * diasEfetivos });
+  }
+  return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
+};
+
+// Versão "custo real" do perfil nutricional: usa valorCompra (com fallback p/ valorVenda).
+// Sempre inclui ração, feno, óleo, suplementos e periódicos — para o haras, todo
+// consumo é gasto real, independente de "incluído na mensalidade".
+const calcCustoCompraPerfilMes = (cav, ref, movimentacoes, insumos) => {
+  const { dias } = calcDias(cav, ref, movimentacoes);
+  if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
+  const findIns = (id) => (insumos || []).find(i => i.id === id);
+  const v = (ins) => Number(ins?.valorCompra ?? ins?.valorVenda ?? 0) || 0;
+  const linhas = [];
+  if (cav.nutricao.racaoId) {
+    const racao = findIns(cav.nutricao.racaoId);
+    const kgDia = (cav.nutricao.racaoKgManha || 0) + (cav.nutricao.racaoKgTarde || 0) + (cav.nutricao.comeAlmoco ? (cav.nutricao.racaoKgAlmoco || 0) : 0);
+    if (racao && kgDia > 0) linhas.push({ nome: racao.nome, valorMes: v(racao) * kgDia * dias });
+  }
+  if ((cav.nutricao.fenoKgDia || 0) > 0) {
+    const feno = (insumos || []).find(i => i.nome?.toLowerCase().includes('feno'));
+    if (feno) linhas.push({ nome: feno.nome, valorMes: v(feno) * cav.nutricao.fenoKgDia * dias });
+  }
+  if (cav.nutricao.oleoMlDia > 0) {
+    const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
+    if (oleoIns) linhas.push({ nome: oleoIns.nome, valorMes: v(oleoIns) * cav.nutricao.oleoMlDia * dias });
+  }
+  for (const s of (cav.nutricao.suplementos || [])) {
+    const ins = findIns(s.insumoId);
+    if (!ins) continue;
+    const diasEf = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
+    linhas.push({ nome: ins.nome, valorMes: v(ins) * s.qtdDia * diasEf });
+  }
+  for (const p of (cav.nutricao.periodicos || [])) {
+    const ins = findIns(p.insumoId);
+    if (!ins) continue;
+    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
+    const qtdDia = p.qtd / freqDias;
+    const diasEf = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
+    linhas.push({ nome: ins.nome + ' (per.)', valorMes: v(ins) * qtdDia * diasEf });
   }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
@@ -3129,7 +3168,10 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
   const getFaturaFechada = (propId) => faturasFechadas.find(f => f.proprietarioId === propId && f.ano === ref.ano && f.mes === ref.mes);
 
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
-  const faturas = [...proprietarios].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
+  const empresaInfo = getEmpresa();
+  // Epona Stud (= proprietário próprio) não tem fatura — somos nós mesmos.
+  const proprietariosCobraveis = proprietarios.filter(p => !isProprietarioProprio(p, empresaInfo));
+  const faturas = [...proprietariosCobraveis].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
     const ff = getFaturaFechada(p.id);
     const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
     if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
@@ -3895,6 +3937,9 @@ const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], regist
   const hoje = new Date();
   const ref = faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
+  // Epona Stud (próprio) não conta como receita.
+  const empresaResumo = getEmpresa();
+  proprietarios = proprietarios.filter(p => !isProprietarioProprio(p, empresaResumo));
 
   const meses6 = Array.from({ length: 6 }, (_, i) => {
     const d = new Date(hoje.getFullYear(), hoje.getMonth() - (5 - i), 1);
@@ -4245,11 +4290,176 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
   );
 };
 
+// ─────────────────────────────────────────────────────────────
+// NOSSOS CUSTOS · cavalos do Epona Stud (próprios e cota em compartilhados)
+// ─────────────────────────────────────────────────────────────
+const NossosCustosSubScreen = ({ proprietarios = [], cavalos = [], registros = [], insumos = [], movimentacoes = [], procedimentos = [], custosFixos = [], faturaRef }) => {
+  const hoje = new Date();
+  const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
+  const empresa = getEmpresa();
+  const proprioId = getProprietarioProprioId(proprietarios, empresa);
+  const ehPotroAoPe = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
+
+  if (!proprioId) {
+    return (
+      <div style={{ padding: 24, color: 'var(--ink-2)', fontSize: 13, lineHeight: 1.5 }}>
+        Nenhum proprietário está casando com o nome da empresa <b>{empresa?.nome || 'Epona Stud'}</b>.
+        <br /><br />
+        Para usar este painel, cadastre um proprietário com o <b>mesmo nome</b> da empresa em <i>Cadastros · Proprietários</i>.
+      </div>
+    );
+  }
+
+  const navMes = (delta) => {
+    setRef(prev => {
+      let m = prev.mes + delta, a = prev.ano;
+      if (m < 1) { m = 12; a--; }
+      if (m > 12) { m = 1; a++; }
+      return { ano: a, mes: m };
+    });
+  };
+
+  // Nossos cavalos = onde aparecemos como proprietário.
+  const nossosCavalos = cavalos.filter(c =>
+    (c.proprietarioIds || []).includes(proprioId) || c.proprietarioId === proprioId
+  );
+
+  // Custo fixo do mês — mesma fórmula do FaturaDetalhe.
+  const mesKey = `${ref.ano}-${String(ref.mes).padStart(2, '0')}`;
+  const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+  const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
+  const cfActuals = cfDoMes.reduce((s, c) => (CATEGORIAS_RATEAVEIS.includes(c.categoria) ? s + c.valor : s), 0);
+  const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+  const cfTotalMes = cfActuals + cfProvisao;
+  const nPagantesHaras = cavalos.filter(c => c.presente !== false && !ehPotroAoPe(c)).length;
+  const cfPorCavaloMes = nPagantesHaras > 0 ? cfTotalMes / nPagantesHaras : 0;
+
+  // Por cavalo nosso: nossa cota dos consumos + custo fixo cota.
+  const linhasCavalo = nossosCavalos.map(cav => {
+    const totalProp = Math.max(1, (cav.proprietarioIds || []).length || 1);
+    const minhaCota = 1 / totalProp;
+    const integral = totalProp === 1;
+
+    // Consumo nutricional (perfil) a valor de compra
+    const perfil = calcCustoCompraPerfilMes(cav, ref, movimentacoes, insumos);
+    const perfilCota = perfil.total * minhaCota;
+
+    // Insumos avulsos do mês a valor de compra
+    const regsCav = registros.filter(r => {
+      if (r.cavaloId !== cav.id) return false;
+      if (!r.data) return true;
+      const d = new Date(r.data + 'T12:00:00');
+      return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+    });
+    const avulsosBruto = regsCav.reduce((s, r) => {
+      const ins = insumos.find(i => i.id === r.insumoId);
+      const val = Number(ins?.valorCompra ?? ins?.valorVenda ?? 0) || 0;
+      return s + val * r.qtd;
+    }, 0);
+    const avulsosCota = avulsosBruto * minhaCota;
+
+    // Procedimentos avulsos do mês (cobrado é o que se paga ao prestador)
+    const procsCav = procedimentos.filter(p => {
+      if (p.cavaloId !== cav.id) return false;
+      if (!p.data) return false;
+      const d = new Date(p.data + 'T12:00:00');
+      return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+    });
+    const procsBruto = procsCav.reduce((s, p) => s + (p.total || 0), 0);
+    const procsCota = procsBruto * minhaCota;
+
+    // Custo fixo cota (cavalos potro ao pé não pagam custo fixo)
+    const { dias, total: totalDias } = calcDias(cav, ref, movimentacoes);
+    const cfBruto = ehPotroAoPe(cav) ? 0 : cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+    const cfCota = cfBruto * minhaCota;
+
+    const total = perfilCota + avulsosCota + procsCota + cfCota;
+    return { cav, integral, totalProp, minhaCota, dias, totalDias, perfilCota, avulsosCota, procsCota, cfCota, total };
+  }).sort((a, b) => b.total - a.total);
+
+  const totalGeral = linhasCavalo.reduce((s, l) => s + l.total, 0);
+  const totalPerfil = linhasCavalo.reduce((s, l) => s + l.perfilCota, 0);
+  const totalAvulsos = linhasCavalo.reduce((s, l) => s + l.avulsosCota, 0);
+  const totalProcs = linhasCavalo.reduce((s, l) => s + l.procsCota, 0);
+  const totalCf = linhasCavalo.reduce((s, l) => s + l.cfCota, 0);
+
+  return (
+    <div>
+      <div style={{ padding: '12px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <button onClick={() => navMes(-1)} style={{ background: 'none', border: 'none', padding: '6px 12px', fontSize: 22, color: 'var(--ink-2)', cursor: 'pointer' }}>‹</button>
+        <div style={{ textAlign: 'center' }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>{MESES[ref.mes - 1]} · {ref.ano}</div>
+        </div>
+        <button onClick={() => navMes(1)} style={{ background: 'none', border: 'none', padding: '6px 12px', fontSize: 22, color: 'var(--ink-2)', cursor: 'pointer' }}>›</button>
+      </div>
+
+      <div style={{ padding: '12px 20px 0' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '16px' }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+            Nosso custo no mês
+          </div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 32, color: 'var(--ink)', letterSpacing: '-0.02em', marginTop: 4 }}>
+            {formatBRL(totalGeral)}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 4 }}>
+            {nossosCavalos.length} cavalo{nossosCavalos.length !== 1 ? 's' : ''} · valor de compra dos insumos
+          </div>
+          <div style={{ borderTop: '1px dashed var(--line)', marginTop: 10, paddingTop: 10, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, fontSize: 12, color: 'var(--ink-2)' }}>
+            <div>Ração / feno / suplem.: <b>{formatBRL(totalPerfil)}</b></div>
+            <div>Insumos avulsos: <b>{formatBRL(totalAvulsos)}</b></div>
+            <div>Procedimentos: <b>{formatBRL(totalProcs)}</b></div>
+            <div>Cota custo fixo: <b>{formatBRL(totalCf)}</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ padding: '14px 20px 0' }}>
+        <h2 style={{ fontFamily: 'var(--serif)', fontSize: 16, fontWeight: 400, margin: '0 0 8px', color: 'var(--ink-2)' }}>Por cavalo</h2>
+        {linhasCavalo.length === 0 && (
+          <div style={{ padding: 16, fontSize: 13, color: 'var(--ink-3)' }}>Nenhum cavalo nosso neste mês.</div>
+        )}
+        {linhasCavalo.map(l => (
+          <div key={l.cav.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '12px 14px', marginBottom: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>
+                {l.cav.nome}
+                {!l.integral && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--ink-3)' }}>· nossa cota {(l.minhaCota * 100).toFixed(0)}% ({l.totalProp} prop.)</span>
+                )}
+                {l.integral && (
+                  <span style={{ marginLeft: 6, fontSize: 11, color: 'var(--accent)' }}>· 100% nosso</span>
+                )}
+              </div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{formatBRL(l.total)}</div>
+            </div>
+            <div style={{ marginTop: 6, fontSize: 11, color: 'var(--ink-3)', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              {l.perfilCota > 0 && <div>Ração/feno/suplem.: {formatBRL(l.perfilCota)}</div>}
+              {l.avulsosCota > 0 && <div>Avulsos: {formatBRL(l.avulsosCota)}</div>}
+              {l.procsCota > 0 && <div>Procedimentos: {formatBRL(l.procsCota)}</div>}
+              {l.cfCota > 0 && <div>Cota custo fixo: {formatBRL(l.cfCota)}</div>}
+            </div>
+            <div style={{ marginTop: 4, fontSize: 10, color: 'var(--ink-3)' }}>
+              {l.dias}/{l.totalDias} dias{ehPotroAoPe(l.cav) ? ' · potro ao pé (sem custo fixo)' : ''}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: '16px 20px 20px', fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.5 }}>
+        Inclui apenas a parte que cabe ao Epona Stud. Insumos contabilizados a <b>valor de compra</b>. Procedimentos a valor cobrado pelo prestador. Custo fixo distribuído entre todos os cavalos presentes (exceto potros ao pé).
+      </div>
+    </div>
+  );
+};
+
 const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
-    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'grafico', label: 'Gráfico' }, { id: 'estoque', label: 'Estoque' }, { id: 'resumo', label: 'Resumo' }]
+    ? [{ id: 'faturas', label: 'Faturas' }, { id: 'entradas', label: 'Entradas' }, { id: 'saidas', label: 'Saídas' }, { id: 'nossos', label: 'Nossos' }, { id: 'grafico', label: 'Gráfico' }, { id: 'estoque', label: 'Estoque' }, { id: 'resumo', label: 'Resumo' }]
     : [{ id: 'faturas', label: 'Faturas' }];
 
   return (
@@ -4288,6 +4498,9 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
       )}
       {subTab === 'saidas' && isAdmin && (
         <LancamentosSubScreen tipo="saida" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} setScreen={setScreen} />
+      )}
+      {subTab === 'nossos' && isAdmin && (
+        <NossosCustosSubScreen proprietarios={proprietarios} cavalos={cavalos} registros={registros} insumos={insumos} movimentacoes={movimentacoes} procedimentos={procedimentos} custosFixos={custosFixos} faturaRef={faturaRef} />
       )}
       {subTab === 'grafico' && isAdmin && (
         <GraficoFinanceiroSubScreen lancamentos={lancamentos} custosFixos={custosFixos} faturasFechadas={faturasFechadas} cavalos={cavalos} />
@@ -5002,7 +5215,9 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     }, 0);
     return { total: m + pf + insTotal, fechada: false };
   };
+  const empresaInfoAtual = getEmpresa();
   const faturasOrdenadas = [...proprietarios]
+    .filter(pr => !isProprietarioProprio(pr, empresaInfoAtual))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'))
     .filter(pr => {
       const { total: t, fechada } = totalDoProprietario(pr);

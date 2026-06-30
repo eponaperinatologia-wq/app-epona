@@ -11,6 +11,7 @@ import {
   TabBar, OperacionalTabBar,
   calcMensalidadeProporcional, calcPerfilMes,
 } from './screens';
+import { isProprietarioProprio } from './utils/empresa';
 
 // Cutoff: faturas com competência >= esta data ganham lançamento de entrada vinculado.
 // Faturas anteriores são fechadas (auto ou manualmente) sem lançar em Entradas.
@@ -1052,6 +1053,8 @@ const loadAllData = async () => {
       let fechadosEsseMes = 0;
 
       proprietarios.forEach(prop => {
+        // Epona Stud (próprio) não tem fatura.
+        if (isProprietarioProprio(prop, empresaInfo)) return;
         const jaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ano && f.mes === mes);
         if (jaFechada) return;
         const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id);
