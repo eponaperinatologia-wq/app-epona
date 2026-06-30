@@ -450,11 +450,29 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
             </button>
           )}
         </div>
-        {temBusca && (
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 5, paddingLeft: 2 }}>
-            {totalFiltrado} {totalFiltrado === 1 ? 'animal encontrado' : 'animais encontrados'}
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5, paddingLeft: 2 }}>
+          {temBusca ? (
+            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+              {totalFiltrado} {totalFiltrado === 1 ? 'animal encontrado' : 'animais encontrados'}
+            </div>
+          ) : <div />}
+          {!temBusca && groups.length > 0 && (
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setColapsados(new Set())}
+                style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: 0 }}
+              >
+                Expandir tudo
+              </button>
+              <button
+                onClick={() => setColapsados(new Set(groups.map(g => g.key)))}
+                style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: 0 }}
+              >
+                Recolher tudo
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Grupos por piquete */}
