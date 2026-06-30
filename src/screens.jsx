@@ -4194,14 +4194,24 @@ const consumoDiarioCavaloLive = (cav, insumos) => {
   return linhas;
 };
 
-const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = [] }) => {
+const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = [], proprietarios = [] }) => {
   const [periodo, setPeriodo] = useState('semana');
   const [busca, setBusca] = useState('');
+  const [abertos, setAbertos] = useState({});
   const p = PERIODOS.find(x => x.id === periodo) || PERIODOS[1];
 
   const presentes = cavalos.filter(c => c.presente !== false);
-  const filtrados = busca.trim()
-    ? presentes.filter(c => norm(c.nome).includes(norm(busca)) || norm(c.baia || '').includes(norm(busca)))
+  const buscaTrim = busca.trim();
+  const filtrados = buscaTrim
+    ? presentes.filter(c => {
+        const matchCav = norm(c.nome).includes(norm(buscaTrim)) || norm(c.baia || '').includes(norm(buscaTrim));
+        if (matchCav) return true;
+        const ownerIds = c.proprietarioIds && c.proprietarioIds.length > 0 ? c.proprietarioIds : (c.proprietarioId ? [c.proprietarioId] : []);
+        return ownerIds.some(pid => {
+          const prop = proprietarios.find(x => x.id === pid);
+          return prop && norm(prop.nome).includes(norm(buscaTrim));
+        });
+      })
     : presentes;
 
   // ── Custo Fixo rateado por cavalo (mês corrente) ──
@@ -4228,6 +4238,32 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
   const totalNutricaoGeral = rows.reduce((s, r) => s + r.nutricaoPeriodo, 0);
   const totalCustoFixoGeral = rows.reduce((s, r) => s + r.custoFixoPeriodo, 0);
   const totalGeral = totalNutricaoGeral + totalCustoFixoGeral;
+
+  // Agrupa por proprietário, em ordem alfabética
+  const gruposPorProprietario = (() => {
+    const map = {};
+    rows.forEach(r => {
+      const ownerIds = r.cav.proprietarioIds && r.cav.proprietarioIds.length > 0 ? r.cav.proprietarioIds : (r.cav.proprietarioId ? [r.cav.proprietarioId] : []);
+      const pid = ownerIds[0] || '_sem';
+      const prop = pid === '_sem'
+        ? { id: '_sem', nome: 'Sem proprietário' }
+        : (proprietarios.find(x => x.id === pid) || { id: pid, nome: 'Proprietário não encontrado' });
+      if (!map[pid]) map[pid] = { proprietario: prop, rows: [] };
+      map[pid].rows.push(r);
+    });
+    return Object.values(map)
+      .map(g => ({
+        ...g,
+        rows: [...g.rows].sort((a, b) => a.cav.nome.localeCompare(b.cav.nome, 'pt')),
+        totalGrupo: g.rows.reduce((s, r) => s + r.totalPeriodo, 0),
+        totalNutricao: g.rows.reduce((s, r) => s + r.nutricaoPeriodo, 0),
+        totalCustoFixo: g.rows.reduce((s, r) => s + r.custoFixoPeriodo, 0),
+      }))
+      .sort((a, b) => a.proprietario.nome.localeCompare(b.proprietario.nome, 'pt'));
+  })();
+
+  // Auto-expandir todos quando há busca
+  const isBuscando = !!buscaTrim;
 
   const porInsumo = {};
   rows.forEach(r => r.linhas.forEach(l => {
@@ -4317,35 +4353,65 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       )}
 
       <div style={{ padding: '0 16px' }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 8 }}>Por cavalo · {p.label.toLowerCase()}</div>
-        {rows.length === 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)' }}>Por proprietário · {p.label.toLowerCase()}</div>
+          {gruposPorProprietario.length > 1 && !isBuscando && (
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button onClick={() => { const all = {}; gruposPorProprietario.forEach(g => all[g.proprietario.id] = true); setAbertos(all); }} style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline' }}>Expandir tudo</button>
+              <button onClick={() => setAbertos({})} style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline' }}>Recolher tudo</button>
+            </div>
+          )}
+        </div>
+        {gruposPorProprietario.length === 0 && (
           <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>
-            {busca ? 'Nenhum cavalo encontrado' : 'Nenhum cavalo com plano nutricional'}
+            {buscaTrim ? 'Nenhum cavalo ou proprietário encontrado' : 'Nenhum cavalo com plano nutricional'}
           </div>
         )}
-        {rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo }) => (
-          <div key={cav.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '12px 14px', marginBottom: 8 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
-              <div>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{cav.nome}</div>
-                {cav.baia && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{cav.baia}</div>}
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(totalPeriodo)}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{formatBRL(nutricaoPeriodo)} nutrição + {formatBRL(custoFixoPeriodo)} fixo</div>
-              </div>
+        {gruposPorProprietario.map(grupo => {
+          const aberto = isBuscando || !!abertos[grupo.proprietario.id];
+          return (
+            <div key={grupo.proprietario.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, marginBottom: 8, overflow: 'hidden' }}>
+              <button onClick={() => !isBuscando && setAbertos(prev => ({ ...prev, [grupo.proprietario.id]: !prev[grupo.proprietario.id] }))} style={{ width: '100%', background: 'none', border: 'none', padding: '12px 14px', display: 'flex', alignItems: 'center', gap: 10, cursor: isBuscando ? 'default' : 'pointer', textAlign: 'left' }}>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)', transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', display: 'inline-block', width: 12 }}>›</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{grupo.proprietario.nome}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{grupo.rows.length} cavalo{grupo.rows.length !== 1 ? 's' : ''}</div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(grupo.totalGrupo)}</div>
+                  <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>{formatBRL(grupo.totalNutricao)} + {formatBRL(grupo.totalCustoFixo)} fixo</div>
+                </div>
+              </button>
+              {aberto && (
+                <div style={{ background: 'var(--soft)', padding: '4px 10px 10px' }}>
+                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo }) => (
+                    <div key={cav.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 6 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
+                        <div>
+                          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{cav.nome}</div>
+                          {cav.baia && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{cav.baia}</div>}
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(totalPeriodo)}</div>
+                          <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>{formatBRL(nutricaoPeriodo)} + {formatBRL(custoFixoPeriodo)} fixo</div>
+                        </div>
+                      </div>
+                      {linhas.map(l => (
+                        <div key={l.insumoId} style={{ display: 'flex', justifyContent: 'space-between', padding: '2px 0', borderTop: '1px solid var(--line)' }}>
+                          <span style={{ fontSize: 11, color: 'var(--ink-2)' }}>{l.nome}</span>
+                          <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                            {(l.qtdDia * p.dias) % 1 === 0 ? (l.qtdDia * p.dias) : (l.qtdDia * p.dias).toFixed(1)} {l.unidade}
+                            {' · '}{formatBRL(l.valorUnit * l.qtdDia * p.dias)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            {linhas.map(l => (
-              <div key={l.insumoId} style={{ display: 'flex', justifyContent: 'space-between', padding: '3px 0', borderTop: '1px solid var(--line)' }}>
-                <span style={{ fontSize: 12, color: 'var(--ink-2)' }}>{l.nome}</span>
-                <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                  {(l.qtdDia * p.dias) % 1 === 0 ? (l.qtdDia * p.dias) : (l.qtdDia * p.dias).toFixed(1)} {l.unidade}
-                  {' · '}{formatBRL(l.valorUnit * l.qtdDia * p.dias)}
-                </span>
-              </div>
-            ))}
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
