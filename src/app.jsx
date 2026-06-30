@@ -9,7 +9,7 @@ import {
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
   HistoricoScreen,
   TabBar, OperacionalTabBar,
-  calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes,
+  calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes, calcFaturaProprietario,
 } from './screens';
 import { isProprietarioProprio } from './utils/empresa';
 
@@ -1038,9 +1038,7 @@ const loadAllData = async () => {
     const hoje = new Date();
     const anoAtual = hoje.getFullYear();
     const mesAtual = hoje.getMonth() + 1;
-    const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
-    const findInsumo = (iid) => insumos.find(i => i.id === iid);
-    const ehPotroAoPeCav = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
+    const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
 
     const fechamentos = [];
     // Volta até 24 meses ou até encontrar 3 meses consecutivos sem nada para fechar
@@ -1057,93 +1055,28 @@ const loadAllData = async () => {
         if (isProprietarioProprio(prop, empresaInfo)) return;
         const jaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ano && f.mes === mes);
         if (jaFechada) return;
-        const cavalosObj = cavalos
-          .filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id)
-          .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
-        if (cavalosObj.length === 0) return;
-        const cavIds = new Set(cavalosObj.map(c => c.id));
-
-        // Calcula totais
-        const propMens = cavalosObj.map(c => ({ cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) }));
-        const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
-        const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: shareCount(c) })).filter(pp => pp.linhas.length > 0);
-        const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
-
-        const myReg = (registros || []).filter(r => {
-          if (!cavIds.has(r.cavaloId)) return false;
-          const ins = findInsumo(r.insumoId);
-          const cav = cavalosObj.find(x => x.id === r.cavaloId);
-          const paga = !!cav?.pagarOCusto || ehPotroAoPeCav(cav || {});
-          if (!paga) {
-            if (ins?.incluidoMensalidade) return false;
-            if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
-          }
-          if (!r.data) return false;
-          const dr = new Date(r.data + 'T12:00:00');
-          return dr.getFullYear() === ano && dr.getMonth() + 1 === mes;
-        });
-        const insumosLinhas = myReg.map(r => {
-          const ins = findInsumo(r.insumoId);
-          const cav = cavalos.find(c => c.id === r.cavaloId);
-          const share = shareCount(cav || {});
-          return { reg: r, ins, cav, share, total: ((ins?.valorVenda ?? 0) * r.qtd) / share };
-        });
-        const insumosTotalP = insumosLinhas.reduce((s, l) => s + l.total, 0);
-
-        const procLinhas = (procedimentos || []).filter(pr => {
-          if (!cavIds.has(pr.cavaloId)) return false;
-          if (!pr.data) return false;
-          const dr = new Date(pr.data + 'T12:00:00');
-          return dr.getFullYear() === ano && dr.getMonth() + 1 === mes;
-        }).map(pr => {
-          const cav = cavalos.find(c => c.id === pr.cavaloId);
-          const sv = (servicos || []).find(s => s.id === pr.servicoId);
-          const share = shareCount(cav || {});
-          const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
-          return { proc: pr, cav, sv, nomeSv, share, total: (pr.total || 0) / share };
-        });
-        const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
-
-        // Custo Fixo Rateado para pagarOCusto
-        const mesKey = `${ano}-${String(mes).padStart(2, '0')}`;
-        const CAT_RAT = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
-        const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
-        const cfActuals = cfDoMes.reduce((s, c) => (CAT_RAT.includes(c.categoria) ? s + c.valor : s), 0);
-        const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
-        const cfTotalMes = cfActuals + cfProvisao;
-        const nPagantesHaras = cavalos.filter(c => c.presente !== false && !ehPotroAoPeCav(c)).length;
-        const cfPorCavaloMes = nPagantesHaras > 0 ? cfTotalMes / nPagantesHaras : 0;
-        const cfLinhas = cavalosObj.filter(c => !!c.pagarOCusto).map(c => {
-          const m = propMens.find(x => x.cav.id === c.id);
-          const dias = m?.dias ?? 30;
-          const totalDias = m?.total ?? 30;
-          const share = shareCount(c);
-          const valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
-          return { cav: c, dias, totalDias, share, valor: valorTotal / share };
-        });
-        const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
-
-        const total = mensTotal + perfilTotal + insumosTotalP + procedimentosTotal + custoFixoTotal;
-        if (total <= 0) return;
+        const r = calcFaturaProprietario(prop.id, ref, deps);
+        if (r.cavalosObj.length === 0) return;
+        if (r.total <= 0) return;
 
         const linhas = [
-          ...propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase, share: m.share })),
-          ...propPerfil.flatMap(pp => pp.linhas.map(l => {
+          ...r.propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase, share: m.share })),
+          ...r.propPerfil.flatMap(pp => pp.linhas.map(l => {
             const shareValor = (l.valorMes || l.valor || 0) / pp.share;
             return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor, share: pp.share };
           })),
-          ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total, share: l.share, data: l.reg.data })),
-          ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total, share: l.share })),
-          ...cfLinhas.map(l => ({ tipo: 'custoFixo', cavaloId: l.cav.id, cavaloNome: l.cav.nome, dias: l.dias, totalDias: l.totalDias, valor: l.valor, share: l.share, cotaMensal: cfPorCavaloMes })),
+          ...r.insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total, share: l.share, data: l.reg.data })),
+          ...r.procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total, share: l.share })),
+          ...r.cfLinhas.map(l => ({ tipo: 'custoFixo', cavaloId: l.cav.id, cavaloNome: l.cav.nome, dias: l.dias, totalDias: l.totalDias, valor: l.valor, share: l.share, cotaMensal: l.cotaMensal })),
         ];
 
         fechamentos.push({
           id: `ff_${prop.id}_${ano}_${mes}`,
           proprietarioId: prop.id, proprietarioNome: prop.nome,
           ano, mes,
-          total, mensalidades: mensTotal, perfilNutricional: perfilTotal,
-          insumosAvulsos: insumosTotalP, procedimentosAvulsos: procedimentosTotal,
-          custoFixoRateado: custoFixoTotal,
+          total: r.total, mensalidades: r.mensalidades, perfilNutricional: r.perfilNutricional,
+          insumosAvulsos: r.insumosAvulsos, procedimentosAvulsos: r.procedimentosAvulsos,
+          custoFixoRateado: r.custoFixoRateado,
           linhas, fechadaPor: 'Sistema (auto)',
           fechadaEm: new Date().toISOString(),
         });

@@ -235,6 +235,110 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
 
+// ─────────────────────────────────────────────────────────────
+// CÁLCULO ÚNICO DE FATURA — fonte da verdade
+// Usado por FaturaLista, FaturaDetalhe, Resumo, auto-fechar e Próxima fatura.
+// Mantém a regra:
+//   total = mensalidade + perfilNutricional + insumosAvulsos + procedimentos + custoFixoRateado
+// Cobra cota = valor / shareCount(cavalo)
+// Filtros de insumos:
+//   - se cavalo paga o custo (potroAoPe ou pagarOCusto): TODOS os insumos entram
+//   - se NÃO paga: pula insumos com incluidoMensalidade=true ou categoria ração/nutricao_base
+// Custo fixo: só cobra de cavalos pagarOCusto, proporcional aos dias.
+// ─────────────────────────────────────────────────────────────
+const _ehPotroAoPe = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
+const _cavPagaCusto = (c) => !!c?.pagarOCusto || _ehPotroAoPe(c || {});
+const _shareCount = (c) => Math.max(1, (c?.proprietarioIds || []).length || 1);
+
+const calcFaturaProprietario = (propId, ref, deps) => {
+  const { cavalos = [], registros = [], procedimentos = [], servicos = [], insumos = [], movimentacoes = [], custosFixos = [] } = deps;
+  const cavalosObj = cavalos
+    .filter(c => (c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId)
+    .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
+  const cavIds = new Set(cavalosObj.map(c => c.id));
+  const findInsumo = (iid) => insumos.find(i => i.id === iid);
+
+  // Mensalidade — potros ao pé / pagarOCusto não pagam mensalidade.
+  const propMens = cavalosObj.map(c => {
+    if (_cavPagaCusto(c)) return { cav: c, dias: calcDias(c, ref, movimentacoes).dias, total: calcDias(c, ref, movimentacoes).total, valor: 0, valorBase: 0, share: _shareCount(c), parcial: false };
+    return { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: _shareCount(c) };
+  });
+  const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
+
+  // Perfil nutricional — calcPerfilMes já trata pagaCusto internamente
+  const propPerfil = cavalosObj
+    .map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: _shareCount(c) }))
+    .filter(pp => pp.linhas.length > 0);
+  const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
+
+  // Insumos avulsos
+  const myReg = registros.filter(r => {
+    if (!cavIds.has(r.cavaloId)) return false;
+    const ins = findInsumo(r.insumoId);
+    const cav = cavalosObj.find(x => x.id === r.cavaloId);
+    const paga = _cavPagaCusto(cav);
+    if (!paga) {
+      if (ins?.incluidoMensalidade) return false;
+      if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
+    }
+    if (!r.data) return true;
+    const d = new Date(r.data + 'T12:00:00');
+    return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+  });
+  const insumosLinhas = myReg.map(r => {
+    const ins = findInsumo(r.insumoId);
+    const cav = cavalos.find(c => c.id === r.cavaloId);
+    const share = _shareCount(cav);
+    const subtotal = (Number(ins?.valorVenda) || 0) * r.qtd;
+    return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
+  });
+  const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
+
+  // Procedimentos avulsos
+  const procLinhas = procedimentos.filter(pr => {
+    if (!cavIds.has(pr.cavaloId)) return false;
+    if (!pr.data) return false;
+    const d = new Date(pr.data + 'T12:00:00');
+    return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+  }).map(pr => {
+    const cav = cavalos.find(c => c.id === pr.cavaloId);
+    const sv = servicos.find(s => s.id === pr.servicoId);
+    const share = _shareCount(cav);
+    const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
+    return { proc: pr, cav, sv, nomeSv, share, total: (Number(pr.total) || 0) / share };
+  });
+  const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
+
+  // Custo fixo rateado — só cobra de cavalos pagarOCusto
+  const mesKey = `${ref.ano}-${String(ref.mes).padStart(2, '0')}`;
+  const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+  const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
+  const cfActuals = cfDoMes.reduce((s, c) => (CATEGORIAS_RATEAVEIS.includes(c.categoria) ? s + (Number(c.valor) || 0) : s), 0);
+  const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + (Number(c.valor) || 0) * (Number(c.encargosPct) || 0) / 100, 0);
+  const cfTotalMes = cfActuals + cfProvisao;
+  const nPagantesHaras = cavalos.filter(c => c.presente !== false && !_ehPotroAoPe(c)).length;
+  const cfPorCavaloMes = nPagantesHaras > 0 ? cfTotalMes / nPagantesHaras : 0;
+  const cfLinhas = cavalosObj
+    .filter(c => !!c.pagarOCusto)
+    .map(c => {
+      const { dias, total: totalDias } = calcDias(c, ref, movimentacoes);
+      const share = _shareCount(c);
+      const valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+      return { cav: c, dias, totalDias, share, valor: valorTotal / share, cotaMensal: cfPorCavaloMes };
+    });
+  const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
+
+  const total = mensTotal + perfilTotal + insumosTotal + procedimentosTotal + custoFixoTotal;
+  return {
+    cavalosObj, total,
+    mensalidades: mensTotal, perfilNutricional: perfilTotal,
+    insumosAvulsos: insumosTotal, procedimentosAvulsos: procedimentosTotal,
+    custoFixoRateado: custoFixoTotal,
+    propMens, propPerfil, insumosLinhas, procLinhas, cfLinhas,
+    cfPorCavaloMes,
+  };
+};
+
 // Versão "custo real" do perfil nutricional: usa valorCompra (com fallback p/ valorVenda).
 // Sempre inclui ração, feno, óleo, suplementos e periódicos — para o haras, todo
 // consumo é gasto real, independente de "incluído na mensalidade".
@@ -3175,7 +3279,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
 // ─────────────────────────────────────────────────────────────
 // FATURAS · Lista (sub-tela interna do FinanceiroScreen)
 // ─────────────────────────────────────────────────────────────
-const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [] }) => {
+const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [] }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   const findInsumo = (id) => insumos.find(i => i.id === id);
@@ -3187,27 +3291,26 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
   const empresaInfo = getEmpresa();
   // Epona Stud (= proprietário próprio) não tem fatura — somos nós mesmos.
   const proprietariosCobraveis = proprietarios.filter(p => !isProprietarioProprio(p, empresaInfo));
+  const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
   const faturas = [...proprietariosCobraveis].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
     const ff = getFaturaFechada(p.id);
-    const cavalosObj = cavalos
-      .filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id)
-      .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, []));
-    if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
-    const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
-    const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
-    const cavIds = new Set(cavalosObj.map(c => c.id));
-    const myReg = registros.filter(r => {
-      if (!cavIds.has(r.cavaloId)) return false;
-      if (!r.data) return true;
-      const d = new Date(r.data + 'T12:00:00');
-      return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
-    });
-    const insumosTotal = myReg.reduce((s, r) => {
-      const i = findInsumo(r.insumoId);
-      const cav = cavalos.find(c => c.id === r.cavaloId);
-      return s + ((i?.valorVenda ?? 0) * r.qtd) / shareCount(cav || {});
-    }, 0);
-    return { ...p, total: mensalidades + perfilTotal + insumosTotal, mensalidades, perfil: perfilTotal, insumos: insumosTotal, cavalosObj, fechada: false };
+    if (ff) {
+      const cavalosObj = cavalos
+        .filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
+      return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, procedimentos: ff.procedimentosAvulsos || 0, custoFixo: ff.custoFixoRateado || 0, cavalosObj, fechada: true };
+    }
+    const r = calcFaturaProprietario(p.id, ref, deps);
+    return {
+      ...p,
+      total: r.total,
+      mensalidades: r.mensalidades,
+      perfil: r.perfilNutricional,
+      insumos: r.insumosAvulsos,
+      procedimentos: r.procedimentosAvulsos,
+      custoFixo: r.custoFixoRateado,
+      cavalosObj: r.cavalosObj,
+      fechada: false,
+    };
   })
   // Esconde faturas zeradas (cavalos saíram, sem atividade no mês)
   .filter(f => f.fechada || f.total > 0);
@@ -3267,7 +3370,13 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{f.nome}</div>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                {f.cavalosObj.length} cavalo{f.cavalosObj.length !== 1 ? 's' : ''} · {f.fechada ? 'Fatura fechada ✓' : `mens. ${formatBRL(f.mensalidades)} + perfil ${formatBRL(f.perfil)} + ins. ${formatBRL(f.insumos)}`}
+                {f.cavalosObj.length} cavalo{f.cavalosObj.length !== 1 ? 's' : ''} · {f.fechada ? 'Fatura fechada ✓' : [
+                  `mens. ${formatBRL(f.mensalidades)}`,
+                  f.perfil > 0 ? `perfil ${formatBRL(f.perfil)}` : null,
+                  f.insumos > 0 ? `ins. ${formatBRL(f.insumos)}` : null,
+                  f.procedimentos > 0 ? `proc. ${formatBRL(f.procedimentos)}` : null,
+                  f.custoFixo > 0 ? `c.fixo ${formatBRL(f.custoFixo)}` : null,
+                ].filter(Boolean).join(' + ')}
               </div>
             </div>
             <div style={{ textAlign: 'right' }}>
@@ -3951,7 +4060,7 @@ const GraficoFinanceiroSubScreen = ({ lancamentos = [], custosFixos = [], fatura
   );
 };
 
-const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], registros = [], insumos = [], movimentacoes = [], faturasFechadas = [], faturaRef }) => {
+const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], registros = [], insumos = [], movimentacoes = [], faturasFechadas = [], faturaRef, procedimentos = [], servicos = [], custosFixos = [] }) => {
   const hoje = new Date();
   const ref = faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
@@ -3965,33 +4074,15 @@ const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], regist
   });
 
   const faturamentoMes = useMemo(() => {
+    const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
     return proprietarios.map(prop => {
       const faturaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ref.ano && f.mes === ref.mes);
       if (faturaFechada) return { propId: prop.id, total: faturaFechada.total || 0 };
-      const cavalosObj = cavalos
-        .filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id)
-        .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, []));
-      const cavIds = new Set(cavalosObj.map(c => c.id));
-      const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
-      const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
-      // Insumos avulsos — mesma regra da FaturaDetalheScreen
-      const regTotal = (registros || []).filter(r => {
-        if (!cavIds.has(r.cavaloId)) return false;
-        const ins = insumos.find(i => i.id === r.insumoId);
-        if (ins?.incluidoMensalidade) return false;
-        if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
-        if (!r.data) return true;
-        const d = new Date(r.data + 'T12:00:00');
-        return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
-      }).reduce((s, r) => {
-        const cav = cavalos.find(c => c.id === r.cavaloId);
-        const share = shareCount(cav || {});
-        const ins = insumos.find(i => i.id === r.insumoId);
-        return s + ((ins?.valorVenda ?? 0) * r.qtd) / share;
-      }, 0);
-      return { propId: prop.id, total: mensalidades + perfilTotal + regTotal };
+      const r = calcFaturaProprietario(prop.id, ref, deps);
+      return { propId: prop.id, total: r.total };
     });
-  }, [proprietarios, cavalos, registros, insumos, movimentacoes, faturasFechadas, ref]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proprietarios, cavalos, registros, insumos, movimentacoes, faturasFechadas, procedimentos, servicos, custosFixos, ref]);
 
   const totalFaturamento = faturamentoMes.reduce((s, f) => s + f.total, 0);
 
@@ -4511,7 +4602,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         )}
       </div>
       {subTab === 'faturas' && (
-        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} />
+        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} />
       )}
       {subTab === 'entradas' && isAdmin && (
         <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} />
@@ -4529,7 +4620,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         <EstoqueSubScreen cavalos={cavalos} insumos={insumos} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} />
       )}
       {subTab === 'resumo' && isAdmin && (
-        <ResumoSubScreen lancamentos={lancamentos} proprietarios={proprietarios} cavalos={cavalos} registros={registros} insumos={insumos} movimentacoes={movimentacoes} faturasFechadas={faturasFechadas} faturaRef={faturaRef} />
+        <ResumoSubScreen lancamentos={lancamentos} proprietarios={proprietarios} cavalos={cavalos} registros={registros} insumos={insumos} movimentacoes={movimentacoes} faturasFechadas={faturasFechadas} faturaRef={faturaRef} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} />
       )}
     </div>
   );
@@ -5102,7 +5193,14 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   });
 
-  const propMens = cavalosObj.map(c => ({ cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) }));
+  const propMens = cavalosObj.map(c => {
+    // Potro ao pé e pagarOCusto: não pagam mensalidade (pagam consumo integral).
+    if (cavPagaCusto(c)) {
+      const d = calcDias(c, ref, movimentacoes);
+      return { cav: c, dias: d.dias, total: d.total, valor: 0, valorBase: 0, share: shareCount(c), parcial: false };
+    }
+    return { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) };
+  });
   const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
   const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: shareCount(c) })).filter(pp => pp.linhas.length > 0);
   const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
@@ -5220,24 +5318,8 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const totalDoProprietario = (pr) => {
     const ff = faturasFechadas.find(f => f.proprietarioId === pr.id && f.ano === ref.ano && f.mes === ref.mes);
     if (ff) return { total: ff.total, fechada: true };
-    const cavObj = cavalos
-      .filter(c => (c.proprietarioIds || []).includes(pr.id) || c.proprietarioId === pr.id)
-      .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
-    if (cavObj.length === 0) return { total: 0, fechada: false };
-    const m = cavObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
-    const pf = cavObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
-    const cavIdsLocal = new Set(cavObj.map(c => c.id));
-    const insTotal = registros.reduce((s, r) => {
-      if (!cavIdsLocal.has(r.cavaloId)) return s;
-      if (r.data) {
-        const d = new Date(r.data + 'T12:00:00');
-        if (d.getFullYear() !== ref.ano || d.getMonth() + 1 !== ref.mes) return s;
-      }
-      const i = findInsumo(r.insumoId);
-      const cav = cavalos.find(c => c.id === r.cavaloId);
-      return s + ((i?.valorVenda ?? 0) * r.qtd) / shareCount(cav || {});
-    }, 0);
-    return { total: m + pf + insTotal, fechada: false };
+    const r = calcFaturaProprietario(pr.id, ref, { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos });
+    return { total: r.total, fechada: false };
   };
   const empresaInfoAtual = getEmpresa();
   const faturasOrdenadas = [...proprietarios]
@@ -5618,5 +5700,5 @@ export {
   ProprietarioScreen,
   CadastrosScreen, CadProprietariosScreen, CadInsumosScreen, CadMensalidadesScreen, CadCavalosScreen, CadEmpresaScreen,
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
-  calcDias, calcDiasItem, calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes,
+  calcDias, calcDiasItem, calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes, calcFaturaProprietario,
 };
