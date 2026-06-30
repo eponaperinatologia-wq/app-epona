@@ -212,6 +212,12 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
       const feno = (insumos || []).find(i => i.nome?.toLowerCase().includes('feno'));
       if (feno) linhas.push({ insumoId: feno.id, nome: feno.nome, qtdDia: cav.nutricao.fenoKgDia, unidade: feno.unidade || 'kg', valorUnit: feno.valorVenda || 0, valorDia: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia, valorMes: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia * dias, dias });
     }
+    // Sal Kromium — nutrição base (cobrado só quando paga custo, igual ração/feno)
+    const _salKgDia = (Number(cav.nutricao.salKromiumGManha) || 0) + (Number(cav.nutricao.salKromiumGTarde) || 0);
+    if (_salKgDia > 0) {
+      const sal = (insumos || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+      if (sal) linhas.push({ insumoId: sal.id, nome: sal.nome, qtdDia: _salKgDia, unidade: sal.unidade || 'g', valorUnit: sal.valorVenda || 0, valorDia: (sal.valorVenda || 0) * _salKgDia, valorMes: (sal.valorVenda || 0) * _salKgDia * dias, dias });
+    }
   }
 
   if (cav.nutricao.oleoMlDia > 0) {
@@ -360,6 +366,11 @@ const calcCustoCompraPerfilMes = (cav, ref, movimentacoes, insumos) => {
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
     if (oleoIns) linhas.push({ nome: oleoIns.nome, valorMes: v(oleoIns) * cav.nutricao.oleoMlDia * dias });
+  }
+  const _salKgDiaC = (Number(cav.nutricao.salKromiumGManha) || 0) + (Number(cav.nutricao.salKromiumGTarde) || 0);
+  if (_salKgDiaC > 0) {
+    const sal = (insumos || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+    if (sal) linhas.push({ nome: sal.nome, valorMes: v(sal) * _salKgDiaC * dias });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
@@ -1168,6 +1179,18 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
               valor={formatBRL(c.nutricao.oleoMlDia * (getInsumo('i_oleo')?.valorVenda ?? 0)) + ' / dia'}
             />
           )}
+          {(() => {
+            const salDia = (Number(c.nutricao?.salKromiumGManha) || 0) + (Number(c.nutricao?.salKromiumGTarde) || 0);
+            if (salDia <= 0) return null;
+            const salIns = (insumos || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+            return (
+              <NutritionRow
+                icon="package" color="#525b76"
+                nome={salIns?.nome || 'Sal Kromium'} qtd={`${salDia} g (🌅${c.nutricao.salKromiumGManha || 0}g + 🌇${c.nutricao.salKromiumGTarde || 0}g)`}
+                valor={salIns ? formatBRL(salDia * (salIns.valorVenda || 0)) + ' / dia' : 'incluso na mensalidade'}
+              />
+            );
+          })()}
           {(c.nutricao?.suplementos || []).map(s => {
             const ins = (insumos || []).find(i => i.id === s.insumoId) || getInsumo(s.insumoId);
             if (!ins) return null;
@@ -1805,7 +1828,22 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [oleoMlManha, setOleoMlManha] = useState(String(c.nutricao?.oleoMlManha ?? (c.nutricao?.oleoMlDia ? c.nutricao.oleoMlDia / 2 : 0)));
   const [oleoMlTarde, setOleoMlTarde] = useState(String(c.nutricao?.oleoMlTarde ?? (c.nutricao?.oleoMlDia ? c.nutricao.oleoMlDia / 2 : 0)));
   const [fenoKgDia, setFenoKgDia] = useState(String(c.nutricao?.fenoKgDia ?? 0));
-  const [suplementos, setSuplementos] = useState(c.nutricao?.suplementos || []);
+  // ── Sal Kromium — virou nutrição base (ex-suplemento). Migração dos cadastros antigos:
+  //    se o cavalo ainda tem um item em suplementos cujo nome bate "sal/kromium",
+  //    aproveita a qtdDia, dividida pela metade entre manhã e tarde.
+  const _salKromiumIns = (insumosProp || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+  const _legacySal = (c.nutricao?.suplementos || []).find(s => _salKromiumIns && s.insumoId === _salKromiumIns.id);
+  const _legacySalDia = _legacySal ? (Number(_legacySal.qtdDia) || 0) : 0;
+  const [salKromiumGManha, setSalKromiumGManha] = useState(
+    String(c.nutricao?.salKromiumGManha ?? (_legacySalDia / 2))
+  );
+  const [salKromiumGTarde, setSalKromiumGTarde] = useState(
+    String(c.nutricao?.salKromiumGTarde ?? (_legacySalDia / 2))
+  );
+  // Esconde o Sal Kromium da lista de suplementos no form (passou a ser nutrição base).
+  const [suplementos, setSuplementos] = useState(
+    (c.nutricao?.suplementos || []).filter(s => !_salKromiumIns || s.insumoId !== _salKromiumIns.id)
+  );
   const [periodicos, setPeriodicos] = useState(c.nutricao?.periodicos || []);
   const [novoPerInsumoId, setNovoPerInsumoId] = useState('');
   const [novoPerQtd, setNovoPerQtd] = useState('');
@@ -1876,9 +1914,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       oleoMlManha: parseFloat(oleoMlManha) || 0,
       oleoMlTarde: parseFloat(oleoMlTarde) || 0,
       oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
+      salKromiumGManha: parseFloat(salKromiumGManha) || 0,
+      salKromiumGTarde: parseFloat(salKromiumGTarde) || 0,
       fenoKgDia: parseFloat(fenoKgDia) || 0,
       suplementos,
       periodicos,
+      ...(c.nutricao?.racaoBlock ? { racaoBlock: c.nutricao.racaoBlock } : {}),
     };
     const nutricaoChanged = JSON.stringify(c.nutricao || {}) !== JSON.stringify(newNutricao);
 
@@ -2370,6 +2411,21 @@ Suplementos: ${supNomes}` : ''}`;
           </div>
         </div>
 
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🧂 Sal Kromium Manhã (g)">
+              <input type="number" step="1" value={salKromiumGManha} onChange={e => setSalKromiumGManha(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🧂 Sal Kromium Tarde (g)">
+              <input type="number" step="1" value={salKromiumGTarde} onChange={e => setSalKromiumGTarde(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+        </div>
+
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 10 }}>
           <FormField label="🌾 Feno (kg/dia)">
             <input type="number" step="0.5" value={fenoKgDia} onChange={e => setFenoKgDia(e.target.value)}
@@ -2550,6 +2606,8 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [racaoKgAlmoco, setRacaoKgAlmoco] = useState('0');
   const [oleoMlManha, setOleoMlManha] = useState('25');
   const [oleoMlTarde, setOleoMlTarde] = useState('25');
+  const [salKromiumGManha, setSalKromiumGManha] = useState('25');
+  const [salKromiumGTarde, setSalKromiumGTarde] = useState('25');
   const [fenoKgDia, setFenoKgDia] = useState('0');
   const [suplementos, setSuplementos] = useState([]);
   const [periodicos, setPeriodicos] = useState([]);
@@ -2673,6 +2731,8 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         oleoMlManha: parseFloat(oleoMlManha) || 0,
         oleoMlTarde: parseFloat(oleoMlTarde) || 0,
         oleoMlDia: (parseFloat(oleoMlManha) || 0) + (parseFloat(oleoMlTarde) || 0),
+        salKromiumGManha: parseFloat(salKromiumGManha) || 0,
+        salKromiumGTarde: parseFloat(salKromiumGTarde) || 0,
         fenoKgDia: parseFloat(fenoKgDia) || 0,
         suplementos: suplementos.filter(s => s.qtdDia > 0),
         periodicos,
@@ -3066,6 +3126,21 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
             <FormField label="🫒 Óleo Tarde (ml)">
               <input type="number" step="1" value={oleoMlTarde} onChange={e => setOleoMlTarde(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🧂 Sal Kromium Manhã (g)">
+              <input type="number" step="1" value={salKromiumGManha} onChange={e => setSalKromiumGManha(e.target.value)}
+                style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
+            </FormField>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            <FormField label="🧂 Sal Kromium Tarde (g)">
+              <input type="number" step="1" value={salKromiumGTarde} onChange={e => setSalKromiumGTarde(e.target.value)}
                 style={{ width: '100%', border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0 }} />
             </FormField>
           </div>
@@ -4690,6 +4765,13 @@ const consumoDiarioCavaloLive = (cav, insumos) => {
   if ((n.oleoMlDia || 0) > 0) {
     const oleo = findIns('i_oleo') || (insumos || []).find(i => norm(i.nome).includes('leo'));
     if (oleo) linhas.push({ insumoId: oleo.id, nome: oleo.nome, qtdDia: n.oleoMlDia, unidade: oleo.unidade || 'ml', valorUnit: oleo.valorCompra || 0 });
+  }
+
+  // Sal Kromium (nutrição base)
+  const _salDiaCL = (Number(n.salKromiumGManha) || 0) + (Number(n.salKromiumGTarde) || 0);
+  if (_salDiaCL > 0) {
+    const sal = (insumos || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+    if (sal) linhas.push({ insumoId: sal.id, nome: sal.nome, qtdDia: _salDiaCL, unidade: sal.unidade || 'g', valorUnit: sal.valorCompra || 0 });
   }
 
   // Suplementos

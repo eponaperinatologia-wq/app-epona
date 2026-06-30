@@ -49,7 +49,7 @@ const PROPRIETARIOS = [
   { id: 'p44', nome: 'Yasmin Omais',                        telefone: '+55 (67) 99262-5682', email: '', cavalos: ['c115'] },
 ];
 
-const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, fenoKgDia: 0, suplementos: [], racaoBlock: { manha: false, tarde: false } };
+const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, oleoMlManha: 0, oleoMlTarde: 0, salKromiumGManha: 0, salKromiumGTarde: 0, fenoKgDia: 0, suplementos: [], racaoBlock: { manha: false, tarde: false } };
 
 const CAVALOS = [
   { id: 'c1',   nome: 'Wheeny Jhenny',            pelagem: '', sexo: 'F', categoria: '', nascimento: '', proprietarioIds: ['p1'],  baia: '', piquete: '', mensalidade: 1950, obs: '', nutricao: { ...NUTRICAO_VAZIO } },
@@ -463,6 +463,16 @@ const consumoDiarioCavalo = (cavaloId, insumos, cavalosLive) => {
       qtdDia: cav.nutricao.oleoMlDia, unidade: oleo.unidade,
       valorUnit: oleo.valorVenda,
       valorDia: oleo.valorVenda * cav.nutricao.oleoMlDia,
+    });
+  }
+  const _salKDia = (Number(cav.nutricao.salKromiumGManha) || 0) + (Number(cav.nutricao.salKromiumGTarde) || 0);
+  if (_salKDia > 0) {
+    const sal = (insumos || []).find(i => /sal/i.test(i.nome || '') && /kromium/i.test(i.nome || ''));
+    if (sal) linhas.push({
+      insumoId: sal.id, nome: sal.nome,
+      qtdDia: _salKDia, unidade: sal.unidade || 'g',
+      valorUnit: sal.valorVenda,
+      valorDia: (sal.valorVenda || 0) * _salKDia,
     });
   }
   for (const s of (cav.nutricao.suplementos || [])) {

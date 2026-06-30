@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { TopBar } from './screens';
 
-const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, suplementos: [] };
+const NUTRICAO_VAZIO = { racaoId: '', racaoKgManha: 0, racaoKgTarde: 0, racaoKgDia: 0, comeAlmoco: false, racaoKgAlmoco: 0, oleoMlDia: 0, oleoMlManha: 0, oleoMlTarde: 0, salKromiumGManha: 0, salKromiumGTarde: 0, fenoKgDia: 0, suplementos: [] };
 
 const MAMOU_OPTIONS = [
   { value: 'mae',                label: 'Mamou na mãe' },

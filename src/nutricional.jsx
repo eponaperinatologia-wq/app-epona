@@ -80,6 +80,9 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
   const oleoTrato = trato === 'manha'
     ? (n.oleoMlManha ?? (oleo / 2))
     : (n.oleoMlTarde ?? (oleo / 2));
+  const salTrato = trato === 'manha'
+    ? (parseFloat(n.salKromiumGManha) || 0)
+    : (parseFloat(n.salKromiumGTarde) || 0);
 
   const kgTrato = trato === 'manha'
     ? (n.racaoKgManha ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0))
@@ -88,7 +91,8 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
   const block = n.racaoBlock || {};
   const racaoBloqueada = trato === 'manha' ? block.manha : block.tarde;
 
-  const semDieta = !racao && oleo === 0 && sups.length === 0;
+  const salTotal = (parseFloat(n.salKromiumGManha) || 0) + (parseFloat(n.salKromiumGTarde) || 0);
+  const semDieta = !racao && oleo === 0 && salTotal === 0 && sups.length === 0;
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
   const periodicosHoje = (n.periodicos || []).filter(isPeriodicoHoje);
   const [showBlockForm, setShowBlockForm] = useState(false);
@@ -240,6 +244,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
           )}
           {(n.fenoKgDia || 0) > 0 && <Chip cor="#92400e">🌾 Feno {fmtNum(n.fenoKgDia)} kg/dia</Chip>}
           {oleoTrato > 0 && <Chip cor="#b45309">Óleo {fmtNum(oleoTrato)} ml</Chip>}
+          {salTrato > 0 && <Chip cor="#525b76">🧂 Sal Kromium {fmtNum(salTrato)} g</Chip>}
           {sups.map(s => (
             <Chip key={s.insumoId} cor="#7c2d12">
               {s.ins.nome} {fmtNum(s.qtdTrato)} {s.ins.unidade || 'un'}
