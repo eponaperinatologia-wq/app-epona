@@ -84,6 +84,22 @@ const calcDias = (cavalo, ref, movimentacoes) => {
   return { dias: Math.min(dias, diasTotais), total: diasTotais, parcial: true };
 };
 
+// Cavalo só aparece em fatura/cálculo do mês se: teve dias de presença OU
+// teve algum registro/procedimento dentro do mês. Animais que já saíram em meses
+// anteriores e sem atividade no mês corrente são descartados.
+const cavaloAtivoNoMes = (cav, ref, movimentacoes, registros = [], procedimentos = []) => {
+  const { dias } = calcDias(cav, ref, movimentacoes);
+  if (dias > 0) return true;
+  const checaData = (s) => {
+    if (!s) return false;
+    const d = new Date(s + 'T12:00:00');
+    return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
+  };
+  for (const r of registros) if (r.cavaloId === cav.id && checaData(r.data)) return true;
+  for (const p of procedimentos) if (p.cavaloId === cav.id && checaData(p.data)) return true;
+  return false;
+};
+
 const calcDiasItem = (cav, ref, movimentacoes, dataInicio, dataFim) => {
   if (!dataInicio && !dataFim) return calcDias(cav, ref, movimentacoes).dias;
   const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
@@ -3173,7 +3189,9 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
   const proprietariosCobraveis = proprietarios.filter(p => !isProprietarioProprio(p, empresaInfo));
   const faturas = [...proprietariosCobraveis].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
     const ff = getFaturaFechada(p.id);
-    const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
+    const cavalosObj = cavalos
+      .filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id)
+      .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, []));
     if (ff) return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, cavalosObj, fechada: true };
     const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
     const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
@@ -3950,7 +3968,9 @@ const ResumoSubScreen = ({ lancamentos, proprietarios = [], cavalos = [], regist
     return proprietarios.map(prop => {
       const faturaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ref.ano && f.mes === ref.mes);
       if (faturaFechada) return { propId: prop.id, total: faturaFechada.total || 0 };
-      const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id);
+      const cavalosObj = cavalos
+        .filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id)
+        .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, []));
       const cavIds = new Set(cavalosObj.map(c => c.id));
       const mensalidades = cavalosObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
       const perfilTotal = cavalosObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
@@ -4319,10 +4339,10 @@ const NossosCustosSubScreen = ({ proprietarios = [], cavalos = [], registros = [
     });
   };
 
-  // Nossos cavalos = onde aparecemos como proprietário.
-  const nossosCavalos = cavalos.filter(c =>
-    (c.proprietarioIds || []).includes(proprioId) || c.proprietarioId === proprioId
-  );
+  // Nossos cavalos = onde aparecemos como proprietário. Filtra animais já saídos sem atividade no mês.
+  const nossosCavalos = cavalos
+    .filter(c => (c.proprietarioIds || []).includes(proprioId) || c.proprietarioId === proprioId)
+    .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
 
   // Custo fixo do mês — mesma fórmula do FaturaDetalhe.
   const mesKey = `${ref.ano}-${String(ref.mes).padStart(2, '0')}`;
@@ -5062,7 +5082,9 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
   const faturaExistente = faturasFechadas.find(f => f.proprietarioId === id && f.ano === ref.ano && f.mes === ref.mes);
 
-  const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id);
+  const cavalosObj = cavalos
+    .filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id)
+    .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
   const cavIds = new Set(cavalosObj.map(c => c.id));
   const ehPotroAoPeCav = (cav) => (cav.categorias || []).includes('Potro ao pé') || cav.categoria === 'Potro ao pé';
   const cavPagaCusto = (cav) => !!cav?.pagarOCusto || ehPotroAoPeCav(cav || {});
@@ -5198,7 +5220,9 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const totalDoProprietario = (pr) => {
     const ff = faturasFechadas.find(f => f.proprietarioId === pr.id && f.ano === ref.ano && f.mes === ref.mes);
     if (ff) return { total: ff.total, fechada: true };
-    const cavObj = cavalos.filter(c => (c.proprietarioIds || []).includes(pr.id) || c.proprietarioId === pr.id);
+    const cavObj = cavalos
+      .filter(c => (c.proprietarioIds || []).includes(pr.id) || c.proprietarioId === pr.id)
+      .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
     if (cavObj.length === 0) return { total: 0, fechada: false };
     const m = cavObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
     const pf = cavObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
@@ -5594,5 +5618,5 @@ export {
   ProprietarioScreen,
   CadastrosScreen, CadProprietariosScreen, CadInsumosScreen, CadMensalidadesScreen, CadCavalosScreen, CadEmpresaScreen,
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
-  calcDias, calcDiasItem, calcMensalidadeProporcional, calcPerfilMes,
+  calcDias, calcDiasItem, calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes,
 };

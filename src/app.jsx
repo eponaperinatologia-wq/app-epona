@@ -9,7 +9,7 @@ import {
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
   HistoricoScreen,
   TabBar, OperacionalTabBar,
-  calcMensalidadeProporcional, calcPerfilMes,
+  calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes,
 } from './screens';
 import { isProprietarioProprio } from './utils/empresa';
 
@@ -1057,7 +1057,9 @@ const loadAllData = async () => {
         if (isProprietarioProprio(prop, empresaInfo)) return;
         const jaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ano && f.mes === mes);
         if (jaFechada) return;
-        const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id);
+        const cavalosObj = cavalos
+          .filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id)
+          .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
         if (cavalosObj.length === 0) return;
         const cavIds = new Set(cavalosObj.map(c => c.id));
 
