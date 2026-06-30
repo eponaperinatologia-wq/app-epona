@@ -4308,13 +4308,22 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
           ? { id: '_sem', nome: 'Sem proprietário' }
           : (proprietarios.find(x => x.id === pid) || { id: pid, nome: 'Proprietário não encontrado' });
         if (!map[pid]) map[pid] = { proprietario: prop, rows: [] };
+        const inclusoPeriodoCav = r.inclusoPeriodo / share;
+        const custoFixoPeriodoCav = r.custoFixoPeriodo / share;
+        const absorvidoPeriodo = inclusoPeriodoCav + custoFixoPeriodoCav;
+        const mensalidadeBase = Number(r.cav.mensalidade) || 0;
+        const mensalidadeCobrada = (mensalidadeBase / share) * (p.dias / 30);
+        const margem = mensalidadeCobrada - absorvidoPeriodo;
         map[pid].rows.push({
           ...r,
           share,
           nutricaoPeriodo: r.nutricaoPeriodo / share,
-          inclusoPeriodo: r.inclusoPeriodo / share,
-          custoFixoPeriodo: r.custoFixoPeriodo / share,
+          inclusoPeriodo: inclusoPeriodoCav,
+          custoFixoPeriodo: custoFixoPeriodoCav,
           totalPeriodo: r.totalPeriodo / share,
+          absorvidoPeriodo,
+          mensalidadeCobrada,
+          margem,
         });
       });
     });
@@ -4474,7 +4483,9 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
               </button>
               {aberto && (
                 <div style={{ background: 'var(--soft)', padding: '4px 10px 10px' }}>
-                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo, share }) => (
+                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo, share, absorvidoPeriodo, mensalidadeCobrada, margem }) => {
+                    const lucrativo = margem >= 0;
+                    return (
                     <div key={cav.id + '_' + grupo.proprietario.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                         <div>
@@ -4489,6 +4500,23 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
                           <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>
                             {formatBRL(nutricaoPeriodo)} + {formatBRL(custoFixoPeriodo)} fixo
                             {share > 1 && <span> · sua parte de {share}</span>}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Análise de margem */}
+                      <div style={{ background: lucrativo ? '#f0fdf4' : '#fef2f2', border: `1px solid ${lucrativo ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '6px 10px', marginBottom: 6, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                        <div>
+                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Absorvido</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>{formatBRL(absorvidoPeriodo)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mensalidade</div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>{formatBRL(mensalidadeCobrada)}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margem</div>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: lucrativo ? '#16a34a' : '#dc2626' }}>
+                            {lucrativo ? '+' : ''}{formatBRL(margem)}
                           </div>
                         </div>
                       </div>
@@ -4509,7 +4537,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
                         );
                       })}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </div>
