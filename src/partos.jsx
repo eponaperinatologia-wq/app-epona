@@ -183,13 +183,13 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
     }
   };
 
-  const handleRegistrar = () => {
+  const handleRegistrar = async () => {
     if (!eguaId || !potroNome.trim()) return;
     const egua = cavalos.find(c => c.id === eguaId);
     const assistencia = insumos.find(i => i.nome === 'Assistência ao Parto') || insumos.find(i => i.id === 'im8');
 
     // Cria o potro, já vinculado à mãe e categoria "Potro ao pé"
-    const potroId = addCavalo({
+    const potroId = await addCavalo({
       nome: potroNome.trim(),
       sexo: '',
       categoria: 'Potro ao pé',
@@ -205,6 +205,7 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
       obs: `Potro de ${egua?.nome || ''}`,
       nutricao: { ...NUTRICAO_VAZIO },
     });
+    if (!potroId) return; // addCavalo falhou — não segue para parto órfão
 
     // Cria o parto com Assistência ao Parto já lançada
     const partoId = addParto({

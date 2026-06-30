@@ -117,6 +117,7 @@ export const toDbFaturaFechada = f => ({
   procedimentos_avulsos: f.procedimentosAvulsos || 0,
   linhas: f.linhas || [],
   fechada_por: f.fechadaPor || '',
+  fechada_em: f.fechadaEm || new Date().toISOString(),
 });
 
 // ── toDb: App (camelCase) → DB (snake_case) ───────────────────
@@ -124,15 +125,15 @@ export const toDbFaturaFechada = f => ({
 export const toDbCavalo = c => ({
   id: c.id, nome: c.nome, pelagem: c.pelagem || '', sexo: c.sexo || '',
   categoria: c.categoria || '', categorias: c.categorias || [],
-  nascimento: c.nascimento || '',
+  nascimento: c.nascimento || null,
   proprietario_id: c.proprietarioIds?.[0] || c.proprietarioId || null,
   proprietario_ids: c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []),
   baia: c.baia || '', piquete: c.piquete || '', mensalidade: Number(c.mensalidade) || 0,
   obs: c.obs || '', nutricao: c.nutricao || {},
   gestacao: c.gestacao || null, historico_gestacional: c.historicoGestacional || [],
-  data_entrada: c.dataEntrada || '',
+  data_entrada: c.dataEntrada || null,
   presente: c.presente !== false,
-  data_saida: c.dataSaida || '',
+  data_saida: c.dataSaida || null,
   mae_id: c.maeId || null,
   pagar_o_custo: !!c.pagarOCusto,
 });
@@ -143,14 +144,14 @@ export const toDbProprietario = p => ({
 
 export const toDbInsumo = i => ({
   id: i.id, nome: i.nome, categoria: i.categoria, unidade: i.unidade || 'un',
-  fornecedor: i.fornecedor || '', valor_compra: i.valorCompra || 0,
-  markup: i.markup || 0, valor_venda: i.valorVenda || 0,
+  fornecedor: i.fornecedor || '', valor_compra: Number(i.valorCompra) || 0,
+  markup: Number(i.markup) || 0, valor_venda: Number(i.valorVenda) || 0,
   injetavel: !!i.injetavel, descartaveis: i.descartaveis || [],
   incluido_mensalidade: !!i.incluidoMensalidade,
 });
 
 export const toDbServico = s => ({
-  id: s.id, nome: s.nome, valor: s.valor || 0, categoria: s.categoria,
+  id: s.id, nome: s.nome, valor: Number(s.valor) || 0, categoria: s.categoria,
   descartaveis_obrigatorios: s.descartaveisObrigatorios || [],
 });
 
@@ -164,14 +165,14 @@ export const toDbFuncionario = f => ({
 
 export const toDbRegistro = r => ({
   id: r.id, cavalo_id: r.cavaloId, insumo_id: r.insumoId,
-  qtd: r.qtd || 1, hora: r.hora || '', usuario: r.usuario || '',
+  qtd: Number(r.qtd) || 1, hora: r.hora || '', usuario: r.usuario || '',
   is_auto: !!r.isAuto, data: r.data,
 });
 
 export const toDbProcedimento = p => ({
   id: p.id, cavalo_id: p.cavaloId,
   servico_id: (p.servicoId === '__exames_lab__' || !p.servicoId) ? null : p.servicoId,
-  valor_servico: p.valorServico || 0,
+  valor_servico: Number(p.valorServico) || 0,
   descartaveis_obrigatorios: p.descartaveisObrigatorios || [],
   insumos_adicionais: p.insumosAdicionais || [],
   dados_extras: {
@@ -180,13 +181,19 @@ export const toDbProcedimento = p => ({
     tubosSelecionados: p.tubosSelecionados || [],
     examesSelecionados: p.examesSelecionados || [],
   },
-  total: p.total || 0, hora: p.hora || '', nota: p.nota || '', data: p.data,
+  total: Number(p.total) || 0, hora: p.hora || '', nota: p.nota || '', data: p.data,
 });
+
+const _toNumOrNull = (v) => {
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
 
 export const toDbParto = p => ({
   id: p.id, egua_id: p.eguaId, potro_id: p.potroId || null, data: p.data || '',
   sexo_potro: p.sexoPotro || '', nome_potro: p.nomePotro || '',
-  peso_potro: p.pesoPotro || null, mamou_colostro: !!p.mamouColostro,
+  peso_potro: _toNumOrNull(p.pesoPotro), mamou_colostro: !!p.mamouColostro,
   hora_primeiro_leite: p.horaPrimeiroLeite || '', status: p.status || 'normal',
   obs: p.obs || '', insumos_parto: p.insumosParto || [],
   dados_neonatal: {
@@ -264,7 +271,7 @@ export const fromDbLancamento = r => ({
 });
 
 export const toDbLancamento = l => ({
-  id: l.id, tipo: l.tipo, valor: l.valor, data: l.data,
+  id: l.id, tipo: l.tipo, valor: Number(l.valor) || 0, data: l.data,
   quem: l.quem || '', motivo: l.motivo || '', categoria: l.categoria || '',
   pago: !!l.pago, pago_em: l.pagoEm || null,
   ...(l.recorrenciaId ? { recorrencia_id: l.recorrenciaId } : {}),
@@ -279,7 +286,7 @@ export const fromDbRecorrencia = r => ({
 });
 
 export const toDbRecorrencia = r => ({
-  id: r.id, tipo: r.tipo, valor: r.valor,
+  id: r.id, tipo: r.tipo, valor: Number(r.valor) || 0,
   descricao: r.descricao || '', categoria: r.categoria || '', quem: r.quem || '',
   frequencia: r.frequencia || 'mensal', dia_mes: r.diaMes || 1,
   data_inicio: r.dataInicio, data_fim: r.dataFim || null,
@@ -299,8 +306,8 @@ export const fromDbEstoqueCompra = r => ({
 
 export const toDbEstoqueCompra = c => ({
   id: c.id, insumo_id: c.insumoId, data: c.data,
-  qtd: c.qtd, unidade: c.unidade,
-  valor_unit: c.valorUnit, valor_total: c.valorTotal,
+  qtd: Number(c.qtd) || 0, unidade: c.unidade,
+  valor_unit: Number(c.valorUnit) || 0, valor_total: Number(c.valorTotal) || 0,
   fornecedor: c.fornecedor || '', obs: c.obs || '',
   lancamento_id: c.lancamentoId || null,
   pago: c.pago || false,
@@ -370,13 +377,20 @@ export const toDbVacinacaoAnimal = v => ({
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
 });
 
+const _safeParseArray = (v) => {
+  if (Array.isArray(v)) return v;
+  if (typeof v !== 'string') return [];
+  try { const p = JSON.parse(v || '[]'); return Array.isArray(p) ? p : []; }
+  catch { return []; }
+};
+
 export const fromDbOpg = r => ({
   id: r.id,
   cavaloId: r.cavalo_id,
   protocoloId: r.protocolo_id || '',
   dataColeta: r.data_coleta || '',
   dataResultado: r.data_resultado || null,
-  resultado: typeof r.resultado === 'string' ? JSON.parse(r.resultado || '[]') : (r.resultado || []),
+  resultado: _safeParseArray(r.resultado),
   precisaVermifugacao: r.precisa_vermifugacao,
   insumoVermId: r.insumo_verm_id || '',
   dataAplicacao: r.data_aplicacao || '',
@@ -403,6 +417,17 @@ export const toDbOpg = o => ({
   observacoes: o.observacoes || '',
   proxima_data: o.proximaData || null,
   etapa_idx: o.etapaIdx ?? null,
+});
+
+export const fromDbProtocoloVermifugacao = r => ({
+  id: r.id, nome: r.nome || '', descricao: r.descricao || '',
+  ativo: r.ativo !== false,
+  etapas: r.etapas || [],
+});
+export const toDbProtocoloVermifugacao = p => ({
+  id: p.id, nome: p.nome || '', descricao: p.descricao || '',
+  ativo: p.ativo !== false,
+  etapas: p.etapas || [],
 });
 
 export const fromDbVermifugacaoAnimal = r => ({
@@ -436,7 +461,16 @@ const CUSTO_FIXO_MAP = { dataVencimento: 'data_vencimento', pagoEm: 'pago_em', f
 export function partialToDb(partial, keyMap) {
   const result = {};
   for (const [k, v] of Object.entries(partial)) {
-    result[keyMap[k] || k] = v;
+    if (v === undefined) continue; // não sobrescreve campos no DB com NULL acidentalmente
+    const mapped = keyMap[k];
+    if (!mapped && /[A-Z]/.test(k)) {
+      // Chave camelCase sem mapeamento → provavelmente bug. Loga e pula para
+      // evitar erro "column does not exist" no Supabase.
+      // eslint-disable-next-line no-console
+      console.warn(`[partialToDb] chave camelCase sem mapeamento, ignorando: ${k}`);
+      continue;
+    }
+    result[mapped || k] = v;
   }
   return result;
 }
@@ -451,9 +485,24 @@ export async function fetchAll(table, mapper, limit = 2000) {
   return mapper ? (data || []).map(mapper) : (data || []);
 }
 
+// Traduz erros comuns do Postgres para PT-BR amigável.
+const _traduzErro = (raw) => {
+  if (!raw) return 'Erro desconhecido';
+  const s = String(raw);
+  if (s.includes('duplicate key') || s.includes('23505')) return 'Já existe um registro com esse identificador.';
+  if (s.includes('violates foreign key') || s.includes('23503')) return 'Referência inválida (item vinculado não existe).';
+  if (s.includes('not-null') || s.includes('23502')) return 'Campo obrigatório em branco.';
+  if (s.includes('relation') && s.includes('does not exist')) return 'Tabela ausente no banco — rode a migração SQL.';
+  if (s.includes('column') && s.includes('does not exist')) return 'Coluna ausente no banco — rode a migração SQL.';
+  if (s.includes('invalid input syntax')) return 'Formato inválido em algum campo.';
+  if (s.includes('Failed to fetch') || s.includes('NetworkError')) return 'Sem conexão com o servidor.';
+  return s;
+};
+
 const notifyDbError = (op, table, msg) => {
+  const friendly = _traduzErro(msg);
   console.error(`${op} ${table}:`, msg);
-  window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg } }));
+  window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg: friendly, raw: msg } }));
 };
 
 export const dbInsert = async (table, row) => {
@@ -463,6 +512,7 @@ export const dbInsert = async (table, row) => {
 };
 
 export const dbUpdate = async (table, id, changes) => {
+  if (!changes || Object.keys(changes).length === 0) return true; // no-op
   const { error } = await supabase.from(table).update(changes).eq('id', id);
   if (error) { notifyDbError('update', table, error.message); return false; }
   return true;

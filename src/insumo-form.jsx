@@ -114,22 +114,38 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
     i.categoria === 'descartavel' && !DESCARTAVEIS_INJETAVEL.some(ob => ob.insumoId === i.id)
   );
 
-  const canSave = nome.trim() && valorVendaStr;
+  const parseNum = (s) => {
+    const str = String(s ?? '').trim().replace(',', '.');
+    if (str === '') return NaN;
+    const n = parseFloat(str);
+    return Number.isFinite(n) ? n : NaN;
+  };
+  const valorCompraNum = parseNum(valorCompraStr);
+  const valorVendaNum = parseNum(valorVendaStr);
+  const markupNum = parseNum(markupStr);
+  const canSave = nome.trim() && Number.isFinite(valorVendaNum) && valorVendaNum >= 0;
 
-  const salvar = () => {
-    if (!canSave) return;
-    onSave({
-      nome: nome.trim(),
-      categoria,
-      incluidoMensalidade,
-      fornecedor,
-      unidade: unidade.trim() || 'unidade',
-      valorCompra: parseFloat(valorCompraStr) || 0,
-      markup: parseFloat(markupStr) || 0,
-      valorVenda: parseFloat(valorVendaStr) || 0,
-      injetavel,
-      descartaveis: descartaveisFinais(),
-    });
+  const [saving, setSaving] = useState(false);
+
+  const salvar = async () => {
+    if (!canSave || saving) return;
+    setSaving(true);
+    try {
+      await onSave({
+        nome: nome.trim(),
+        categoria,
+        incluidoMensalidade,
+        fornecedor,
+        unidade: unidade.trim() || 'unidade',
+        valorCompra: Number.isFinite(valorCompraNum) ? valorCompraNum : 0,
+        markup: Number.isFinite(markupNum) ? markupNum : 0,
+        valorVenda: valorVendaNum,
+        injetavel,
+        descartaveis: descartaveisFinais(),
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -314,12 +330,12 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
         </div>
 
         {/* Botão salvar */}
-        <button onClick={salvar} disabled={!canSave} style={{
-          width: '100%', background: canSave ? 'var(--accent)' : 'var(--soft)',
-          color: canSave ? '#fff' : 'var(--ink-3)', border: 'none', borderRadius: 14,
+        <button onClick={salvar} disabled={!canSave || saving} style={{
+          width: '100%', background: (canSave && !saving) ? 'var(--accent)' : 'var(--soft)',
+          color: (canSave && !saving) ? '#fff' : 'var(--ink-3)', border: 'none', borderRadius: 14,
           padding: '16px', fontSize: 15, fontWeight: 700,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-          boxShadow: canSave ? '0 8px 20px rgba(61,96,67,0.25)' : 'none',
+          boxShadow: (canSave && !saving) ? '0 8px 20px rgba(61,96,67,0.25)' : 'none',
           marginTop: 8, marginBottom: 8,
         }}>
           <Icon name="check" size={18} color={canSave ? '#fff' : 'var(--ink-3)'} />

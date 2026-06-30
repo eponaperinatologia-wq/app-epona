@@ -45,6 +45,7 @@ import {
   fromDbProtocoloVacinacao, toDbProtocoloVacinacao,
   fromDbCampanhaVacinacao, toDbCampanhaVacinacao,
   fromDbVacinacaoAnimal, toDbVacinacaoAnimal,
+  fromDbProtocoloVermifugacao, toDbProtocoloVermifugacao,
   fromDbVermifugacaoAnimal, toDbVermifugacaoAnimal,
   fromDbOpg, toDbOpg,
   fromDbCustoFixo, toDbCustoFixo,
@@ -99,6 +100,7 @@ function AppEpona() {
   const [exames, setExames] = useState([]);
   const [registrosReproducao, setRegistrosReproducao] = useState([]);
   const [custosFixos, setCustosFixos] = useState([]);
+  const [loadError, setLoadError] = useState(null);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
 
@@ -142,11 +144,11 @@ const loadAllData = async () => {
       fetchAll('financeiro_lancamentos', fromDbLancamento),
       fetchAll('lancamentos_recorrentes', fromDbRecorrencia),
       fetchAll('estoque_compras', fromDbEstoqueCompra),
-      supabase.from('configuracoes').select('*').eq('id', 'global').single().then(res => res).catch(() => ({ data: null })),
+      supabase.from('configuracoes').select('*').eq('id', 'global').maybeSingle().then(res => res).catch(() => ({ data: null })),
       fetchAll('protocolos_vacinacao', fromDbProtocoloVacinacao),
       fetchAll('campanhas_vacinacao', fromDbCampanhaVacinacao),
       fetchAll('vacinacoes_animais', fromDbVacinacaoAnimal),
-      fetchAll('protocolos_vermifugacao', r => r),
+      fetchAll('protocolos_vermifugacao', fromDbProtocoloVermifugacao),
       fetchAll('vermifugacoes_animais_verm', fromDbVermifugacaoAnimal),
       fetchAll('opgs', fromDbOpg),
       fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
@@ -238,6 +240,7 @@ const loadAllData = async () => {
     setNutricaoOrdem(configResult?.data?.nutricao_ordem || []);
   } catch (err) {
     console.error('Erro ao carregar dados:', err);
+    setLoadError(err?.message || 'Falha ao carregar dados. Verifique conexão e tente novamente.');
   }
 };
   const validateScreen = (s, user) => {
@@ -302,62 +305,62 @@ const loadAllData = async () => {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cavalos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setCavalos(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbCavalo(n)]);
         if (et === 'UPDATE') setCavalos(prev => prev.map(c => c.id === n.id ? fromDbCavalo(n) : c));
-        if (et === 'DELETE') setCavalos(prev => prev.filter(c => c.id !== o.id));
+        if (et === 'DELETE') setCavalos(prev => o?.id ? prev.filter(c => c.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'procedimentos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setProcedimentos(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbProcedimento(n)]);
         if (et === 'UPDATE') setProcedimentos(prev => prev.map(p => p.id === n.id ? fromDbProcedimento(n) : p));
-        if (et === 'DELETE') setProcedimentos(prev => prev.filter(p => p.id !== o.id));
+        if (et === 'DELETE') setProcedimentos(prev => o?.id ? prev.filter(p => p.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'atividades' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setAtividades(prev => prev.some(a => a.id === n.id) ? prev : [...prev, fromDbAtividade(n)]);
         if (et === 'UPDATE') setAtividades(prev => prev.map(a => a.id === n.id ? fromDbAtividade(n) : a));
-        if (et === 'DELETE') setAtividades(prev => prev.filter(a => a.id !== o.id));
+        if (et === 'DELETE') setAtividades(prev => o?.id ? prev.filter(a => a.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'registros' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setRegistros(prev => prev.some(r => r.id === n.id) ? prev : [...prev, fromDbRegistro(n)]);
         if (et === 'UPDATE') setRegistros(prev => prev.map(r => r.id === n.id ? fromDbRegistro(n) : r));
-        if (et === 'DELETE') setRegistros(prev => prev.filter(r => r.id !== o.id));
+        if (et === 'DELETE') setRegistros(prev => o?.id ? prev.filter(r => r.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'avisos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setAvisos(prev => prev.some(a => a.id === n.id) ? prev : [fromDbAviso(n), ...prev]);
         if (et === 'UPDATE') setAvisos(prev => prev.map(a => a.id === n.id ? fromDbAviso(n) : a));
-        if (et === 'DELETE') setAvisos(prev => prev.filter(a => a.id !== o.id));
+        if (et === 'DELETE') setAvisos(prev => o?.id ? prev.filter(a => a.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'partos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setPartos(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbParto(n)]);
         if (et === 'UPDATE' && !recentlyUpdatedPartos.current.has(n.id)) setPartos(prev => prev.map(p => p.id === n.id ? fromDbParto(n) : p));
-        if (et === 'DELETE') setPartos(prev => prev.filter(p => p.id !== o.id));
+        if (et === 'DELETE') setPartos(prev => o?.id ? prev.filter(p => p.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'movimentacoes' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setMovimentacoes(prev => prev.some(m => m.id === n.id) ? prev : [...prev, fromDbMovimentacao(n)]);
         if (et === 'UPDATE') setMovimentacoes(prev => prev.map(m => m.id === n.id ? fromDbMovimentacao(n) : m));
-        if (et === 'DELETE') setMovimentacoes(prev => prev.filter(m => m.id !== o.id));
+        if (et === 'DELETE') setMovimentacoes(prev => o?.id ? prev.filter(m => m.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lista_compras' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setCompras(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbListaCompra(n)]);
         if (et === 'UPDATE') setCompras(prev => prev.map(c => c.id === n.id ? fromDbListaCompra(n) : c));
-        if (et === 'DELETE') setCompras(prev => prev.filter(c => c.id !== o.id));
+        if (et === 'DELETE') setCompras(prev => o?.id ? prev.filter(c => c.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'faturas_fechadas' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setFaturasFechadas(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaFechada(n)]);
         if (et === 'UPDATE') setFaturasFechadas(prev => prev.map(f => f.id === n.id ? fromDbFaturaFechada(n) : f));
-        if (et === 'DELETE') setFaturasFechadas(prev => prev.filter(f => f.id !== o.id));
+        if (et === 'DELETE') setFaturasFechadas(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'financeiro_lancamentos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setLancamentos(prev => prev.some(l => l.id === n.id) ? prev : [...prev, fromDbLancamento(n)]);
         if (et === 'UPDATE') setLancamentos(prev => prev.map(l => l.id === n.id ? fromDbLancamento(n) : l));
-        if (et === 'DELETE') setLancamentos(prev => prev.filter(l => l.id !== o.id));
+        if (et === 'DELETE') setLancamentos(prev => o?.id ? prev.filter(l => l.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'lancamentos_recorrentes' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setRecorrencias(prev => prev.some(r => r.id === n.id) ? prev : [...prev, fromDbRecorrencia(n)]);
         if (et === 'UPDATE') setRecorrencias(prev => prev.map(r => r.id === n.id ? fromDbRecorrencia(n) : r));
-        if (et === 'DELETE') setRecorrencias(prev => prev.filter(r => r.id !== o.id));
+        if (et === 'DELETE') setRecorrencias(prev => o?.id ? prev.filter(r => r.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'estoque_compras' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setEstoqueCompras(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbEstoqueCompra(n)]);
         if (et === 'UPDATE') setEstoqueCompras(prev => prev.map(c => c.id === n.id ? fromDbEstoqueCompra(n) : c));
-        if (et === 'DELETE') setEstoqueCompras(prev => prev.filter(c => c.id !== o.id));
+        if (et === 'DELETE') setEstoqueCompras(prev => o?.id ? prev.filter(c => c.id !== o.id) : prev);
       })
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -461,11 +464,13 @@ const loadAllData = async () => {
   // ── Vermifugação CRUD ─────────────────────────────────────
   const addProtocoloVermifugacao = (p) => {
     setProtocolosVermifugacao(prev => [...prev, p]);
-    dbInsert('protocolos_vermifugacao', p);
+    dbInsert('protocolos_vermifugacao', toDbProtocoloVermifugacao(p));
   };
   const updateProtocoloVermifugacao = (id, data) => {
     setProtocolosVermifugacao(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
-    dbUpdate('protocolos_vermifugacao', id, data);
+    const dbRow = toDbProtocoloVermifugacao({ id, ...data });
+    delete dbRow.id;
+    dbUpdate('protocolos_vermifugacao', id, dbRow);
   };
   const deleteProtocoloVermifugacao = (id) => {
     setProtocolosVermifugacao(prev => prev.filter(p => p.id !== id));
@@ -479,14 +484,13 @@ const loadAllData = async () => {
   // ── OPG CRUD ─────────────────────────────────────────────
   const addOpg = (o) => {
     setOpgs(prev => [...prev, o]);
-    const dbRow = toDbOpg(o);
-    dbInsert('opgs', { ...dbRow, resultado: JSON.stringify(dbRow.resultado || []) });
+    dbInsert('opgs', toDbOpg(o));
   };
   const updateOpg = (id, data) => {
     setOpgs(prev => prev.map(o => o.id === id ? { ...o, ...data } : o));
     const dbRow = toDbOpg({ id, ...data });
     delete dbRow.id;
-    dbUpdate('opgs', id, { ...dbRow, resultado: JSON.stringify(dbRow.resultado || []) });
+    dbUpdate('opgs', id, dbRow);
   };
   const deleteOpg = (id) => {
     setOpgs(prev => prev.filter(o => o.id !== id));
@@ -657,13 +661,18 @@ const loadAllData = async () => {
   };
 
   // ── Insumos ───────────────────────────────────────────────────
-  const addInsumo = (ins) => {
+  const addInsumo = async (ins) => {
     setInsumos(prev => [...prev, ins]);
-    dbInsert('insumos', toDbInsumo(ins));
+    const ok = await dbInsert('insumos', toDbInsumo(ins));
+    if (!ok) setInsumos(prev => prev.filter(i => i.id !== ins.id));
+    return ok;
   };
-  const updateInsumo = (id, data) => {
+  const updateInsumo = async (id, data) => {
+    const prevState = insumos;
     setInsumos(prev => prev.map(i => i.id === id ? { ...i, ...data } : i));
-    dbUpdate('insumos', id, partialToDb(data, INSUMO_MAP));
+    const ok = await dbUpdate('insumos', id, partialToDb(data, INSUMO_MAP));
+    if (!ok) setInsumos(prevState);
+    return ok;
   };
   const deleteInsumo = (id) => {
     setInsumos(prev => prev.filter(i => i.id !== id));
@@ -699,10 +708,14 @@ const loadAllData = async () => {
 
   // ── Cavalos ───────────────────────────────────────────────────
   const addCavalo = async (data) => {
-    const newId = 'c_' + Date.now();
+    const newId = 'c_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const newCavalo = { id: newId, ...data };
     setCavalos(prev => [...prev, newCavalo]);
-    await dbInsert('cavalos', toDbCavalo(newCavalo));
+    const ok = await dbInsert('cavalos', toDbCavalo(newCavalo));
+    if (!ok) {
+      setCavalos(prev => prev.filter(c => c.id !== newId));
+      return null;
+    }
     return newId;
   };
   const updateCavalo = async (id, partialData) => {
@@ -720,8 +733,8 @@ const loadAllData = async () => {
 
   // ── Proprietários ─────────────────────────────────────────────
   const addProprietario = (nome) => {
-    const maxNum = Math.max(0, ...proprietarios.map(p => parseInt(p.id.replace(/\D/g, '')) || 0));
-    const newId = 'p' + (maxNum + 1);
+    // Sufixo aleatório para evitar colisão em cliques duplos / multi-usuário.
+    const newId = 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
     const novoProp = { id: newId, nome, telefone: '', email: '' };
     setProprietarios(prev => [...prev, novoProp]);
     dbInsert('proprietarios', toDbProprietario(novoProp));
@@ -759,15 +772,17 @@ const loadAllData = async () => {
     recentlyUpdatedPartos.current['t_' + id] = setTimeout(() => {
       recentlyUpdatedPartos.current.delete(id);
     }, 3000);
-    setPartos(prev => {
-      const next = prev.map(p => {
-        if (p.id !== id) return p;
-        const merged = { ...p, ...data };
-        dbUpdate('partos', id, toDbParto(merged));
-        return merged;
-      });
-      return next;
-    });
+    let merged = null;
+    setPartos(prev => prev.map(p => {
+      if (p.id !== id) return p;
+      merged = { ...p, ...data };
+      return merged;
+    }));
+    if (merged) {
+      const dbRow = toDbParto(merged);
+      delete dbRow.id;
+      dbUpdate('partos', id, dbRow);
+    }
   };
   const deleteParto = (id) => {
     setPartos(prev => prev.filter(p => p.id !== id));
@@ -1149,6 +1164,24 @@ const loadAllData = async () => {
     if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe') setTab('partos');
   };
 
+  // ── Banner global de erros ────────────────────────────────────
+  const ErrorBanners = () => (
+    <>
+      {loadError && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: '#fee2e2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '10px 16px', fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>⚠️ Falha ao carregar dados: {loadError}</span>
+          <button onClick={() => { setLoadError(null); loadAllData(); }} style={{ background: '#991b1b', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Tentar novamente</button>
+        </div>
+      )}
+      {dbErrorMsg && (
+        <div style={{ position: 'fixed', bottom: 80, left: 16, right: 16, zIndex: 9999, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 12px', borderRadius: 10, fontFamily: 'var(--sans)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          <span>⚠️ {dbErrorMsg}</span>
+          <button onClick={() => setDbErrorMsg(null)} style={{ background: 'none', border: 'none', color: '#991b1b', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}>×</button>
+        </div>
+      )}
+    </>
+  );
+
   // ── Render ────────────────────────────────────────────────────
   let content;
   if (loading) {
@@ -1206,6 +1239,7 @@ const loadAllData = async () => {
 
   return (
     <>
+      <ErrorBanners />
       <div style={{
         position: 'fixed', inset: 0,
         background: 'var(--bg)',

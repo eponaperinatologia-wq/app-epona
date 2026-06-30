@@ -1882,11 +1882,22 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     };
     const nutricaoChanged = JSON.stringify(c.nutricao || {}) !== JSON.stringify(newNutricao);
 
-    const gestacaoUpdate = isGestante ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } } : {};
+    // gestação: sempre presente no payload — null quando o cavalo não é gestante,
+    // para que o DB limpe a gestação anterior em vez de mantê-la fantasma.
+    const gestacaoUpdate = isGestante
+      ? { gestacao: { ...(c.gestacao || {}), dataCobricao, pai, ...(isReceptora ? { mae } : {}) } }
+      : { gestacao: null };
     const categoriasArr = Array.from(categorias);
-    const parsedMens = parseInt(mensalidade);
-    const safeMens = Number.isFinite(parsedMens) && parsedMens >= 0 ? parsedMens : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
+    // Mensalidade: aceita decimais. String vazia trata como 0 explicitamente
+    // (não cai no fallback do valor antigo) — isso permite zerar mensalidade.
+    let safeMens;
+    const mensStr = String(mensalidade ?? '').trim().replace(',', '.');
+    if (mensStr === '') safeMens = 0;
+    else {
+      const parsed = parseFloat(mensStr);
+      safeMens = Number.isFinite(parsed) && parsed >= 0 ? parsed : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
+    }
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || null, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -2640,7 +2651,12 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       proprietarioIds: selectedProprietarios,
       baia: baia.trim() || 'A-00',
       piquete: baia.trim() || 'A-00',
-      mensalidade: pagarOCusto ? 0 : (parseInt(mensalidade) || 1950),
+      mensalidade: pagarOCusto ? 0 : (() => {
+        const s = String(mensalidade ?? '').trim().replace(',', '.');
+        if (s === '') return 1950; // default só se em branco
+        const n = parseFloat(s);
+        return Number.isFinite(n) && n >= 0 ? n : 1950;
+      })(),
       obs: obs.trim(),
       dataEntrada: dataEntradaFinal,
       nascimento: nascimento || undefined,
