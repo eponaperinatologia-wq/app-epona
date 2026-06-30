@@ -427,6 +427,7 @@ const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', 
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
 const FUNCIONARIO_MAP = { salarioBase: 'salario_base', regimePagamento: 'regime_pagamento', encargosPct: 'encargos_pct' };
+const CUSTO_FIXO_MAP = { dataVencimento: 'data_vencimento', pagoEm: 'pago_em', funcionarioId: 'funcionario_id', encargosPct: 'encargos_pct' };
 
 export function partialToDb(partial, keyMap) {
   const result = {};
@@ -436,7 +437,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP };
+export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 

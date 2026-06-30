@@ -44,7 +44,7 @@ import {
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
-  partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP,
+  partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
 } from './utils/db';
 import { subscribeToPush, sendPush } from './utils/push';
 
@@ -535,9 +535,7 @@ const loadAllData = async () => {
   };
   const updateCustoFixo = (id, data) => {
     setCustosFixos(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
-    const dbRow = toDbCustoFixo({ id, ...data });
-    delete dbRow.id;
-    dbUpdate('custos_fixos', id, dbRow);
+    dbUpdate('custos_fixos', id, partialToDb(data, CUSTO_FIXO_MAP));
   };
   const deleteCustoFixo = (id) => {
     setCustosFixos(prev => prev.filter(c => c.id !== id));
