@@ -9,7 +9,13 @@ import {
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
   HistoricoScreen,
   TabBar, OperacionalTabBar,
+  calcMensalidadeProporcional, calcPerfilMes,
 } from './screens';
+
+// Cutoff: faturas com competência >= esta data ganham lançamento de entrada vinculado.
+// Faturas anteriores são fechadas (auto ou manualmente) sem lançar em Entradas.
+const CUTOFF_LANCAMENTO = '2026-06'; // junho/2026 em diante
+const isCompetenciaAptaParaLancamento = (ano, mes) => `${ano}-${String(mes).padStart(2, '0')}` >= CUTOFF_LANCAMENTO;
 import { AvisosScreen, MovimentacaoScreen } from './extra-screens';
 import { ListaComprasScreen } from './compras';
 import { CustosFixosScreen } from './custos-fixos';
@@ -210,50 +216,23 @@ const loadAllData = async () => {
     const novosLans = _gerarLansRecorrentes(recorrenciasData || [], lancamentosData || []);
     const lansEstoqueLimpos = lansEstoque.map(({ _ecId, _novoId, ...l }) => l);
 
-    // Backfill: lançamentos de fatura fechada que ficaram com data errada (vencimento futuro)
-    // são corrigidos para o último dia da competência, e qualquer fatura fechada sem
-    // lançamento gera um novo.
-    const lancamentosCorrigidos = [...(lancamentosData || [])];
-    const idxPorId = new Map(lancamentosCorrigidos.map((l, i) => [l.id, i]));
-    const lansParaInserir = [];
-    const lansParaAtualizar = [];
+    // Backfill: limpa lançamentos órfãos vinculados a faturas anteriores ao cutoff.
+    // (Antes desta correção, qualquer fatura fechada gerava lançamento — agora só >= cutoff.)
+    let lancamentosCorrigidos = [...(lancamentosData || [])];
+    const lansParaDeletar = [];
     (ffData || []).forEach(f => {
-      if (!f.total || f.total <= 0) return;
+      if (isCompetenciaAptaParaLancamento(f.ano, f.mes)) return;
       const lanId = `lan_${f.id}`;
-      const propLocal = (propsData || []).find(p => p.id === f.proprietarioId);
-      const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
-      const proxMes = f.mes === 12 ? 1 : f.mes + 1;
-      const proxAno = f.mes === 12 ? f.ano + 1 : f.ano;
-      const vencimentoStr = `10/${String(proxMes).padStart(2, '0')}/${proxAno}`;
-      const ultimoDia = new Date(f.ano, f.mes, 0).getDate();
-      const dataLanc = `${f.ano}-${String(f.mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
-      const nomeProp = propLocal?.nome || f.proprietarioNome || '';
-      const motivoCorreto = `Fatura ${mesNome}/${f.ano} — ${nomeProp} (venc. ${vencimentoStr})`;
-      const idx = idxPorId.get(lanId);
-      if (idx === undefined) {
-        // Não existe — cria
-        const lanc = {
-          id: lanId, tipo: 'entrada', valor: f.total, data: dataLanc,
-          quem: nomeProp, motivo: motivoCorreto, categoria: 'Faturamento clientes',
-          pago: false, pagoEm: null, recorrenciaId: null,
-        };
-        lancamentosCorrigidos.push(lanc);
-        lansParaInserir.push(lanc);
-      } else {
-        // Existe mas com data potencialmente errada — corrige se data > último dia da competência
-        const existente = lancamentosCorrigidos[idx];
-        if (existente.data > dataLanc) {
-          const corrigido = { ...existente, data: dataLanc, motivo: motivoCorreto };
-          lancamentosCorrigidos[idx] = corrigido;
-          lansParaAtualizar.push(corrigido);
-        }
+      const idx = lancamentosCorrigidos.findIndex(l => l.id === lanId);
+      if (idx !== -1) {
+        lansParaDeletar.push(lanId);
+        lancamentosCorrigidos.splice(idx, 1);
       }
     });
 
     setLancamentos([...lancamentosCorrigidos, ...novosLans, ...lansEstoqueLimpos]);
     if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
-    lansParaInserir.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
-    lansParaAtualizar.forEach(l => dbUpdate('financeiro_lancamentos', l.id, toDbLancamento(l)));
+    lansParaDeletar.forEach(id => dbDelete('financeiro_lancamentos', id));
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
     setNutricaoOrdem(configResult?.data?.nutricao_ordem || []);
   } catch (err) {
@@ -1002,17 +981,17 @@ const loadAllData = async () => {
   const addFaturaFechada = (f) => {
     setFaturasFechadas(prev => [...prev.filter(x => !(x.proprietarioId === f.proprietarioId && x.ano === f.ano && x.mes === f.mes)), f]);
     dbInsert('faturas_fechadas', toDbFaturaFechada(f));
-    // Cria lançamento de entrada vinculado para tracking de cash-flow
-    if ((f.total || 0) > 0) {
+    // Cria lançamento de entrada apenas para faturas com competência >= cutoff (junho/2026).
+    // Competências anteriores são fechadas sem lançar — o usuário cadastrará atrasos manualmente.
+    if ((f.total || 0) > 0 && isCompetenciaAptaParaLancamento(f.ano, f.mes)) {
       const prop = proprietarios.find(p => p.id === f.proprietarioId);
       const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
-      const proxMes = f.mes === 12 ? 1 : f.mes + 1;
-      const proxAno = f.mes === 12 ? f.ano + 1 : f.ano;
-      const vencimentoStr = `10/${String(proxMes).padStart(2, '0')}/${proxAno}`;
-      // Data = último dia da competência (ex: 30/06 para fatura de Junho) — fica visível
-      // no mês em que a fatura foi fechada, e vira "atrasada" no dia seguinte.
-      const ultimoDia = new Date(f.ano, f.mes, 0).getDate();
-      const dataLanc = `${f.ano}-${String(f.mes).padStart(2, '0')}-${String(ultimoDia).padStart(2, '0')}`;
+      // Vencimento = data de fechamento + 5 dias (editável depois individualmente)
+      const fechadaEm = f.fechadaEm ? new Date(f.fechadaEm) : new Date();
+      const vencD = new Date(fechadaEm);
+      vencD.setDate(vencD.getDate() + 5);
+      const dataLanc = vencD.toLocaleDateString('sv-SE');
+      const vencimentoStr = vencD.toLocaleDateString('pt-BR');
       const lanc = {
         id: `lan_${f.id}`,
         tipo: 'entrada',
@@ -1042,6 +1021,140 @@ const loadAllData = async () => {
       iniciais: (data.nome || prev.nome).split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase(),
     }));
   };
+
+  // ── Auto-fechar faturas dos meses anteriores ─────────────────
+  // Roda uma vez por sessão, depois do carregamento dos dados.
+  // Fecha todas as faturas de competências anteriores ao mês atual que ainda
+  // não estão fechadas. Para competências < cutoff (junho/2026), addFaturaFechada
+  // não cria lançamento de entrada — exatamente o comportamento desejado.
+  const autoFechouRef = useRef(false);
+  useEffect(() => {
+    if (autoFechouRef.current) return;
+    if (loading) return;
+    if (proprietarios.length === 0 || cavalos.length === 0) return;
+    autoFechouRef.current = true;
+
+    const hoje = new Date();
+    const anoAtual = hoje.getFullYear();
+    const mesAtual = hoje.getMonth() + 1;
+    const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
+    const findInsumo = (iid) => insumos.find(i => i.id === iid);
+    const ehPotroAoPeCav = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
+
+    const fechamentos = [];
+    // Volta até 24 meses ou até encontrar 3 meses consecutivos sem nada para fechar
+    let mesesConsecutivosVazios = 0;
+    for (let i = 1; i <= 24 && mesesConsecutivosVazios < 3; i++) {
+      const d = new Date(anoAtual, mesAtual - 1 - i, 1);
+      const ano = d.getFullYear();
+      const mes = d.getMonth() + 1;
+      const ref = { ano, mes };
+      let fechadosEsseMes = 0;
+
+      proprietarios.forEach(prop => {
+        const jaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ano && f.mes === mes);
+        if (jaFechada) return;
+        const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(prop.id) || c.proprietarioId === prop.id);
+        if (cavalosObj.length === 0) return;
+        const cavIds = new Set(cavalosObj.map(c => c.id));
+
+        // Calcula totais
+        const propMens = cavalosObj.map(c => ({ cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) }));
+        const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
+        const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: shareCount(c) })).filter(pp => pp.linhas.length > 0);
+        const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
+
+        const myReg = (registros || []).filter(r => {
+          if (!cavIds.has(r.cavaloId)) return false;
+          const ins = findInsumo(r.insumoId);
+          const cav = cavalosObj.find(x => x.id === r.cavaloId);
+          const paga = !!cav?.pagarOCusto || ehPotroAoPeCav(cav || {});
+          if (!paga) {
+            if (ins?.incluidoMensalidade) return false;
+            if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
+          }
+          if (!r.data) return false;
+          const dr = new Date(r.data + 'T12:00:00');
+          return dr.getFullYear() === ano && dr.getMonth() + 1 === mes;
+        });
+        const insumosLinhas = myReg.map(r => {
+          const ins = findInsumo(r.insumoId);
+          const cav = cavalos.find(c => c.id === r.cavaloId);
+          const share = shareCount(cav || {});
+          return { reg: r, ins, cav, share, total: ((ins?.valorVenda ?? 0) * r.qtd) / share };
+        });
+        const insumosTotalP = insumosLinhas.reduce((s, l) => s + l.total, 0);
+
+        const procLinhas = (procedimentos || []).filter(pr => {
+          if (!cavIds.has(pr.cavaloId)) return false;
+          if (!pr.data) return false;
+          const dr = new Date(pr.data + 'T12:00:00');
+          return dr.getFullYear() === ano && dr.getMonth() + 1 === mes;
+        }).map(pr => {
+          const cav = cavalos.find(c => c.id === pr.cavaloId);
+          const sv = (servicos || []).find(s => s.id === pr.servicoId);
+          const share = shareCount(cav || {});
+          const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
+          return { proc: pr, cav, sv, nomeSv, share, total: (pr.total || 0) / share };
+        });
+        const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
+
+        // Custo Fixo Rateado para pagarOCusto
+        const mesKey = `${ano}-${String(mes).padStart(2, '0')}`;
+        const CAT_RAT = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+        const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
+        const cfActuals = cfDoMes.reduce((s, c) => (CAT_RAT.includes(c.categoria) ? s + c.valor : s), 0);
+        const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+        const cfTotalMes = cfActuals + cfProvisao;
+        const nPagantesHaras = cavalos.filter(c => c.presente !== false && !ehPotroAoPeCav(c)).length;
+        const cfPorCavaloMes = nPagantesHaras > 0 ? cfTotalMes / nPagantesHaras : 0;
+        const cfLinhas = cavalosObj.filter(c => !!c.pagarOCusto).map(c => {
+          const m = propMens.find(x => x.cav.id === c.id);
+          const dias = m?.dias ?? 30;
+          const totalDias = m?.total ?? 30;
+          const share = shareCount(c);
+          const valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+          return { cav: c, dias, totalDias, share, valor: valorTotal / share };
+        });
+        const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
+
+        const total = mensTotal + perfilTotal + insumosTotalP + procedimentosTotal + custoFixoTotal;
+        if (total <= 0) return;
+
+        const linhas = [
+          ...propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase, share: m.share })),
+          ...propPerfil.flatMap(pp => pp.linhas.map(l => {
+            const shareValor = (l.valorMes || l.valor || 0) / pp.share;
+            return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor, share: pp.share };
+          })),
+          ...insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total, share: l.share, data: l.reg.data })),
+          ...procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total, share: l.share })),
+          ...cfLinhas.map(l => ({ tipo: 'custoFixo', cavaloId: l.cav.id, cavaloNome: l.cav.nome, dias: l.dias, totalDias: l.totalDias, valor: l.valor, share: l.share, cotaMensal: cfPorCavaloMes })),
+        ];
+
+        fechamentos.push({
+          id: `ff_${prop.id}_${ano}_${mes}`,
+          proprietarioId: prop.id, proprietarioNome: prop.nome,
+          ano, mes,
+          total, mensalidades: mensTotal, perfilNutricional: perfilTotal,
+          insumosAvulsos: insumosTotalP, procedimentosAvulsos: procedimentosTotal,
+          custoFixoRateado: custoFixoTotal,
+          linhas, fechadaPor: 'Sistema (auto)',
+          fechadaEm: new Date().toISOString(),
+        });
+        fechadosEsseMes++;
+      });
+
+      if (fechadosEsseMes === 0) mesesConsecutivosVazios++;
+      else mesesConsecutivosVazios = 0;
+    }
+
+    if (fechamentos.length > 0) {
+      console.log(`[Auto-fechar] ${fechamentos.length} fatura(s) anteriores serão fechadas (sem lançar em Entradas para competências < ${CUTOFF_LANCAMENTO})`);
+      fechamentos.forEach(f => addFaturaFechada(f));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, proprietarios.length, cavalos.length]);
 
   // ── Seed (dev only) ───────────────────────────────────────────
   const handleSeed = async () => {

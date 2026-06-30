@@ -5325,4 +5325,5 @@ export {
   ProprietarioScreen,
   CadastrosScreen, CadProprietariosScreen, CadInsumosScreen, CadMensalidadesScreen, CadCavalosScreen, CadEmpresaScreen,
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
+  calcDias, calcDiasItem, calcMensalidadeProporcional, calcPerfilMes,
 };
