@@ -4834,7 +4834,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [] }) => {
+const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [] }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const [editRegId, setEditRegId] = useState(null);
   const [editQtd, setEditQtd] = useState('');
@@ -4975,6 +4975,37 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
     procedimentosTotal > 0 ? `Procedimentos: ${BRL(procedimentosTotal)}` : null,
     `*Total: ${BRL(total)}*`,
   ].filter(l => l !== null).join('\n');
+
+  // ── Próxima fatura (mesma ordem da lista de Faturas) ──
+  // Ordena por nome e descarta faturas com total = 0 (a menos que estejam fechadas).
+  const totalDoProprietario = (pr) => {
+    const ff = faturasFechadas.find(f => f.proprietarioId === pr.id && f.ano === ref.ano && f.mes === ref.mes);
+    if (ff) return { total: ff.total, fechada: true };
+    const cavObj = cavalos.filter(c => (c.proprietarioIds || []).includes(pr.id) || c.proprietarioId === pr.id);
+    if (cavObj.length === 0) return { total: 0, fechada: false };
+    const m = cavObj.reduce((s, c) => s + calcMensalidadeProporcional(c, ref, movimentacoes).valor / shareCount(c), 0);
+    const pf = cavObj.reduce((s, c) => s + calcPerfilMes(c, ref, movimentacoes, insumos).total / shareCount(c), 0);
+    const cavIdsLocal = new Set(cavObj.map(c => c.id));
+    const insTotal = registros.reduce((s, r) => {
+      if (!cavIdsLocal.has(r.cavaloId)) return s;
+      if (r.data) {
+        const d = new Date(r.data + 'T12:00:00');
+        if (d.getFullYear() !== ref.ano || d.getMonth() + 1 !== ref.mes) return s;
+      }
+      const i = findInsumo(r.insumoId);
+      const cav = cavalos.find(c => c.id === r.cavaloId);
+      return s + ((i?.valorVenda ?? 0) * r.qtd) / shareCount(cav || {});
+    }, 0);
+    return { total: m + pf + insTotal, fechada: false };
+  };
+  const faturasOrdenadas = [...proprietarios]
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'))
+    .filter(pr => {
+      const { total: t, fechada } = totalDoProprietario(pr);
+      return fechada || t > 0;
+    });
+  const idxAtual = faturasOrdenadas.findIndex(pr => pr.id === id);
+  const proxProp = idxAtual >= 0 && idxAtual < faturasOrdenadas.length - 1 ? faturasOrdenadas[idxAtual + 1] : null;
 
   return (
     <div style={{ paddingBottom: 110, background: 'var(--soft)', minHeight: '100%' }}>
@@ -5209,6 +5240,25 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
           }}>Fechar fatura</button>
         )}
       </div>
+
+      {proxProp && setSelected && (
+        <div style={{ padding: '10px 16px 0' }}>
+          <button
+            onClick={() => { setSelected(proxProp.id); setScreen('faturaDetalhe'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
+            style={{
+              width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+              padding: '12px 14px', fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 500, color: 'var(--ink)',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, textAlign: 'left', cursor: 'pointer',
+            }}
+          >
+            <span style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Próxima fatura</span>
+            <span style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+              <span style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proxProp.nome}</span>
+              <span style={{ fontSize: 18, color: 'var(--ink-2)' }}>›</span>
+            </span>
+          </button>
+        </div>
+      )}
 
       {shareOpen && (
         <ShareModal
