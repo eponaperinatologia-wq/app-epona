@@ -188,17 +188,20 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
     const egua = cavalos.find(c => c.id === eguaId);
     const assistencia = insumos.find(i => i.nome === 'Assistência ao Parto') || insumos.find(i => i.id === 'im8');
 
-    // Cria o potro
+    // Cria o potro, já vinculado à mãe e categoria "Potro ao pé"
     const potroId = addCavalo({
       nome: potroNome.trim(),
       sexo: '',
       categoria: 'Potro ao pé',
+      categorias: ['Potro ao pé'],
       nascimento: data,
       proprietarioId,
+      proprietarioIds: egua?.proprietarioIds || (proprietarioId ? [proprietarioId] : []),
       pelagem: '',
       baia: egua?.baia || '',
       piquete: egua?.piquete || '',
       mensalidade: 0,
+      maeId: eguaId,
       obs: `Potro de ${egua?.nome || ''}`,
       nutricao: { ...NUTRICAO_VAZIO },
     });

@@ -14,6 +14,7 @@ export const fromDbCavalo = r => ({
   dataEntrada: r.data_entrada || '',
   presente: r.presente !== false,
   dataSaida: r.data_saida || '',
+  maeId: r.mae_id || null,
 });
 
 export const fromDbProprietario = r => ({
@@ -131,6 +132,7 @@ export const toDbCavalo = c => ({
   data_entrada: c.dataEntrada || '',
   presente: c.presente !== false,
   data_saida: c.dataSaida || '',
+  mae_id: c.maeId || null,
 });
 
 export const toDbProprietario = p => ({
@@ -422,7 +424,7 @@ export const toDbVermifugacaoAnimal = v => ({
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
-const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional' };
+const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };

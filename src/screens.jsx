@@ -1599,8 +1599,13 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [dataCobricao, setDataCobricao] = useState(c.gestacao?.dataCobricao || c.dataCobertura || '');
   const [pai, setPai] = useState(c.gestacao?.pai || '');
   const [mae, setMae] = useState(c.gestacao?.mae || '');
+  const [maeId, setMaeId] = useState(c.maeId || '');
   const isGestante = categorias.has('Gestante');
   const isReceptora = categorias.has('Receptora');
+  const isPotroAoPe = categorias.has('Potro ao pé');
+  const possiveisMaes = cavalos
+    .filter(cav => cav.id !== c.id && cav.sexo === 'F')
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const handleToggleCategoria = cat => setCategorias(prev => {
     const next = new Set(prev);
     if (next.has(cat)) next.delete(cat); else next.add(cat);
@@ -1699,7 +1704,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     const categoriasArr = Array.from(categorias);
     const parsedMens = parseInt(mensalidade);
     const safeMens = Number.isFinite(parsedMens) && parsedMens >= 0 ? parsedMens : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -2053,6 +2058,28 @@ Suplementos: ${supNomes}` : ''}`;
           </div>
         </div>
 
+        {isPotroAoPe && (
+          <div style={{ background: 'var(--card)', border: '1px solid #1e40af', borderRadius: 14, padding: '14px', marginBottom: 10 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 10 }}>
+              👶 Vínculo com a mãe
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 5 }}>Mãe (égua presente no haras)</div>
+            <select value={maeId} onChange={e => setMaeId(e.target.value)} style={{
+              width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+              border: '1px solid var(--line)', background: 'var(--bg)',
+              fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+            }}>
+              <option value="">— selecionar mãe —</option>
+              {possiveisMaes.map(m => (
+                <option key={m.id} value={m.id}>{m.nome}{m.baia ? ` · ${m.baia}` : ''}</option>
+              ))}
+            </select>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 6, fontStyle: 'italic' }}>
+              O potro ao pé é vinculado financeiramente à mensalidade da mãe (1 unidade cobrável).
+            </div>
+          </div>
+        )}
+
         {isGestante && (
           <div style={{ background: 'var(--card)', border: '1px solid #dc2626', borderRadius: 14, padding: '14px', marginBottom: 10 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: '#dc2626', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 12 }}>
@@ -2338,9 +2365,14 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   ];
   const [mae, setMae] = useState('');
   const [pai, setPai] = useState('');
+  const [maeId, setMaeId] = useState('');
 
   const isGestante = categorias.has('Gestante');
   const isReceptora = categorias.has('Receptora');
+  const isPotroAoPe = categorias.has('Potro ao pé');
+  const possiveisMaes = (cavalos || [])
+    .filter(cav => cav.sexo === 'F')
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const handleToggleCategoria = (cat) => {
     const next = new Set(categorias);
@@ -2416,6 +2448,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       obs: obs.trim(),
       dataEntrada: dataEntradaFinal,
       nascimento: nascimento || undefined,
+      maeId: isPotroAoPe ? (maeId || null) : null,
       ...(isGestante ? { gestacao: { dataCobricao: dataCobertura, pai, ...(isReceptora ? { mae } : {}) } } : {}),
       nutricao: {
         racaoId,
@@ -2628,6 +2661,26 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
             />
           </FormField>
         </div>
+
+        {/* Vínculo com a mãe — obrigatório para potro ao pé */}
+        {isPotroAoPe && (
+          <div style={{ background: 'var(--card)', border: '1px solid #1e40af', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
+            <FormField label="👶 Mãe do potro ao pé">
+              <select value={maeId} onChange={e => setMaeId(e.target.value)} style={{
+                width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+              }}>
+                <option value="">— selecionar mãe —</option>
+                {possiveisMaes.map(m => (
+                  <option key={m.id} value={m.id}>{m.nome}{m.baia ? ` · ${m.baia}` : ''}</option>
+                ))}
+              </select>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, fontStyle: 'italic' }}>
+                O potro ao pé é vinculado à mensalidade da mãe (1 unidade cobrável).
+              </div>
+            </FormField>
+          </div>
+        )}
 
         {/* Dados de gestação - obrigatório para gestantes */}
         {isGestante && (
