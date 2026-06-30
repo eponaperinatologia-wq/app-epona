@@ -4258,8 +4258,26 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
 
   const isIncluso = (ins) => !!ins?.incluidoMensalidade || ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao';
 
+  // Calcula o consumo de TODOS os presentes (não depende do filtro de busca) —
+  // necessário para a média correta por cavalo do haras inteiro
+  const allConsumo = presentes.map(cav => ({
+    cav,
+    linhas: consumoDiarioCavaloLive(cav, insumos),
+  }));
+  const allInclusoDiaHaras = allConsumo.reduce((s, r) =>
+    s + r.linhas.reduce((sl, l) => {
+      const ins = insumos.find(i => i.id === l.insumoId);
+      return isIncluso(ins) ? sl + l.valorUnit * l.qtdDia : sl;
+    }, 0)
+  , 0);
+  const inclusoPorCavaloDia = nPresentes > 0 ? allInclusoDiaHaras / nPresentes : 0;
+  const inclusoPorCavaloPeriodo = inclusoPorCavaloDia * p.dias;
+  const absorvidoPorCavaloPeriodo = inclusoPorCavaloPeriodo + custoFixoPorCavaloPeriodo;
+
+  // Lista filtrada para visualização (busca afeta isso)
   const rows = filtrados.map(cav => {
-    const linhas = consumoDiarioCavaloLive(cav, insumos);
+    const consumoCav = allConsumo.find(r => r.cav.id === cav.id);
+    const linhas = consumoCav?.linhas || [];
     const nutricaoDia = linhas.reduce((s, l) => s + l.valorUnit * l.qtdDia, 0);
     const inclusoDia = linhas.reduce((s, l) => {
       const ins = insumos.find(i => i.id === l.insumoId);
@@ -4272,11 +4290,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
   }).filter(r => r.linhas.length > 0 || busca.trim());
 
   const totalNutricaoGeral = rows.reduce((s, r) => s + r.nutricaoPeriodo, 0);
-  const totalInclusoGeral = rows.reduce((s, r) => s + r.inclusoPeriodo, 0);
   const totalCustoFixoGeral = rows.reduce((s, r) => s + r.custoFixoPeriodo, 0);
   const totalGeral = totalNutricaoGeral + totalCustoFixoGeral;
-  const inclusoPorCavaloPeriodo = nPresentes > 0 ? totalInclusoGeral / nPresentes : 0;
-  const absorvidoPorCavaloPeriodo = inclusoPorCavaloPeriodo + custoFixoPorCavaloPeriodo;
 
   // Agrupa por proprietário, em ordem alfabética.
   // Cavalo com múltiplos donos aparece em CADA acordeão, com cobrança rateada.
@@ -4393,16 +4408,15 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       {/* Custo absorvido pelo haras / cavalo (mensalidade ideal) */}
       <div style={{ padding: '0 16px', marginBottom: 14 }}>
         <div style={{ background: 'linear-gradient(135deg, #b45309, #92400e)', borderRadius: 14, padding: '12px 16px', color: '#fff' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>💰 Custo absorvido pelo haras / cavalo / {p.label.toLowerCase()}</div>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 24, marginTop: 2 }}>{formatBRL(absorvidoPorCavaloPeriodo)}</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)', marginTop: 4, lineHeight: 1.5 }}>
-                {formatBRL(inclusoPorCavaloPeriodo)} ração/feno/sal (incluso na mensalidade) + {formatBRL(custoFixoPorCavaloPeriodo)} custo fixo
-              </div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 6, fontStyle: 'italic' }}>
-                Mínimo da mensalidade para cobrir custos. Margem sobre este valor é seu lucro por cavalo.
-              </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>💰 Custo absorvido pelo haras / cavalo / {p.label.toLowerCase()}</div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 24, marginTop: 2 }}>{formatBRL(absorvidoPorCavaloPeriodo)}</div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)', marginTop: 4, lineHeight: 1.5 }}>
+              {formatBRL(inclusoPorCavaloPeriodo)} ração/feno/sal (incluso na mensalidade) + {formatBRL(custoFixoPorCavaloPeriodo)} custo fixo · média de {nPresentes} cavalos do haras
+            </div>
+            <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.5 }}>
+              Mínimo da mensalidade para cobrir custos. Margem sobre este valor é seu lucro por cavalo.
+              <br />⚠ Só conta itens marcados como "incluso na mensalidade" no cadastro (Cadastros → Insumos → Editar). Feno e Sal Mineral precisam estar marcados.
             </div>
           </div>
         </div>
