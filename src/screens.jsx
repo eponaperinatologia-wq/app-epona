@@ -174,8 +174,30 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
   const findIns = (id) => (insumos || []).find(i => i.id === id);
-  const isIncluso = (ins) => !!ins?.incluidoMensalidade || ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao';
+  // Potro ao pé e "pagar o custo" pagam tudo (inclusive ração/feno/sal),
+  // pois não pagam mensalidade que cobre esses insumos
+  const ehPotroAoPe = (cav.categorias || []).includes('Potro ao pé') || cav.categoria === 'Potro ao pé';
+  const pagaCusto = !!cav.pagarOCusto || ehPotroAoPe;
+  const isIncluso = (ins) => !pagaCusto && (!!ins?.incluidoMensalidade || ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao');
   const linhas = [];
+
+  // Ração e feno — só adicionados quando paga o custo (potro ao pé / pagarOCusto)
+  if (pagaCusto) {
+    // Ração
+    if (cav.nutricao.racaoId) {
+      const racao = findIns(cav.nutricao.racaoId);
+      const kgDia = (cav.nutricao.racaoKgManha || 0) + (cav.nutricao.racaoKgTarde || 0) + (cav.nutricao.comeAlmoco ? (cav.nutricao.racaoKgAlmoco || 0) : 0);
+      if (racao && kgDia > 0) {
+        linhas.push({ insumoId: racao.id, nome: racao.nome, qtdDia: kgDia, unidade: racao.unidade || 'kg', valorUnit: racao.valorVenda || 0, valorDia: (racao.valorVenda || 0) * kgDia, valorMes: (racao.valorVenda || 0) * kgDia * dias });
+      }
+    }
+    // Feno
+    if ((cav.nutricao.fenoKgDia || 0) > 0) {
+      const feno = (insumos || []).find(i => i.nome?.toLowerCase().includes('feno'));
+      if (feno) linhas.push({ insumoId: feno.id, nome: feno.nome, qtdDia: cav.nutricao.fenoKgDia, unidade: feno.unidade || 'kg', valorUnit: feno.valorVenda || 0, valorDia: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia, valorMes: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia * dias });
+    }
+  }
+
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
     if (oleoIns && !isIncluso(oleoIns)) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
@@ -1582,6 +1604,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     return [...vals].sort((a, b) => a.localeCompare(b, 'pt'));
   }, [cavalos]);
   const [mensalidade, setMensalidade] = useState(Number.isFinite(Number(c.mensalidade)) ? c.mensalidade : 0);
+  const [pagarOCusto, setPagarOCusto] = useState(!!c.pagarOCusto);
   const [obs, setObs] = useState(c.obs || '');
   const [sexo, setSexo] = useState(c.sexo || '');
   const [pelagem, setPelagem] = useState(c.pelagem || 'Tordilho');
@@ -1704,7 +1727,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     const categoriasArr = Array.from(categorias);
     const parsedMens = parseInt(mensalidade);
     const safeMens = Number.isFinite(parsedMens) && parsedMens >= 0 ? parsedMens : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || undefined, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -1898,17 +1921,30 @@ Suplementos: ${supNomes}` : ''}`;
         </div>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <div style={{ borderTop: '1px solid var(--line)' }}>
-            <FormField label="Mensalidade (R$)">
+            <FormField label={pagarOCusto ? 'Mensalidade (R$) — desativada (paga o custo)' : 'Mensalidade (R$)'}>
               <input
                 type="number"
-                value={mensalidade}
+                value={pagarOCusto ? 0 : mensalidade}
+                disabled={pagarOCusto}
                 onChange={e => setMensalidade(e.target.value)}
                 style={{
                   width: '100%', border: 'none', outline: 'none', background: 'transparent',
-                  fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+                  fontSize: 15, color: pagarOCusto ? 'var(--ink-3)' : 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+                  textDecoration: pagarOCusto ? 'line-through' : 'none',
                 }}
               />
             </FormField>
+          </div>
+          <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={pagarOCusto} onChange={e => setPagarOCusto(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer', marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>💼 Pagar o custo (sem mensalidade fixa)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.4 }}>
+                  Em vez de cobrar mensalidade, a fatura inclui o consumo integral de insumos (ração, feno, sal mineral, óleo, suplementos) pelo valor de venda + a parte do custo fixo rateado. Para parceiros que arcam com o custo real.
+                </div>
+              </div>
+            </label>
           </div>
           <div style={{ borderTop: '1px solid var(--line)' }}>
             <FormField label="Observações">
@@ -2366,6 +2402,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [mae, setMae] = useState('');
   const [pai, setPai] = useState('');
   const [maeId, setMaeId] = useState('');
+  const [pagarOCusto, setPagarOCusto] = useState(false);
 
   const isGestante = categorias.has('Gestante');
   const isReceptora = categorias.has('Receptora');
@@ -2444,11 +2481,12 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       proprietarioIds: selectedProprietarios,
       baia: baia.trim() || 'A-00',
       piquete: baia.trim() || 'A-00',
-      mensalidade: parseInt(mensalidade) || 1950,
+      mensalidade: pagarOCusto ? 0 : (parseInt(mensalidade) || 1950),
       obs: obs.trim(),
       dataEntrada: dataEntradaFinal,
       nascimento: nascimento || undefined,
       maeId: isPotroAoPe ? (maeId || null) : null,
+      pagarOCusto,
       ...(isGestante ? { gestacao: { dataCobricao: dataCobertura, pai, ...(isReceptora ? { mae } : {}) } } : {}),
       nutricao: {
         racaoId,
@@ -2769,17 +2807,30 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
 
         {/* Mensalidade (opcional) */}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
-          <FormField label="Mensalidade (R$) (opcional)">
+          <FormField label={pagarOCusto ? 'Mensalidade (R$) — desativada (paga o custo)' : 'Mensalidade (R$) (opcional)'}>
             <input
               type="number"
-              value={mensalidade}
+              value={pagarOCusto ? 0 : mensalidade}
+              disabled={pagarOCusto}
               onChange={e => setMensalidade(e.target.value)}
               style={{
                 width: '100%', border: 'none', outline: 'none', background: 'transparent',
-                fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+                fontSize: 15, color: pagarOCusto ? 'var(--ink-3)' : 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
+                textDecoration: pagarOCusto ? 'line-through' : 'none',
               }}
             />
           </FormField>
+          <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px' }}>
+            <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+              <input type="checkbox" checked={pagarOCusto} onChange={e => setPagarOCusto(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer', marginTop: 2, flexShrink: 0 }} />
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>💼 Pagar o custo (sem mensalidade fixa)</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3, lineHeight: 1.4 }}>
+                  Fatura inclui consumo integral (ração, feno, sal, óleo, suplementos) por valor de venda + custo fixo rateado.
+                </div>
+              </div>
+            </label>
+          </div>
         </div>
 
         {/* Observações (opcional) */}
@@ -4781,7 +4832,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento }) => {
+const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [] }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const [editRegId, setEditRegId] = useState(null);
   const [editQtd, setEditQtd] = useState('');
@@ -4798,11 +4849,17 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
 
   const cavalosObj = cavalos.filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id);
   const cavIds = new Set(cavalosObj.map(c => c.id));
+  const ehPotroAoPeCav = (cav) => (cav.categorias || []).includes('Potro ao pé') || cav.categoria === 'Potro ao pé';
+  const cavPagaCusto = (cav) => !!cav?.pagarOCusto || ehPotroAoPeCav(cav || {});
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
     const ins = insumos.find(i => i.id === r.insumoId);
-    if (ins?.incluidoMensalidade) return false;
-    if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
+    const cav = cavalosObj.find(x => x.id === r.cavaloId);
+    const paga = cavPagaCusto(cav);
+    if (!paga) {
+      if (ins?.incluidoMensalidade) return false;
+      if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
+    }
     if (!r.data) return true;
     const d = new Date(r.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
@@ -4835,7 +4892,26 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
   });
   const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
 
-  const total = mensTotal + perfilTotal + insumosTotal + procedimentosTotal;
+  // Custo Fixo Rateado — só cobra de cavalos pagarOCusto
+  const mesKey = `${ref.ano}-${String(ref.mes).padStart(2, '0')}`;
+  const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
+  const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
+  const cfActuals = cfDoMes.reduce((s, c) => (CATEGORIAS_RATEAVEIS.includes(c.categoria) ? s + c.valor : s), 0);
+  const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
+  const cfTotalMes = cfActuals + cfProvisao;
+  const nPagantesHaras = cavalos.filter(c => c.presente !== false && !ehPotroAoPeCav(c)).length;
+  const custoFixoPorCavaloMes = nPagantesHaras > 0 ? cfTotalMes / nPagantesHaras : 0;
+  const cfLinhas = cavalosObj
+    .filter(c => !!c.pagarOCusto)
+    .map(c => {
+      const { dias, total: totalDias } = calcDias(c, ref, movimentacoes);
+      const share = shareCount(c);
+      const valorTotal = custoFixoPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+      return { cav: c, dias, totalDias, share, valorTotal, valor: valorTotal / share };
+    });
+  const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
+
+  const total = mensTotal + perfilTotal + insumosTotal + procedimentosTotal + custoFixoTotal;
 
   const mesNome = MESES[ref.mes - 1];
   const mesAno = `${String(ref.mes).padStart(2, '0')} / ${ref.ano}`;
@@ -5018,6 +5094,20 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             </button>
           )}
 
+          {/* Custo Fixo Rateado — só para cavalos "pagar o custo" */}
+          {cfLinhas.length > 0 && <SectionTitle>Custo fixo rateado · paga o custo</SectionTitle>}
+          {cfLinhas.map(l => (
+            <div key={`cf_${l.cav.id}`} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.cav.nome}</div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                  Cota mensal {formatBRL(custoFixoPorCavaloMes)} · {l.dias}/{l.totalDias} dias{l.share > 1 ? ` · ${l.share} proprietários` : ''}
+                </div>
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', marginLeft: 12 }}>{formatBRL(l.valor)}</div>
+            </div>
+          ))}
+
           {/* totais */}
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)', fontFamily: 'var(--sans)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
@@ -5025,7 +5115,7 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             </div>
             {perfilTotal > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
-                <span>Óleo & suplementos</span><span>{formatBRL(perfilTotal)}</span>
+                <span>Nutrição (ração/feno/óleo/suplementos)</span><span>{formatBRL(perfilTotal)}</span>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
@@ -5034,6 +5124,11 @@ const FaturaDetalheScreen = ({ id, setScreen, registros, proprietarios = [], cav
             {procedimentosTotal > 0 && (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
                 <span>Procedimentos</span><span>{formatBRL(procedimentosTotal)}</span>
+              </div>
+            )}
+            {custoFixoTotal > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: 'var(--ink-2)', padding: '3px 0' }}>
+                <span>Custo fixo rateado</span><span>{formatBRL(custoFixoTotal)}</span>
               </div>
             )}
             <div style={{
