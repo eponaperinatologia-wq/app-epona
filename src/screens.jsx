@@ -204,25 +204,25 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
       const racao = findIns(cav.nutricao.racaoId);
       const kgDia = (cav.nutricao.racaoKgManha || 0) + (cav.nutricao.racaoKgTarde || 0) + (cav.nutricao.comeAlmoco ? (cav.nutricao.racaoKgAlmoco || 0) : 0);
       if (racao && kgDia > 0) {
-        linhas.push({ insumoId: racao.id, nome: racao.nome, qtdDia: kgDia, unidade: racao.unidade || 'kg', valorUnit: racao.valorVenda || 0, valorDia: (racao.valorVenda || 0) * kgDia, valorMes: (racao.valorVenda || 0) * kgDia * dias });
+        linhas.push({ insumoId: racao.id, nome: racao.nome, qtdDia: kgDia, unidade: racao.unidade || 'kg', valorUnit: racao.valorVenda || 0, valorDia: (racao.valorVenda || 0) * kgDia, valorMes: (racao.valorVenda || 0) * kgDia * dias, dias });
       }
     }
     // Feno
     if ((cav.nutricao.fenoKgDia || 0) > 0) {
       const feno = (insumos || []).find(i => i.nome?.toLowerCase().includes('feno'));
-      if (feno) linhas.push({ insumoId: feno.id, nome: feno.nome, qtdDia: cav.nutricao.fenoKgDia, unidade: feno.unidade || 'kg', valorUnit: feno.valorVenda || 0, valorDia: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia, valorMes: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia * dias });
+      if (feno) linhas.push({ insumoId: feno.id, nome: feno.nome, qtdDia: cav.nutricao.fenoKgDia, unidade: feno.unidade || 'kg', valorUnit: feno.valorVenda || 0, valorDia: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia, valorMes: (feno.valorVenda || 0) * cav.nutricao.fenoKgDia * dias, dias });
     }
   }
 
   if (cav.nutricao.oleoMlDia > 0) {
     const oleoIns = findIns('i_oleo') || (insumos || []).find(i => i.nome?.toLowerCase().includes('óleo') || i.nome?.toLowerCase().includes('oleo'));
-    if (oleoIns && !isIncluso(oleoIns)) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias });
+    if (oleoIns && !isIncluso(oleoIns)) linhas.push({ insumoId: oleoIns.id, nome: oleoIns.nome, qtdDia: cav.nutricao.oleoMlDia, unidade: oleoIns.unidade, valorUnit: oleoIns.valorVenda, valorDia: oleoIns.valorVenda * cav.nutricao.oleoMlDia, valorMes: oleoIns.valorVenda * cav.nutricao.oleoMlDia * dias, tipoLinha: 'nutricional', diasUsados: dias, dias });
   }
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins || isIncluso(ins)) continue;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
-    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos });
+    linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos, dias: diasEfetivos });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
@@ -230,7 +230,7 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
     const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
-    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * diasEfetivos });
+    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * diasEfetivos, dias: diasEfetivos });
   }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
@@ -5392,14 +5392,18 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
           ))}
 
           {propPerfil.length > 0 && <SectionTitle>Óleo & suplementos · perfil × dias</SectionTitle>}
-          {propPerfil.flatMap(pp => pp.linhas.map(l => (
-            <TableRow
-              key={pp.cav.id + l.insumoId}
-              left={`${l.nome} · ${pp.cav.nome}`}
-              sub={`${l.qtdDia} ${l.unidade}/dia × ${l.dias} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
-              right={formatBRL((l.valorMes || 0) / pp.share)}
-            />
-          )))}
+          {propPerfil.flatMap(pp => pp.linhas.map(l => {
+            const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
+            const diasUsados = l.dias ?? pp.dias;
+            return (
+              <TableRow
+                key={pp.cav.id + l.insumoId}
+                left={`${l.nome} · ${pp.cav.nome}`}
+                sub={`${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
+                right={formatBRL((l.valorMes || 0) / pp.share)}
+              />
+            );
+          }))}
 
           <SectionTitle>Insumos avulsos</SectionTitle>
           {insumosLinhas.length === 0 && <div style={{ fontFamily: 'var(--sans)', fontSize: 11, color: 'var(--ink-3)', padding: '6px 0' }}>Sem insumos avulsos este mês.</div>}

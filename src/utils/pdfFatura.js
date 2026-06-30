@@ -148,7 +148,9 @@ export function gerarPdfFatura({
         const share = pp.share || 1;
         pp.linhas.forEach(l => {
           const cota = (l.valorMes || l.valor || 0);
-          const sub = `${pp.cav.nome} · ${l.qtdDia} ${l.unidade}/dia × ${pp.dias} dias`;
+          const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
+          const diasUsados = l.dias ?? pp.dias;
+          const sub = `${pp.cav.nome} · ${qtd} ${l.unidade}/dia × ${diasUsados} dias`;
           row(l.nome, sub, BRL(share > 1 ? cota / share : cota));
         });
       });
