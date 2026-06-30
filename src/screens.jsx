@@ -745,17 +745,29 @@ const HistoricoScreen = ({ setScreen, atividades = ATIVIDADES, currentUser, remo
 const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, setCavalos, proprietarios = PROPRIETARIOS }) => {
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const [search, setSearch] = useState('');
+  const [categoriasSelecionadas, setCategoriasSelecionadas] = useState([]);
 
   const presentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const ausentes = cavalos.filter(c => !c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
-  const filteredPresentes = presentes.filter(c =>
-    norm(c.nome).includes(norm(search)) ||
-    norm(c.baia).includes(norm(search))
-  );
-  const filteredAusentes = ausentes.filter(c =>
-    norm(c.nome).includes(norm(search)) ||
-    norm(c.baia).includes(norm(search))
+  // Categorias disponíveis (com contagem dinâmica entre presentes)
+  const CATEGORIAS_FILTRO = [
+    'Potro ao pé', 'Potro', 'Jovem', 'Adulto', 'Gestante', 'Receptora',
+    'Doadora', 'Matriz', 'Garanhão', 'Castrado',
+  ];
+  const cavaloEmCategoria = (c, cat) => (c.categorias || []).includes(cat) || c.categoria === cat;
+  const categoriasComContagem = CATEGORIAS_FILTRO
+    .map(cat => ({ cat, count: presentes.filter(c => cavaloEmCategoria(c, cat)).length }))
+    .filter(x => x.count > 0);
+
+  const matchCategoria = (c) => categoriasSelecionadas.length === 0 || categoriasSelecionadas.some(cat => cavaloEmCategoria(c, cat));
+  const matchBusca = (c) => norm(c.nome).includes(norm(search)) || norm(c.baia).includes(norm(search));
+
+  const filteredPresentes = presentes.filter(c => matchBusca(c) && matchCategoria(c));
+  const filteredAusentes = ausentes.filter(c => matchBusca(c) && matchCategoria(c));
+
+  const toggleCategoria = (cat) => setCategoriasSelecionadas(prev =>
+    prev.includes(cat) ? prev.filter(x => x !== cat) : [...prev, cat]
   );
 
   const renderCavalo = (c) => {
@@ -814,6 +826,35 @@ const CavalosScreen = ({ setScreen, setSelected, density, cavalos = CAVALOS, set
           />
         </div>
       </div>
+
+      {/* Chips de categoria */}
+      {categoriasComContagem.length > 0 && (
+        <div style={{ padding: '10px 20px 0', display: 'flex', gap: 6, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
+          {categoriasSelecionadas.length > 0 && (
+            <button onClick={() => setCategoriasSelecionadas([])} style={{
+              flexShrink: 0, padding: '5px 10px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+              border: '1px solid var(--line)', background: 'var(--soft)', color: 'var(--ink-3)',
+              cursor: 'pointer', fontFamily: 'var(--sans)', whiteSpace: 'nowrap',
+            }}>× Limpar</button>
+          )}
+          {categoriasComContagem.map(({ cat, count }) => {
+            const ativo = categoriasSelecionadas.includes(cat);
+            return (
+              <button key={cat} onClick={() => toggleCategoria(cat)} style={{
+                flexShrink: 0, padding: '5px 12px', borderRadius: 16, fontSize: 11, fontWeight: 600,
+                border: `1px solid ${ativo ? 'var(--accent)' : 'var(--line)'}`,
+                background: ativo ? 'var(--accent)' : 'var(--card)',
+                color: ativo ? '#fff' : 'var(--ink-2)',
+                cursor: 'pointer', fontFamily: 'var(--sans)', whiteSpace: 'nowrap',
+                display: 'flex', alignItems: 'center', gap: 5,
+              }}>
+                {ativo && <span style={{ fontSize: 10 }}>✓</span>}
+                {cat} <span style={{ opacity: 0.7, fontSize: 10 }}>({count})</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div style={{ padding: '12px 20px 0' }}>
         {filteredPresentes.length > 0 && (
@@ -4244,6 +4285,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
     : presentes;
 
   // ── Custo Fixo rateado por cavalo (mês corrente) ──
+  // Potros ao pé não entram no rateio: estão associados financeiramente à mãe (1 mensalidade cobre ambos)
+  const ehPotroAoPe = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
   const hoje = new Date();
   const mesAtual = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}`;
   const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
@@ -4252,7 +4295,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
   const cfProvisao = cfDoMes.filter(c => c.categoria === 'salario').reduce((s, c) => s + c.valor * (Number(c.encargosPct) || 0) / 100, 0);
   const cfTotalMes = cfActuals + cfProvisao;
   const nPresentes = presentes.length;
-  const custoFixoPorCavaloMes = nPresentes > 0 ? cfTotalMes / nPresentes : 0;
+  const nPagantes = presentes.filter(c => !ehPotroAoPe(c)).length; // unidades cobradoras (mãe inclui potro ao pé)
+  const custoFixoPorCavaloMes = nPagantes > 0 ? cfTotalMes / nPagantes : 0;
   const custoFixoPorCavaloDia = custoFixoPorCavaloMes / 30; // base 30 dias
   const custoFixoPorCavaloPeriodo = custoFixoPorCavaloDia * p.dias;
 
@@ -4270,7 +4314,8 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       return isIncluso(ins) ? sl + l.valorUnit * l.qtdDia : sl;
     }, 0)
   , 0);
-  const inclusoPorCavaloDia = nPresentes > 0 ? allInclusoDiaHaras / nPresentes : 0;
+  // Média por "unidade cobrável" (mãe + potro ao pé = 1 unidade) — divide por pagantes
+  const inclusoPorCavaloDia = nPagantes > 0 ? allInclusoDiaHaras / nPagantes : 0;
   const inclusoPorCavaloPeriodo = inclusoPorCavaloDia * p.dias;
   const absorvidoPorCavaloPeriodo = inclusoPorCavaloPeriodo + custoFixoPorCavaloPeriodo;
 
@@ -4285,8 +4330,10 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
     }, 0);
     const nutricaoPeriodo = nutricaoDia * p.dias;
     const inclusoPeriodo = inclusoDia * p.dias;
-    const totalPeriodo = nutricaoPeriodo + custoFixoPorCavaloPeriodo;
-    return { cav, linhas, nutricaoDia, nutricaoPeriodo, inclusoPeriodo, custoFixoPeriodo: custoFixoPorCavaloPeriodo, totalPeriodo };
+    // Potro ao pé NÃO recebe rateio de custo fixo (financeiramente vinculado à mãe)
+    const custoFixoCav = ehPotroAoPe(cav) ? 0 : custoFixoPorCavaloPeriodo;
+    const totalPeriodo = nutricaoPeriodo + custoFixoCav;
+    return { cav, linhas, nutricaoDia, nutricaoPeriodo, inclusoPeriodo, custoFixoPeriodo: custoFixoCav, totalPeriodo, ehPotroAoPe: ehPotroAoPe(cav) };
   }).filter(r => r.linhas.length > 0 || busca.trim());
 
   const totalNutricaoGeral = rows.reduce((s, r) => s + r.nutricaoPeriodo, 0);
@@ -4404,10 +4451,11 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       <div style={{ padding: '0 16px', marginBottom: 8 }}>
         <div onClick={() => setScreen('custosFixos')} style={{ cursor: 'pointer', background: 'linear-gradient(135deg, #3d6043, #2d4a32)', borderRadius: 14, padding: '12px 16px', color: '#fff', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / cavalo / {p.label.toLowerCase()}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>Custo fixo rateado / unidade / {p.label.toLowerCase()}</div>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 22, marginTop: 2 }}>{formatBRL(custoFixoPorCavaloPeriodo)}</div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 4 }}>
-              Base mês: {formatBRL(custoFixoPorCavaloMes)} · {formatBRL(cfActuals)} reais + {formatBRL(cfProvisao)} provisão ÷ {nPresentes} cavalos
+              Base mês: {formatBRL(custoFixoPorCavaloMes)} · {formatBRL(cfActuals)} reais + {formatBRL(cfProvisao)} provisão ÷ {nPagantes} unidades cobráveis
+              {nPresentes - nPagantes > 0 && ` (${nPresentes - nPagantes} potros ao pé vinculados às mães)`}
             </div>
           </div>
           <div style={{ fontSize: 20, color: 'rgba(255,255,255,0.6)' }}>›</div>
@@ -4418,14 +4466,15 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
       <div style={{ padding: '0 16px', marginBottom: 14 }}>
         <div style={{ background: 'linear-gradient(135deg, #b45309, #92400e)', borderRadius: 14, padding: '12px 16px', color: '#fff' }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>💰 Custo absorvido pelo haras / cavalo / {p.label.toLowerCase()}</div>
+            <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.85)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>💰 Custo absorvido / unidade cobrável / {p.label.toLowerCase()}</div>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 24, marginTop: 2 }}>{formatBRL(absorvidoPorCavaloPeriodo)}</div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.85)', marginTop: 4, lineHeight: 1.5 }}>
-              {formatBRL(inclusoPorCavaloPeriodo)} ração/feno/sal (incluso na mensalidade) + {formatBRL(custoFixoPorCavaloPeriodo)} custo fixo · média de {nPresentes} cavalos do haras
+              {formatBRL(inclusoPorCavaloPeriodo)} ração/feno/sal (incluso) + {formatBRL(custoFixoPorCavaloPeriodo)} custo fixo · média de {nPagantes} unidades cobráveis
+              {nPresentes - nPagantes > 0 && ` (${nPresentes - nPagantes} potros ao pé fazem parte da mensalidade da mãe)`}
             </div>
             <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', marginTop: 6, fontStyle: 'italic', lineHeight: 1.5 }}>
-              Mínimo da mensalidade para cobrir custos. Margem sobre este valor é seu lucro por cavalo.
-              <br />⚠ Só conta itens marcados como "incluso na mensalidade" no cadastro (Cadastros → Insumos → Editar). Feno e Sal Mineral precisam estar marcados.
+              Mínimo da mensalidade para cobrir custos. Margem sobre este valor é seu lucro.
+              <br />⚠ Só conta itens marcados como "incluso na mensalidade" (Cadastros → Insumos → Editar). Feno e Sal Mineral precisam estar marcados.
             </div>
           </div>
         </div>
@@ -4483,43 +4532,50 @@ const ConsumoScreen = ({ setScreen, cavalos = [], insumos = [], custosFixos = []
               </button>
               {aberto && (
                 <div style={{ background: 'var(--soft)', padding: '4px 10px 10px' }}>
-                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo, share, absorvidoPeriodo, mensalidadeCobrada, margem }) => {
+                  {grupo.rows.map(({ cav, linhas, nutricaoPeriodo, custoFixoPeriodo, totalPeriodo, share, absorvidoPeriodo, mensalidadeCobrada, margem, ehPotroAoPe }) => {
                     const lucrativo = margem >= 0;
                     return (
                     <div key={cav.id + '_' + grupo.proprietario.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '10px 12px', marginTop: 6 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
                         <div>
-                          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                             {cav.nome}
                             {share > 1 && <span style={{ fontSize: 9, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a', borderRadius: 5, padding: '1px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>1/{share}</span>}
+                            {ehPotroAoPe && <span style={{ fontSize: 9, background: '#dbeafe', color: '#1e40af', border: '1px solid #93c5fd', borderRadius: 5, padding: '1px 6px', fontWeight: 700, letterSpacing: '0.04em' }}>POTRO AO PÉ · MÃE</span>}
                           </div>
                           {cav.baia && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{cav.baia}</div>}
                         </div>
                         <div style={{ textAlign: 'right' }}>
                           <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--accent)', fontWeight: 700 }}>{formatBRL(totalPeriodo)}</div>
                           <div style={{ fontSize: 9, color: 'var(--ink-3)', marginTop: 1 }}>
-                            {formatBRL(nutricaoPeriodo)} + {formatBRL(custoFixoPeriodo)} fixo
+                            {formatBRL(nutricaoPeriodo)}{!ehPotroAoPe && ` + ${formatBRL(custoFixoPeriodo)} fixo`}
                             {share > 1 && <span> · sua parte de {share}</span>}
                           </div>
                         </div>
                       </div>
-                      {/* Análise de margem */}
-                      <div style={{ background: lucrativo ? '#f0fdf4' : '#fef2f2', border: `1px solid ${lucrativo ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '6px 10px', marginBottom: 6, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
-                        <div>
-                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Absorvido</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>{formatBRL(absorvidoPeriodo)}</div>
+                      {/* Análise de margem — não exibe para potro ao pé (financeiramente vinculado à mãe) */}
+                      {ehPotroAoPe ? (
+                        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 8, padding: '6px 10px', marginBottom: 6, fontSize: 11, color: '#1e40af', fontStyle: 'italic' }}>
+                          Custo absorvido pela mensalidade da mãe. Sem custo fixo rateado próprio.
                         </div>
-                        <div>
-                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mensalidade</div>
-                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>{formatBRL(mensalidadeCobrada)}</div>
-                        </div>
-                        <div>
-                          <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margem</div>
-                          <div style={{ fontSize: 12, fontWeight: 700, color: lucrativo ? '#16a34a' : '#dc2626' }}>
-                            {lucrativo ? '+' : ''}{formatBRL(margem)}
+                      ) : (
+                        <div style={{ background: lucrativo ? '#f0fdf4' : '#fef2f2', border: `1px solid ${lucrativo ? '#bbf7d0' : '#fecaca'}`, borderRadius: 8, padding: '6px 10px', marginBottom: 6, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+                          <div>
+                            <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Absorvido</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e' }}>{formatBRL(absorvidoPeriodo)}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Mensalidade</div>
+                            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)' }}>{formatBRL(mensalidadeCobrada)}</div>
+                          </div>
+                          <div>
+                            <div style={{ fontSize: 9, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>Margem</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: lucrativo ? '#16a34a' : '#dc2626' }}>
+                              {lucrativo ? '+' : ''}{formatBRL(margem)}
+                            </div>
                           </div>
                         </div>
-                      </div>
+                      )}
                       {linhas.map(l => {
                         const qtdTotal = l.qtdDia * p.dias;
                         const valorTotal = l.valorUnit * qtdTotal;
