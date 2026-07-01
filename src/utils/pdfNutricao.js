@@ -1,8 +1,8 @@
 import { jsPDF } from 'jspdf';
 
-// PDF do plano nutricional — mesmo formato "ticket" do PDF de fatura:
-// largura fixa, altura calculada em duas passadas (medir → desenhar).
-// Exibe MANHÃ e TARDE no mesmo PDF, agrupado por baia/piquete.
+// PDF do plano nutricional — formato "ticket": largura fixa, altura
+// calculada em duas passadas (medir → desenhar).
+// Exibe MANHÃ + (ALMOÇO se aplicável) + TARDE agrupado por baia/piquete.
 
 const fmtNum = (v) => {
   const n = parseFloat(v) || 0;
@@ -11,49 +11,46 @@ const fmtNum = (v) => {
 };
 
 // Extrai os itens de dieta de um cavalo para um trato específico.
+// trato ∈ {'manha', 'almoco', 'tarde'}
 function itensDoTrato(cav, trato, insumos = []) {
   const n = cav.nutricao || {};
   const findIns = (id) => insumos.find(i => i.id === id);
   const items = [];
 
-  // Ração
+  // Ração + bloqueio
   const racao = n.racaoId ? findIns(n.racaoId) : null;
   const block = n.racaoBlock || {};
-  const bloqueada = trato === 'manha' ? block.manha : block.tarde;
-  const kgTrato = trato === 'manha'
-    ? (n.racaoKgManha ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0))
-    : (n.racaoKgTarde ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0));
+  const bloqueada = trato === 'manha' ? block.manha : trato === 'tarde' ? block.tarde : false;
+  let kgTrato = 0;
+  if (trato === 'manha') kgTrato = n.racaoKgManha ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0);
+  else if (trato === 'tarde') kgTrato = n.racaoKgTarde ?? (n.racaoKgDia ? n.racaoKgDia / 2 : 0);
+  else if (trato === 'almoco') kgTrato = n.racaoKgAlmoco || 0;
+
   if (racao) {
-    if (bloqueada) {
-      items.push({ tipo: 'block', texto: 'NÃO COMER RAÇÃO' });
-    } else if (kgTrato > 0) {
-      items.push({ tipo: 'racao', qtd: fmtNum(kgTrato), unidade: 'kg', nome: racao.nome });
-    }
+    if (bloqueada) items.push({ tipo: 'block', texto: 'NAO COMER RACAO' });
+    else if (kgTrato > 0) items.push({ tipo: 'racao', qtd: fmtNum(kgTrato), unidade: 'kg', nome: racao.nome });
   }
 
-  // Feno — mesma qtd nos 2 tratos (dividimos por 2)
+  // No almoço, mostramos SÓ a ração (é isso que muda no trato do almoço).
+  if (trato === 'almoco') return items;
+
+  // Feno — dividido igualmente entre manhã e tarde
   const fenoKgDia = parseFloat(n.fenoKgDia) || 0;
-  if (fenoKgDia > 0) {
-    items.push({ tipo: 'feno', qtd: fmtNum(fenoKgDia / 2), unidade: 'kg' });
-  }
+  if (fenoKgDia > 0) items.push({ tipo: 'feno', qtd: fmtNum(fenoKgDia / 2), unidade: 'kg' });
 
   // Óleo
   const oleoTrato = trato === 'manha'
     ? (n.oleoMlManha ?? ((n.oleoMlDia || 0) / 2))
     : (n.oleoMlTarde ?? ((n.oleoMlDia || 0) / 2));
-  if (oleoTrato > 0) {
-    items.push({ tipo: 'oleo', qtd: fmtNum(oleoTrato), unidade: 'ml' });
-  }
+  if (oleoTrato > 0) items.push({ tipo: 'oleo', qtd: fmtNum(oleoTrato), unidade: 'ml' });
 
   // Sal Kromium
   const salTrato = trato === 'manha'
     ? (parseFloat(n.salKromiumGManha) || 0)
     : (parseFloat(n.salKromiumGTarde) || 0);
-  if (salTrato > 0) {
-    items.push({ tipo: 'sal', qtd: fmtNum(salTrato), unidade: 'g' });
-  }
+  if (salTrato > 0) items.push({ tipo: 'sal', qtd: fmtNum(salTrato), unidade: 'g' });
 
-  // Suplementos — dividem qtdDia entre manhã e tarde
+  // Suplementos
   for (const s of (n.suplementos || [])) {
     const ins = findIns(s.insumoId) || { nome: s.insumoId, unidade: 'un' };
     const noManha = s.manha !== false;
@@ -64,7 +61,7 @@ function itensDoTrato(cav, trato, insumos = []) {
     if (qtd > 0) items.push({ tipo: 'sup', qtd: fmtNum(qtd), unidade: ins.unidade || 'un', nome: ins.nome });
   }
 
-  // Periódicos — só se batem com hoje + turno
+  // Periódicos
   const hoje = new Date();
   const diaSemana = hoje.getDay();
   const daysSinceEpoch = Math.floor(Date.now() / 86400000);
@@ -92,7 +89,7 @@ function itensDoTrato(cav, trato, insumos = []) {
   return items;
 }
 
-export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = ['manha', 'tarde'] }) {
+export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = ['manha', 'almoco', 'tarde'] }) {
   const W = 110;
   const L = 7;
   const R = W - 7;
@@ -118,12 +115,16 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
   const CHIP_LABELS = {
     racao: (i) => `${i.qtd} ${i.unidade} · ${i.nome}`,
     feno: (i) => `Feno ${i.qtd} ${i.unidade}`,
-    oleo: (i) => `Óleo ${i.qtd} ${i.unidade}`,
+    oleo: (i) => `Oleo ${i.qtd} ${i.unidade}`,
     sal: (i) => `Sal Kromium ${i.qtd} ${i.unidade}`,
     sup: (i) => `${i.nome} ${i.qtd} ${i.unidade}`,
     periodico: (i) => `${i.nome} ${i.qtd} ${i.unidade}`,
-    block: () => 'NÃO COMER RAÇÃO',
+    block: () => 'NAO COMER RACAO',
   };
+
+  // Auto-oculta almoço se nenhum cavalo tem comeAlmoco
+  const algumComeAlmoco = grupos.some(g => g.cavalos.some(c => c.nutricao?.comeAlmoco && (c.nutricao?.racaoKgAlmoco || 0) > 0));
+  const tratosEfetivos = tratos.filter(t => t !== 'almoco' || algumComeAlmoco);
 
   function layout(doc) {
     let y = 7;
@@ -144,37 +145,43 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
     doc.text(dataStr, R - 2, y + 7, { align: 'right' });
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6.5);
-    const diaSem = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][new Date().getDay()];
+    const diaSem = ['Domingo', 'Segunda', 'Terca', 'Quarta', 'Quinta', 'Sexta', 'Sabado'][new Date().getDay()];
     doc.text(diaSem, R - 2, y + 12.5, { align: 'right' });
     y += 20;
 
-    // Legenda dos ícones (breve)
+    // Legenda
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
     setColor(doc, doc.setTextColor, INK3);
-    doc.text('Trato: quantidade por refeição · Feno: metade por trato · Chips coloridos = tipo do item', L, y);
+    doc.text('Trato: quantidade por refeicao · Feno: metade por trato · Chips = tipo do item', L, y);
     y += 5;
 
     const drawTratoHeader = (trato) => {
-      // Barra colorida do trato
-      const bg = trato === 'manha' ? [245, 158, 11] : [124, 58, 237];
+      const bg =
+        trato === 'manha' ? [245, 158, 11]
+        : trato === 'almoco' ? [220, 38, 38]
+        : [124, 58, 237];
       setColor(doc, doc.setFillColor, bg);
-      doc.roundedRect(L, y, contentW, 8, 1.5, 1.5, 'F');
+      doc.roundedRect(L, y, contentW, 9, 1.5, 1.5, 'F');
       doc.setTextColor(255, 255, 255);
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(10);
-      doc.text(trato === 'manha' ? 'TRATO DA MANHÃ' : 'TRATO DA TARDE', L + 4, y + 5.5);
+      const titulo = trato === 'manha' ? 'TRATO DA MANHA'
+                   : trato === 'almoco' ? 'TRATO DO ALMOCO'
+                   : 'TRATO DA TARDE';
+      doc.text(titulo, L + 4, y + 6);
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7);
-      doc.text(trato === 'manha' ? 'ate 12h' : 'depois de 12h', R - 3, y + 5.5, { align: 'right' });
-      y += 11;
+      const sub = trato === 'manha' ? 'ate 12h' : trato === 'almoco' ? 'meio-dia' : 'depois de 12h';
+      doc.text(sub, R - 3, y + 6, { align: 'right' });
+      y += 12;
     };
 
     const drawGroupHeader = (label, count) => {
       setColor(doc, doc.setDrawColor, LINE);
       doc.setLineWidth(0.2);
       doc.line(L, y, R, y);
-      y += 3.5;
+      y += 4;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       setColor(doc, doc.setTextColor, ACCENT);
@@ -183,50 +190,52 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
       doc.setFontSize(7);
       setColor(doc, doc.setTextColor, INK3);
       doc.text(`${count} ${count === 1 ? 'animal' : 'animais'}`, R, y, { align: 'right' });
-      y += 5;
+      y += 3;
     };
 
-    // Desenha os "chips" numa linha, quebrando quando não cabe.
+    // Chips: y é o TOPO da linha atual de chips.
     const drawChips = (items) => {
       const chipH = 5.2;
       const gap = 1.5;
       const paddingX = 1.8;
       let x = L;
-      const rowMaxX = R;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(6.5);
       items.forEach(it => {
         const label = CHIP_LABELS[it.tipo](it);
         const w = doc.getTextWidth(label) + paddingX * 2;
-        if (x + w > rowMaxX) {
+        if (x + w > R) {
           y += chipH + gap;
           x = L;
         }
         const rgb = CHIP_COLORS[it.tipo] || INK;
-        // fundo suave
         setColor(doc, doc.setFillColor, [rgb[0], rgb[1], rgb[2]]);
-        doc.setGState && doc.setGState(new doc.GState({ opacity: 0.12 }));
-        doc.roundedRect(x, y - chipH + 1.5, w, chipH, 1, 1, 'F');
-        doc.setGState && doc.setGState(new doc.GState({ opacity: 1 }));
-        // borda
+        try { doc.setGState(new doc.GState({ opacity: 0.12 })); } catch (e) {}
+        doc.roundedRect(x, y, w, chipH, 1, 1, 'F');
+        try { doc.setGState(new doc.GState({ opacity: 1 })); } catch (e) {}
         setColor(doc, doc.setDrawColor, rgb);
         doc.setLineWidth(0.15);
-        doc.roundedRect(x, y - chipH + 1.5, w, chipH, 1, 1, 'S');
-        // texto
+        doc.roundedRect(x, y, w, chipH, 1, 1, 'S');
         setColor(doc, doc.setTextColor, rgb);
-        doc.text(label, x + paddingX, y - 0.2);
+        // Baseline do texto ~ 70% da altura do chip (padrão tipográfico)
+        doc.text(label, x + paddingX, y + chipH - 1.6);
         x += w + gap;
       });
-      y += chipH + 1.5;
+      y += chipH + 2;
     };
 
-    const drawCavalo = (cav, itens) => {
-      // Nome do cavalo
+    // Desenha nome do cavalo (linha 1) + local à direita, DEPOIS chips na linha de baixo.
+    const drawCavalo = (cav, trato, itens) => {
+      const local = cav.baia || cav.piquete || '';
+      // Nome ocupa até local à direita — reservamos espaço à direita pro local.
+      const localW = local ? 22 : 0;
+      const nomeMaxW = contentW - localW - 3;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(9);
       setColor(doc, doc.setTextColor, INK);
-      doc.text(safeStr(cav.nome), L, y);
-      const local = cav.baia || cav.piquete || '';
+      const nomeLinhas = doc.splitTextToSize(safeStr(cav.nome), nomeMaxW);
+      const nomeTexto = nomeLinhas[0] || safeStr(cav.nome);
+      doc.text(nomeTexto, L, y);
       if (local) {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(6.5);
@@ -234,33 +243,37 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
         doc.text(safeStr(local), R, y, { align: 'right' });
       }
       y += 3;
+      // Chips ou aviso
       if (itens.length === 0) {
         doc.setFont('helvetica', 'italic');
         doc.setFontSize(6.5);
         setColor(doc, doc.setTextColor, INK3);
-        doc.text('Sem plano nutricional cadastrado', L, y);
-        y += 4;
+        doc.text('Sem plano nutricional cadastrado', L, y + 3);
+        y += 6;
       } else {
         drawChips(itens);
       }
-      y += 1;
+      y += 2;
     };
 
-    // Loop por trato
-    tratos.forEach((trato, tratoIdx) => {
-      if (tratoIdx > 0) y += 3;
+    tratosEfetivos.forEach((trato, tratoIdx) => {
+      if (tratoIdx > 0) y += 4;
       drawTratoHeader(trato);
       grupos.forEach(g => {
-        drawGroupHeader(g.label, g.cavalos.length);
-        g.cavalos.forEach(cav => {
-          const itens = itensDoTrato(cav, trato, insumos);
-          drawCavalo(cav, itens);
+        // No almoço, só mostra cavalos que comeAlmoco (senão a seção fica vazia mas com header)
+        const cavalosDoTrato = trato === 'almoco'
+          ? g.cavalos.filter(c => c.nutricao?.comeAlmoco && (c.nutricao?.racaoKgAlmoco || 0) > 0)
+          : g.cavalos;
+        if (cavalosDoTrato.length === 0) return; // pula grupo vazio no almoço
+        drawGroupHeader(g.label, cavalosDoTrato.length);
+        cavalosDoTrato.forEach(cav => {
+          drawCavalo(cav, trato, itensDoTrato(cav, trato, insumos));
         });
       });
     });
 
     // Rodapé
-    y += 4;
+    y += 5;
     setColor(doc, doc.setDrawColor, LINE);
     doc.setLineWidth(0.2);
     doc.line(L, y, R, y);
@@ -268,7 +281,7 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(6);
     setColor(doc, doc.setTextColor, INK3);
-    const footParts = [empresa.nome || 'Epona Stud', dataStr, `Gerado às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`].filter(Boolean);
+    const footParts = [empresa.nome || 'Epona Stud', dataStr, `Gerado as ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`].filter(Boolean);
     const footStr = footParts.join(' · ');
     const footWrap = doc.splitTextToSize(footStr, contentW);
     footWrap.forEach(l => { doc.text(l, W / 2, y, { align: 'center' }); y += 2.6; });
@@ -277,12 +290,12 @@ export function gerarPdfNutricao({ grupos, insumos = [], empresa = {}, tratos = 
     return y;
   }
 
-  // Pass 1: medir altura
-  const measureDoc = new jsPDF({ unit: 'mm', format: [W, 800] });
+  // Pass 1: medir
+  const measureDoc = new jsPDF({ unit: 'mm', format: [W, 1200] });
   const finalY = layout(measureDoc);
   const height = Math.max(80, Math.ceil(finalY));
 
-  // Pass 2: doc real
+  // Pass 2: desenhar
   const doc = new jsPDF({ unit: 'mm', format: [W, height], orientation: 'portrait' });
   layout(doc);
   return doc;
