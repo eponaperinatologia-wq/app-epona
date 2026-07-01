@@ -1114,7 +1114,34 @@ const loadAllData = async () => {
 
     if (fechamentos.length > 0) {
       console.log(`[Auto-fechar] ${fechamentos.length} fatura(s) anteriores serão fechadas (sem lançar em Entradas para competências < ${CUTOFF_LANCAMENTO})`);
-      fechamentos.forEach(f => addFaturaFechada(f));
+      // Batch: 1 setState só (antes eram N setStates → N re-renders → travava).
+      setFaturasFechadas(prev => {
+        const semAntigas = prev.filter(x => !fechamentos.some(f => f.proprietarioId === x.proprietarioId && f.ano === x.ano && f.mes === x.mes));
+        return [...semAntigas, ...fechamentos];
+      });
+      // Serializa as inserções pra não saturar a rede/renderer.
+      (async () => {
+        for (const f of fechamentos) {
+          await dbUpsert('faturas_fechadas', toDbFaturaFechada(f));
+          if ((f.total || 0) > 0 && isCompetenciaAptaParaLancamento(f.ano, f.mes)) {
+            const prop = proprietarios.find(pp => pp.id === f.proprietarioId);
+            const mesNome = ['Jan','Fev','Mar','Abr','Mai','Jun','Jul','Ago','Set','Out','Nov','Dez'][f.mes - 1];
+            const fechadaEm = f.fechadaEm ? new Date(f.fechadaEm) : new Date();
+            const vencD = new Date(fechadaEm); vencD.setDate(vencD.getDate() + 5);
+            const dataLanc = vencD.toLocaleDateString('sv-SE');
+            const vencimentoStr = vencD.toLocaleDateString('pt-BR');
+            const lanc = {
+              id: `lan_${f.id}`, tipo: 'entrada', valor: f.total, data: dataLanc,
+              quem: prop?.nome || f.proprietarioNome || '',
+              motivo: `Fatura ${mesNome}/${f.ano} — ${prop?.nome || f.proprietarioNome || ''} (venc. ${vencimentoStr})`,
+              categoria: 'Faturamento clientes', pago: false, pagoEm: null, recorrenciaId: null,
+              _faturaFechadaId: f.id,
+            };
+            setLancamentos(prev => [lanc, ...prev.filter(l => l.id !== lanc.id)]);
+            await dbUpsert('financeiro_lancamentos', toDbLancamento(lanc));
+          }
+        }
+      })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, proprietarios.length, cavalos.length]);
@@ -1174,24 +1201,6 @@ const loadAllData = async () => {
     if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe') setTab('partos');
   };
 
-  // ── Banner global de erros ────────────────────────────────────
-  const ErrorBanners = () => (
-    <>
-      {loadError && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: '#fee2e2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '10px 16px', fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-          <span>⚠️ Falha ao carregar dados: {loadError}</span>
-          <button onClick={() => { setLoadError(null); loadAllData(); }} style={{ background: '#991b1b', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Tentar novamente</button>
-        </div>
-      )}
-      {dbErrorMsg && (
-        <div style={{ position: 'fixed', bottom: 80, left: 16, right: 16, zIndex: 9999, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 12px', borderRadius: 10, fontFamily: 'var(--sans)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
-          <span>⚠️ {dbErrorMsg}</span>
-          <button onClick={() => setDbErrorMsg(null)} style={{ background: 'none', border: 'none', color: '#991b1b', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}>×</button>
-        </div>
-      )}
-    </>
-  );
-
   // ── Render ────────────────────────────────────────────────────
   let content;
   if (loading) {
@@ -1249,7 +1258,18 @@ const loadAllData = async () => {
 
   return (
     <>
-      <ErrorBanners />
+      {loadError && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 9999, background: '#fee2e2', borderBottom: '1px solid #fecaca', color: '#991b1b', padding: '10px 16px', fontFamily: 'var(--sans)', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+          <span>⚠️ Falha ao carregar dados: {loadError}</span>
+          <button onClick={() => { setLoadError(null); loadAllData(); }} style={{ background: '#991b1b', color: '#fff', border: 'none', borderRadius: 6, padding: '4px 10px', fontSize: 12, cursor: 'pointer' }}>Tentar novamente</button>
+        </div>
+      )}
+      {dbErrorMsg && (
+        <div style={{ position: 'fixed', bottom: 80, left: 16, right: 16, zIndex: 9999, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 12px', borderRadius: 10, fontFamily: 'var(--sans)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          <span>⚠️ {dbErrorMsg}</span>
+          <button onClick={() => setDbErrorMsg(null)} style={{ background: 'none', border: 'none', color: '#991b1b', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}>×</button>
+        </div>
+      )}
       <div style={{
         position: 'fixed', inset: 0,
         background: 'var(--bg)',

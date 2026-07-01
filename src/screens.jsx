@@ -3381,30 +3381,34 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
   const empresaInfo = getEmpresa();
   // Epona Stud (= proprietário próprio) não tem fatura — somos nós mesmos.
-  const proprietariosCobraveis = proprietarios.filter(p => !isProprietarioProprio(p, empresaInfo));
-  const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
-  const faturas = [...proprietariosCobraveis].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
-    const ff = getFaturaFechada(p.id);
-    if (ff) {
-      const cavalosObj = cavalos
-        .filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
-      return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, procedimentos: ff.procedimentosAvulsos || 0, custoFixo: ff.custoFixoRateado || 0, cavalosObj, fechada: true };
-    }
-    const r = calcFaturaProprietario(p.id, ref, deps);
-    return {
-      ...p,
-      total: r.total,
-      mensalidades: r.mensalidades,
-      perfil: r.perfilNutricional,
-      insumos: r.insumosAvulsos,
-      procedimentos: r.procedimentosAvulsos,
-      custoFixo: r.custoFixoRateado,
-      cavalosObj: r.cavalosObj,
-      fechada: false,
-    };
-  })
-  // Esconde faturas zeradas (cavalos saíram, sem atividade no mês)
-  .filter(f => f.fechada || f.total > 0);
+  // Memoizado — o cálculo de fatura por proprietário é caro (O(cavalos × registros × meses))
+  // e antes rodava em toda re-render do app, causando travamentos no clique.
+  const faturas = useMemo(() => {
+    const empresaInfoLocal = getEmpresa();
+    const proprietariosCobraveis = proprietarios.filter(p => !isProprietarioProprio(p, empresaInfoLocal));
+    const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
+    return [...proprietariosCobraveis].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(p => {
+      const ff = faturasFechadas.find(f => f.proprietarioId === p.id && f.ano === ref.ano && f.mes === ref.mes);
+      if (ff) {
+        const cavalosObj = cavalos
+          .filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
+        return { ...p, total: ff.total, mensalidades: ff.mensalidades, perfil: ff.perfilNutricional, insumos: ff.insumosAvulsos, procedimentos: ff.procedimentosAvulsos || 0, custoFixo: ff.custoFixoRateado || 0, cavalosObj, fechada: true };
+      }
+      const r = calcFaturaProprietario(p.id, ref, deps);
+      return {
+        ...p,
+        total: r.total,
+        mensalidades: r.mensalidades,
+        perfil: r.perfilNutricional,
+        insumos: r.insumosAvulsos,
+        procedimentos: r.procedimentosAvulsos,
+        custoFixo: r.custoFixoRateado,
+        cavalosObj: r.cavalosObj,
+        fechada: false,
+      };
+    }).filter(f => f.fechada || f.total > 0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proprietarios, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, faturasFechadas, ref.ano, ref.mes]);
 
   const navMes = (delta) => {
     setRef(prev => {
