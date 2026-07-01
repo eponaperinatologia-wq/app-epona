@@ -68,6 +68,16 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
   );
   const [injetavel, setInjetavel] = useState(initialValues.injetavel || false);
   const [incluidoMensalidade, setIncluidoMensalidade] = useState(initialValues.incluidoMensalidade || false);
+  // Forma de cobrança do insumo. 'por_uso' (padrão): cobra dose × valor.
+  // 'frasco_ao_abrir': cobra 1 frasco inteiro no momento em que abre; doses
+  // seguintes usam o mesmo frasco até esgotar ou vencer. Ver Fase 4+ do fluxo.
+  const [formaCobranca, setFormaCobranca] = useState(initialValues.formaCobranca || 'por_uso');
+  const [capacidadePorFrascoStr, setCapacidadePorFrascoStr] = useState(
+    initialValues.capacidadePorFrasco != null ? String(initialValues.capacidadePorFrasco) : ''
+  );
+  const [validadeAposAbertaDiasStr, setValidadeAposAbertaDiasStr] = useState(
+    initialValues.validadeAposAbertaDias != null ? String(initialValues.validadeAposAbertaDias) : ''
+  );
   const [usaDescartaveis, setUsaDescartaveis] = useState(
     !!(initialValues.descartaveis?.length && !initialValues.injetavel)
   );
@@ -123,7 +133,14 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
   const valorCompraNum = parseNum(valorCompraStr);
   const valorVendaNum = parseNum(valorVendaStr);
   const markupNum = parseNum(markupStr);
-  const canSave = nome.trim() && Number.isFinite(valorVendaNum) && valorVendaNum >= 0;
+  const capacidadeNum = parseNum(capacidadePorFrascoStr);
+  const validadeNum = parseNum(validadeAposAbertaDiasStr);
+  const canSave = nome.trim()
+    && Number.isFinite(valorVendaNum) && valorVendaNum >= 0
+    && (formaCobranca !== 'frasco_ao_abrir' || (
+      Number.isFinite(capacidadeNum) && capacidadeNum > 0
+      && Number.isFinite(validadeNum) && validadeNum > 0
+    ));
 
   const [saving, setSaving] = useState(false);
 
@@ -142,6 +159,13 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
         valorVenda: valorVendaNum,
         injetavel,
         descartaveis: descartaveisFinais(),
+        formaCobranca,
+        // Só grava os campos de frasco quando aplicável — evita lixo em insumos por_uso.
+        capacidadePorFrasco: formaCobranca === 'frasco_ao_abrir' ? capacidadeNum : 0,
+        validadeAposAbertaDias: formaCobranca === 'frasco_ao_abrir' ? Math.round(validadeNum) : 0,
+        // valor_frasco derivado: valor por dose × capacidade. Guardo pra facilitar
+        // relatórios; a cobrança real ainda usa valorVenda × capacidade no fluxo.
+        valorFrasco: formaCobranca === 'frasco_ao_abrir' ? (valorVendaNum * capacidadeNum) : 0,
       });
     } finally {
       setSaving(false);
@@ -199,6 +223,31 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
           />
         </Field>
 
+        {/* Forma de cobrança */}
+        <Field label="Forma de cobrança">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+            {[
+              { id: 'por_uso', titulo: 'Por uso', desc: 'Cobra dose × valor. Padrão.' },
+              { id: 'frasco_ao_abrir', titulo: 'Frasco ao abrir', desc: 'Cobra frasco inteiro quando abre. Ex.: Minoxel.' },
+            ].map(opt => {
+              const sel = formaCobranca === opt.id;
+              return (
+                <button key={opt.id} onClick={() => setFormaCobranca(opt.id)} style={{
+                  background: sel ? 'var(--accent-soft)' : 'var(--card)',
+                  border: `1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                  borderRadius: 12, padding: '10px 12px', textAlign: 'left', color: 'var(--ink)',
+                  cursor: 'pointer',
+                }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: sel ? 'var(--accent)' : 'var(--ink)', marginBottom: 3 }}>
+                    {sel ? '● ' : '○ '}{opt.titulo}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', lineHeight: 1.4 }}>{opt.desc}</div>
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
         {/* Bloco de precificação */}
         <div style={{
           background: 'var(--soft)', borderRadius: 16, padding: '16px',
@@ -249,6 +298,50 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
               </div>
             )}
           </Field>
+
+          {formaCobranca === 'frasco_ao_abrir' && (
+            <>
+              <div style={{
+                background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 10,
+                padding: '10px 12px', fontSize: 11, color: '#78350f', marginTop: 8, marginBottom: 12, lineHeight: 1.5,
+              }}>
+                <b>Valor por dose × capacidade = valor do frasco.</b> Ao aplicar a primeira dose,
+                cobra o frasco cheio na fatura. As doses seguintes usam o mesmo frasco (custo 0)
+                até esgotar ou passar da validade.
+              </div>
+
+              <Field label={`Capacidade por frasco (${unidade.trim() || 'un'})`}>
+                <input
+                  type="number" min="0" step="1"
+                  value={capacidadePorFrascoStr}
+                  onChange={e => setCapacidadePorFrascoStr(e.target.value)}
+                  placeholder="Ex: 50 (ml) ou 10 (aplicações)"
+                  style={inputSt}
+                />
+              </Field>
+
+              <Field label="Validade após aberto (dias)">
+                <input
+                  type="number" min="1" step="1"
+                  value={validadeAposAbertaDiasStr}
+                  onChange={e => setValidadeAposAbertaDiasStr(e.target.value)}
+                  placeholder="Ex: 5"
+                  style={inputSt}
+                />
+              </Field>
+
+              {Number.isFinite(capacidadeNum) && capacidadeNum > 0 && Number.isFinite(valorVendaNum) && valorVendaNum > 0 && (
+                <div style={{
+                  background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 10,
+                  padding: '10px 12px', fontSize: 13, color: 'var(--accent)', marginTop: 4,
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span>Valor do frasco cheio</span>
+                  <strong>{formatBRL(valorVendaNum * capacidadeNum)}</strong>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         {/* Injetável */}
