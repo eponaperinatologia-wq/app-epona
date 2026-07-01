@@ -2442,35 +2442,53 @@ function MedicaoForm({ initial, onSave, onCancel }) {
 // ─── Anotações Clínicas ────────────────────────────────────────
 
 function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, deleteRegistro, deleteProcedimento, onBack }) {
-  const [filtroAnimal, setFiltroAnimal] = useState('');
+  const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editNota, setEditNota] = useState(null);
 
   const cavalosOrdenados = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
+  // Busca no nome do cavalo, título, descrição, tipo. Case-insensitive.
+  const normBusca = (busca || '').trim().toLowerCase();
+  const matchesBusca = (nota) => {
+    if (!normBusca) return true;
+    const cav = cavalos.find(c => c.id === nota.cavaloId);
+    const alvo = [
+      cav?.nome, cav?.baia, cav?.piquete,
+      nota.titulo, nota.descricao, nota.tipo, nota.gravidade, nota.autor,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return alvo.includes(normBusca);
+  };
+
   const lista = anotacoesClinicas
-    .filter(a => !filtroAnimal || a.cavaloId === filtroAnimal)
+    .filter(matchesBusca)
     .sort((a, b) => (b.data + (b.hora || '')).localeCompare(a.data + (a.hora || '')));
 
   const meses = [...new Set(lista.map(a => a.mes))].sort((a, b) => b.localeCompare(a));
 
-  // Agrupa por Mês → Dia → Animal. Preserva ordem (dias e horas descendentes).
-  const arvore = useMemo(() => {
-    const byMes = new Map();
-    lista.forEach(n => {
-      if (!byMes.has(n.mes)) byMes.set(n.mes, new Map());
-      const byDia = byMes.get(n.mes);
+  // Paginação por mês: só um mês por página.
+  const [mesIdx, setMesIdx] = useState(0);
+  // Reset quando a busca muda ou o mês some da lista.
+  React.useEffect(() => { setMesIdx(0); }, [normBusca]);
+  React.useEffect(() => { if (mesIdx >= meses.length && meses.length > 0) setMesIdx(0); }, [meses.length, mesIdx]);
+  const mesAtualKey = meses[mesIdx];
+
+  // Agrupa SÓ o mês atual por Dia → Animal. Preserva ordem descendente.
+  const paginaMes = useMemo(() => {
+    if (!mesAtualKey) return null;
+    const notasDoMes = lista.filter(n => n.mes === mesAtualKey);
+    const byDia = new Map();
+    notasDoMes.forEach(n => {
       if (!byDia.has(n.data)) byDia.set(n.data, new Map());
       const byAnimal = byDia.get(n.data);
       if (!byAnimal.has(n.cavaloId)) byAnimal.set(n.cavaloId, []);
       byAnimal.get(n.cavaloId).push(n);
     });
-    // Converte pra estrutura ordenada
-    return meses.map(mes => ({
-      mes,
-      dias: [...(byMes.get(mes)?.keys() || [])].sort((a, b) => b.localeCompare(a)).map(data => ({
+    return {
+      mes: mesAtualKey,
+      dias: [...byDia.keys()].sort((a, b) => b.localeCompare(a)).map(data => ({
         data,
-        animais: [...(byMes.get(mes)?.get(data)?.entries() || [])].map(([cavaloId, notas]) => ({
+        animais: [...byDia.get(data).entries()].map(([cavaloId, notas]) => ({
           cavaloId,
           notas: notas.sort((a, b) => (b.hora || '').localeCompare(a.hora || '')),
         })).sort((a, b) => {
@@ -2479,8 +2497,8 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
           return na.localeCompare(nb, 'pt');
         }),
       })),
-    }));
-  }, [lista, meses, cavalos]);
+    };
+  }, [lista, mesAtualKey, cavalos]);
 
   const fmtDataCurta = (dStr) => {
     const d = new Date(dStr + 'T12:00:00');
@@ -2561,10 +2579,74 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', padding: '14px 20px 90px' }}>
-        <select value={filtroAnimal} onChange={e => setFiltroAnimal(e.target.value)} style={{ ...inputSt, marginBottom: 16, fontSize: 13 }}>
-          <option value="">Todos os animais</option>
-          {cavalosOrdenados.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-        </select>
+        {/* Busca livre */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 8,
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 10, padding: '8px 12px', marginBottom: 12,
+        }}>
+          <Icon name="search" size={14} color="var(--ink-3)" />
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar por animal, título, descrição, tipo…"
+            style={{
+              flex: 1, border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)',
+            }}
+          />
+          {busca && (
+            <button
+              onClick={() => setBusca('')}
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--ink-3)', fontSize: 16, lineHeight: 1 }}
+            >×</button>
+          )}
+        </div>
+
+        {normBusca && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 12, paddingLeft: 4 }}>
+            {lista.length} {lista.length === 1 ? 'anotação encontrada' : 'anotações encontradas'} em {meses.length} {meses.length === 1 ? 'mês' : 'meses'}
+          </div>
+        )}
+
+        {!showForm && meses.length > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            background: 'var(--soft)', borderRadius: 10, padding: '6px 10px',
+            marginBottom: 18, border: '1px solid var(--line)',
+          }}>
+            <button
+              onClick={() => setMesIdx(i => Math.min(i + 1, meses.length - 1))}
+              disabled={mesIdx >= meses.length - 1}
+              style={{
+                background: 'none', border: 'none', fontSize: 20, padding: '2px 12px',
+                color: mesIdx >= meses.length - 1 ? 'var(--ink-3)' : 'var(--accent)',
+                cursor: mesIdx >= meses.length - 1 ? 'default' : 'pointer',
+                fontFamily: 'var(--sans)', opacity: mesIdx >= meses.length - 1 ? 0.35 : 1,
+              }}
+            >‹</button>
+            <div style={{ textAlign: 'center', flex: 1 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
+                {fmtMesLabel(mesAtualKey)}
+              </div>
+              {meses.length > 1 && (
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                  Página {mesIdx + 1} de {meses.length}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => setMesIdx(i => Math.max(i - 1, 0))}
+              disabled={mesIdx === 0}
+              style={{
+                background: 'none', border: 'none', fontSize: 20, padding: '2px 12px',
+                color: mesIdx === 0 ? 'var(--ink-3)' : 'var(--accent)',
+                cursor: mesIdx === 0 ? 'default' : 'pointer',
+                fontFamily: 'var(--sans)', opacity: mesIdx === 0 ? 0.35 : 1,
+              }}
+            >›</button>
+          </div>
+        )}
 
         {showForm && (
           <AnotacaoForm
@@ -2581,15 +2663,9 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma anotação registrada.</div>
         )}
 
-        {!showForm && arvore.map(({ mes, dias }) => (
-          <div key={mes} style={{ marginBottom: 28 }}>
-            <div style={{
-              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
-              color: 'var(--ink-3)', marginBottom: 14, paddingBottom: 6,
-              borderBottom: '1px solid var(--line)',
-            }}>{fmtMesLabel(mes)}</div>
-
-            {dias.map(({ data, animais }) => {
+        {!showForm && paginaMes && (
+          <div style={{ marginBottom: 28 }}>
+            {paginaMes.dias.map(({ data, animais }) => {
               const { dia, mes: mesTxt } = fmtDataCurta(data);
               const hoje = isHoje(data);
               return (
@@ -2618,7 +2694,7 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
                       const cavalo = cavalos.find(c => c.id === cavaloId);
                       return (
                         <div key={cavaloId} style={{ marginBottom: 10 }}>
-                          {!filtroAnimal && cavalo && (
+                          {cavalo && (
                             <div style={{
                               display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
                               fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--accent)', fontWeight: 400,
@@ -2657,7 +2733,7 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
               );
             })}
           </div>
-        ))}
+        )}
       </div>
     </div>
   );
