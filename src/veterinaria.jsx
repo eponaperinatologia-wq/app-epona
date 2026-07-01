@@ -2454,6 +2454,46 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
 
   const meses = [...new Set(lista.map(a => a.mes))].sort((a, b) => b.localeCompare(a));
 
+  // Agrupa por Mês → Dia → Animal. Preserva ordem (dias e horas descendentes).
+  const arvore = useMemo(() => {
+    const byMes = new Map();
+    lista.forEach(n => {
+      if (!byMes.has(n.mes)) byMes.set(n.mes, new Map());
+      const byDia = byMes.get(n.mes);
+      if (!byDia.has(n.data)) byDia.set(n.data, new Map());
+      const byAnimal = byDia.get(n.data);
+      if (!byAnimal.has(n.cavaloId)) byAnimal.set(n.cavaloId, []);
+      byAnimal.get(n.cavaloId).push(n);
+    });
+    // Converte pra estrutura ordenada
+    return meses.map(mes => ({
+      mes,
+      dias: [...(byMes.get(mes)?.keys() || [])].sort((a, b) => b.localeCompare(a)).map(data => ({
+        data,
+        animais: [...(byMes.get(mes)?.get(data)?.entries() || [])].map(([cavaloId, notas]) => ({
+          cavaloId,
+          notas: notas.sort((a, b) => (b.hora || '').localeCompare(a.hora || '')),
+        })).sort((a, b) => {
+          const na = cavalos.find(c => c.id === a.cavaloId)?.nome || '';
+          const nb = cavalos.find(c => c.id === b.cavaloId)?.nome || '';
+          return na.localeCompare(nb, 'pt');
+        }),
+      })),
+    }));
+  }, [lista, meses, cavalos]);
+
+  const fmtDataCurta = (dStr) => {
+    const d = new Date(dStr + 'T12:00:00');
+    const dia = d.getDate();
+    const mes = d.toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+    return { dia, mes: mes.charAt(0).toUpperCase() + mes.slice(1) };
+  };
+  const fmtDiaSemana = (dStr) => {
+    const d = new Date(dStr + 'T12:00:00');
+    return ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'][d.getDay()];
+  };
+  const isHoje = (dStr) => dStr === todayStr();
+
   const handleSave = (notaData, insumosUsados, procsUsados) => {
     const hora = new Date().toTimeString().slice(0, 5);
     const mes = notaData.data.slice(0, 7);
@@ -2541,21 +2581,81 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
           <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma anotação registrada.</div>
         )}
 
-        {!showForm && meses.map(m => (
-          <div key={m} style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 10 }}>{fmtMesLabel(m)}</div>
-            {lista.filter(a => a.mes === m).map(nota => (
-              <AnotacaoCard
-                key={nota.id}
-                nota={nota}
-                cavalo={cavalos.find(c => c.id === nota.cavaloId)}
-                insumos={insumos}
-                servicos={servicos}
-                showAnimal={!filtroAnimal}
-                onEdit={() => { setEditNota(nota); setShowForm(true); }}
-                onDelete={() => { if (window.confirm('Excluir anotação?')) deleteAnotacaoClinica(nota.id); }}
-              />
-            ))}
+        {!showForm && arvore.map(({ mes, dias }) => (
+          <div key={mes} style={{ marginBottom: 28 }}>
+            <div style={{
+              fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.12em',
+              color: 'var(--ink-3)', marginBottom: 14, paddingBottom: 6,
+              borderBottom: '1px solid var(--line)',
+            }}>{fmtMesLabel(mes)}</div>
+
+            {dias.map(({ data, animais }) => {
+              const { dia, mes: mesTxt } = fmtDataCurta(data);
+              const hoje = isHoje(data);
+              return (
+                <div key={data} style={{ display: 'flex', gap: 12, marginBottom: 18 }}>
+                  {/* Coluna esquerda — data em selo tipo caderno */}
+                  <div style={{
+                    flexShrink: 0, width: 54, textAlign: 'center',
+                    background: hoje ? 'var(--accent)' : 'var(--card)',
+                    color: hoje ? '#fff' : 'var(--ink)',
+                    border: `1px solid ${hoje ? 'var(--accent)' : 'var(--line)'}`,
+                    borderRadius: 10, padding: '8px 4px', fontFamily: 'var(--sans)',
+                    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                    height: 'fit-content',
+                  }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', opacity: hoje ? 0.8 : 0.55 }}>
+                      {fmtDiaSemana(data).toUpperCase()}
+                    </div>
+                    <div style={{ fontFamily: 'var(--serif)', fontSize: 24, lineHeight: 1, fontWeight: 400 }}>{dia}</div>
+                    <div style={{ fontSize: 9, textTransform: 'uppercase', letterSpacing: '0.08em', opacity: hoje ? 0.8 : 0.55 }}>{mesTxt}</div>
+                    {hoje && <div style={{ fontSize: 8, marginTop: 3, opacity: 0.85, letterSpacing: '0.08em' }}>HOJE</div>}
+                  </div>
+
+                  {/* Coluna direita — animais e suas notas */}
+                  <div style={{ flex: 1, minWidth: 0, borderLeft: '1px dashed var(--line)', paddingLeft: 12 }}>
+                    {animais.map(({ cavaloId, notas }) => {
+                      const cavalo = cavalos.find(c => c.id === cavaloId);
+                      return (
+                        <div key={cavaloId} style={{ marginBottom: 10 }}>
+                          {!filtroAnimal && cavalo && (
+                            <div style={{
+                              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6,
+                              fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--accent)', fontWeight: 400,
+                            }}>
+                              <span>🐴</span>
+                              <span>{cavalo.nome}</span>
+                              {cavalo.baia && (
+                                <span style={{
+                                  fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--sans)',
+                                  fontWeight: 500, background: 'var(--soft)', borderRadius: 4,
+                                  padding: '1px 6px', letterSpacing: '0.04em',
+                                }}>{cavalo.baia}</span>
+                              )}
+                              <span style={{ fontSize: 10, color: 'var(--ink-3)', fontFamily: 'var(--sans)' }}>
+                                · {notas.length} {notas.length === 1 ? 'anotação' : 'anotações'}
+                              </span>
+                            </div>
+                          )}
+                          {notas.map(nota => (
+                            <AnotacaoCard
+                              key={nota.id}
+                              nota={nota}
+                              cavalo={cavalo}
+                              insumos={insumos}
+                              servicos={servicos}
+                              showAnimal={false}
+                              onEdit={() => { setEditNota(nota); setShowForm(true); }}
+                              onDelete={() => { if (window.confirm('Excluir anotação?')) deleteAnotacaoClinica(nota.id); }}
+                            />
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         ))}
       </div>
@@ -2569,15 +2669,16 @@ function AnotacaoCard({ nota, cavalo, insumos, servicos, showAnimal, onEdit, onD
   const temItens = (nota.insumosCriados?.length || 0) + (nota.procsCriados?.length || 0) > 0;
 
   return (
-    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px 16px', marginBottom: 10, borderLeft: `3px solid ${cor}` }}>
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: '11px 14px', marginBottom: 7, borderLeft: `3px solid ${cor}` }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-            <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-3)' }}>
-              {new Date(nota.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-              {nota.hora ? ` · ${nota.hora}` : ''}
-            </span>
-            {showAnimal && cavalo && <span style={{ fontSize: 12, color: cor, fontWeight: 600 }}>· {cavalo.nome}</span>}
+            {nota.hora && (
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-3)', fontFamily: 'var(--mono, monospace)', letterSpacing: '0.02em' }}>
+                {nota.hora}
+              </span>
+            )}
+            {showAnimal && cavalo && <span style={{ fontSize: 12, color: cor, fontWeight: 600 }}>{cavalo.nome}</span>}
             <span style={{ background: cor + '22', color: cor, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 600 }}>{nota.tipo}</span>
             {nota.gravidade && <span style={{ background: (GRAV_COR[nota.gravidade] || '#6b7280') + '22', color: GRAV_COR[nota.gravidade] || '#6b7280', borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{nota.gravidade}</span>}
           </div>
