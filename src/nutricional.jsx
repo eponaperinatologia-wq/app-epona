@@ -3,6 +3,8 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { norm } from './data';
 import { TopBar, HorseAvatar } from './screens';
+import { getEmpresa } from './utils/empresa';
+import { gerarPdfNutricao, nomePdfNutricao } from './utils/pdfNutricao';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -396,6 +398,19 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
   const temBusca = busca.trim().length > 0;
   const totalFiltrado = groups.reduce((acc, g) => acc + g.cavalos.length, 0);
 
+  const handleExportPdf = () => {
+    const empresa = getEmpresa();
+    // Formato esperado pelo PDF: [{ label, cavalos: [...] }]
+    const gruposPdf = groups.map(g => ({
+      label: g.key === '__sem__' ? 'Sem baia/piquete' : g.key,
+      cavalos: g.cavalos,
+    }));
+    const doc = gerarPdfNutricao({
+      grupos: gruposPdf, insumos, empresa, tratos: ['manha', 'tarde'],
+    });
+    doc.save(nomePdfNutricao());
+  };
+
   return (
     <div style={{ paddingBottom: 100 }}>
       <TopBar
@@ -462,7 +477,14 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
             </div>
           ) : <div />}
           {!temBusca && groups.length > 0 && (
-            <div style={{ display: 'flex', gap: 8 }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+              <button
+                onClick={handleExportPdf}
+                title="Exportar plano nutricional em PDF (manhã + tarde)"
+                style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 6, fontSize: 10, fontWeight: 700, padding: '3px 8px', cursor: 'pointer', fontFamily: 'var(--sans)', display: 'flex', alignItems: 'center', gap: 4 }}
+              >
+                <Icon name="share" size={11} color="#fff" /> PDF
+              </button>
               <button
                 onClick={() => setColapsados(new Set())}
                 style={{ background: 'none', border: 'none', fontSize: 10, color: 'var(--accent)', cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', padding: 0 }}
