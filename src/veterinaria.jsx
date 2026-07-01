@@ -588,6 +588,11 @@ export function VeterinariaScreen({
         deleteEmergNota={deleteEmergNota}
         uploadEmergExame={uploadEmergExame}
         deleteEmergExame={deleteEmergExame}
+        addRegistro={addRegistro}
+        deleteRegistro={deleteRegistro}
+        addProcedimento={addProcedimento}
+        deleteProcedimento={deleteProcedimento}
+        addAtividade={addAtividade}
         onBack={() => setSecao(null)}
       />
     );
