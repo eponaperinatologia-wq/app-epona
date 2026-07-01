@@ -1,6 +1,7 @@
 // veterinaria.jsx
 import React, { useState, useMemo, useRef } from 'react';
 import { Icon } from './icons';
+import { EmergenciasScreen } from './emergencias';
 import { GestacaoPartosScreen } from './gestacao';
 import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './utils/pdfRelatorioVet';
 import { supabase } from './utils/supabase';
@@ -422,6 +423,14 @@ export function VeterinariaScreen({
   anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
   exames, uploadExame, deleteExame,
   registrosReproducao, addRegistroReproducao, deleteRegistroReproducao,
+  // Emergências
+  emergencias, emergMedicacoes, emergAgendas, emergParametros, emergNotas, emergExames,
+  addEmergencia, updateEmergencia, encerrarEmergencia, deleteEmergencia,
+  addEmergMedicacao, updateEmergMedicacao, deleteEmergMedicacao,
+  addEmergAgenda, updateEmergAgenda, deleteEmergAgenda,
+  addEmergParametro, updateEmergParametro, deleteEmergParametro,
+  addEmergNota, updateEmergNota, deleteEmergNota,
+  uploadEmergExame, deleteEmergExame,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -550,12 +559,51 @@ export function VeterinariaScreen({
       />
     );
   }
+  if (secao === 'emergencias') {
+    return (
+      <EmergenciasScreen
+        cavalos={cavalos} currentUser={currentUser}
+        insumos={insumos || []} servicos={servicos || []}
+        emergencias={emergencias || []}
+        emergMedicacoes={emergMedicacoes || []}
+        emergAgendas={emergAgendas || []}
+        emergParametros={emergParametros || []}
+        emergNotas={emergNotas || []}
+        emergExames={emergExames || []}
+        addEmergencia={addEmergencia}
+        updateEmergencia={updateEmergencia}
+        encerrarEmergencia={encerrarEmergencia}
+        deleteEmergencia={deleteEmergencia}
+        addEmergMedicacao={addEmergMedicacao}
+        updateEmergMedicacao={updateEmergMedicacao}
+        deleteEmergMedicacao={deleteEmergMedicacao}
+        addEmergAgenda={addEmergAgenda}
+        updateEmergAgenda={updateEmergAgenda}
+        deleteEmergAgenda={deleteEmergAgenda}
+        addEmergParametro={addEmergParametro}
+        updateEmergParametro={updateEmergParametro}
+        deleteEmergParametro={deleteEmergParametro}
+        addEmergNota={addEmergNota}
+        updateEmergNota={updateEmergNota}
+        deleteEmergNota={deleteEmergNota}
+        uploadEmergExame={uploadEmergExame}
+        deleteEmergExame={deleteEmergExame}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
 
   const animaisMedidos = new Set((medicoes || []).map(m => m.cavaloId)).size;
   const totalAnotacoes = (anotacoesClinicas || []).length;
   const totalExames = (exames || []).length;
+  const emergenciasAtivas = (emergencias || []).filter(e => e.status === 'ativa').length;
 
   const CARDS = [
+    {
+      id: 'emergencias', label: 'Emergências', icon: 'bell', cor: '#dc2626', bg: '#fee2e2',
+      badge: emergenciasAtivas > 0 ? `${emergenciasAtivas} ativa${emergenciasAtivas > 1 ? 's' : ''}` : 'Painel · plantão',
+      badgeCor: emergenciasAtivas > 0 ? '#dc2626' : '#6b7280',
+    },
     {
       id: 'gestacao', label: 'Gestação\ne Parto', icon: 'heart', cor: '#9d174d', bg: '#fce7f3',
       badge: gestantes.length > 0 ? `${gestantes.length} gestante${gestantes.length > 1 ? 's' : ''}` : null,
