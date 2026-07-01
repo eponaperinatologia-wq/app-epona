@@ -28,6 +28,10 @@ export const fromDbInsumo = r => ({
   markup: Number(r.markup) || 0, valorVenda: Number(r.valor_venda) || 0,
   injetavel: !!r.injetavel, descartaveis: r.descartaveis || [],
   incluidoMensalidade: !!r.incluido_mensalidade,
+  formaCobranca: r.forma_cobranca || 'por_uso',
+  valorFrasco: Number(r.valor_frasco) || 0,
+  validadeAposAbertaDias: Number(r.validade_apos_aberta_dias) || 0,
+  capacidadePorFrasco: Number(r.capacidade_por_frasco) || 0,
 });
 
 export const fromDbServico = r => ({
@@ -148,6 +152,10 @@ export const toDbInsumo = i => ({
   markup: Number(i.markup) || 0, valor_venda: Number(i.valorVenda) || 0,
   injetavel: !!i.injetavel, descartaveis: i.descartaveis || [],
   incluido_mensalidade: !!i.incluidoMensalidade,
+  forma_cobranca: i.formaCobranca || 'por_uso',
+  valor_frasco: Number(i.valorFrasco) || 0,
+  validade_apos_aberta_dias: Number(i.validadeAposAbertaDias) || 0,
+  capacidade_por_frasco: Number(i.capacidadePorFrasco) || 0,
 });
 
 export const toDbServico = s => ({
@@ -449,14 +457,142 @@ export const toDbVermifugacaoAnimal = v => ({
   etapa_idx: v.etapaIdx ?? null,
 });
 
+// ── Emergências veterinárias ──────────────────────────────────
+
+export const fromDbEmergencia = r => ({
+  id: r.id, cavaloId: r.cavalo_id,
+  titulo: r.titulo || '', motivo: r.motivo || '',
+  status: r.status || 'ativa',
+  observacaoUrgente: r.observacao_urgente || '',
+  abertaEm: r.aberta_em, encerradaEm: r.encerrada_em,
+  autorAbertura: r.autor_abertura || '',
+});
+export const toDbEmergencia = e => ({
+  id: e.id, cavalo_id: e.cavaloId,
+  titulo: e.titulo || '', motivo: e.motivo || '',
+  status: e.status || 'ativa',
+  observacao_urgente: e.observacaoUrgente || '',
+  aberta_em: e.abertaEm || new Date().toISOString(),
+  encerrada_em: e.encerradaEm || null,
+  autor_abertura: e.autorAbertura || '',
+});
+
+export const fromDbEmergenciaMedicacao = r => ({
+  id: r.id, emergenciaId: r.emergencia_id,
+  insumoId: r.insumo_id || null, servicoId: r.servico_id || null,
+  doseQtd: Number(r.dose_qtd) || 0,
+  unidade: r.unidade || '',
+  data: r.data || '', hora: r.hora || '',
+  recorrencia: r.recorrencia || {},
+  status: r.status || 'programado',
+  feitoEm: r.feito_em, feitoPor: r.feito_por || '',
+  registroId: r.registro_id || null,
+  procedimentoId: r.procedimento_id || null,
+  frascoId: r.frasco_id || null,
+  nota: r.nota || '',
+});
+export const toDbEmergenciaMedicacao = m => ({
+  id: m.id, emergencia_id: m.emergenciaId,
+  insumo_id: m.insumoId || null, servico_id: m.servicoId || null,
+  dose_qtd: Number(m.doseQtd) || 0,
+  unidade: m.unidade || '',
+  data: m.data, hora: m.hora,
+  recorrencia: m.recorrencia || {},
+  status: m.status || 'programado',
+  feito_em: m.feitoEm || null, feito_por: m.feitoPor || '',
+  registro_id: m.registroId || null,
+  procedimento_id: m.procedimentoId || null,
+  frasco_id: m.frascoId || null,
+  nota: m.nota || '',
+});
+
+export const fromDbEmergenciaParamAgenda = r => ({
+  id: r.id, emergenciaId: r.emergencia_id,
+  intervaloHoras: Number(r.intervalo_horas) || 4,
+  inicio: r.inicio, ate: r.ate || null,
+  ativo: r.ativo !== false,
+  quais: r.quais || [],
+});
+export const toDbEmergenciaParamAgenda = a => ({
+  id: a.id, emergencia_id: a.emergenciaId,
+  intervalo_horas: Number(a.intervaloHoras) || 4,
+  inicio: a.inicio, ate: a.ate || null,
+  ativo: a.ativo !== false,
+  quais: a.quais || [],
+});
+
+export const fromDbEmergenciaParametro = r => ({
+  id: r.id, emergenciaId: r.emergencia_id, agendaId: r.agenda_id || null,
+  dataHora: r.data_hora,
+  temperatura: r.temperatura == null ? null : Number(r.temperatura),
+  fc: r.fc == null ? null : Number(r.fc),
+  fr: r.fr == null ? null : Number(r.fr),
+  mucosas: r.mucosas || '', fezes: r.fezes || '', urina: r.urina || '',
+  atitude: r.atitude || '', obs: r.obs || '', autor: r.autor || '',
+});
+export const toDbEmergenciaParametro = p => ({
+  id: p.id, emergencia_id: p.emergenciaId, agenda_id: p.agendaId || null,
+  data_hora: p.dataHora,
+  temperatura: p.temperatura === '' || p.temperatura == null ? null : Number(p.temperatura),
+  fc: p.fc === '' || p.fc == null ? null : Number(p.fc),
+  fr: p.fr === '' || p.fr == null ? null : Number(p.fr),
+  mucosas: p.mucosas || '', fezes: p.fezes || '', urina: p.urina || '',
+  atitude: p.atitude || '', obs: p.obs || '', autor: p.autor || '',
+});
+
+export const fromDbEmergenciaNota = r => ({
+  id: r.id, emergenciaId: r.emergencia_id, dataHora: r.data_hora,
+  autor: r.autor || '', texto: r.texto || '',
+});
+export const toDbEmergenciaNota = n => ({
+  id: n.id, emergencia_id: n.emergenciaId, data_hora: n.dataHora,
+  autor: n.autor || '', texto: n.texto || '',
+});
+
+export const fromDbEmergenciaExame = r => ({
+  id: r.id, emergenciaId: r.emergencia_id,
+  nome: r.nome || '', arquivoUrl: r.arquivo_url || '',
+  arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '',
+  dataHora: r.data_hora, autor: r.autor || '',
+});
+export const toDbEmergenciaExame = e => ({
+  id: e.id, emergencia_id: e.emergenciaId,
+  nome: e.nome || '', arquivo_url: e.arquivoUrl || '',
+  arquivo_nome: e.arquivoNome || '', arquivo_tipo: e.arquivoTipo || '',
+  data_hora: e.dataHora, autor: e.autor || '',
+});
+
+export const fromDbFrascoAberto = r => ({
+  id: r.id, insumoId: r.insumo_id, cavaloId: r.cavalo_id,
+  emergenciaId: r.emergencia_id || null,
+  abertoEm: r.aberto_em, validoAte: r.valido_ate,
+  capacidade: Number(r.capacidade) || 0,
+  consumido: Number(r.consumido) || 0,
+  valorCobrado: Number(r.valor_cobrado) || 0,
+  registroId: r.registro_id || null,
+});
+export const toDbFrascoAberto = f => ({
+  id: f.id, insumo_id: f.insumoId, cavalo_id: f.cavaloId,
+  emergencia_id: f.emergenciaId || null,
+  aberto_em: f.abertoEm, valido_ate: f.validoAte,
+  capacidade: Number(f.capacidade) || 0,
+  consumido: Number(f.consumido) || 0,
+  valor_cobrado: Number(f.valorCobrado) || 0,
+  registro_id: f.registroId || null,
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
-const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade' };
+const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
 const FUNCIONARIO_MAP = { salarioBase: 'salario_base', regimePagamento: 'regime_pagamento', encargosPct: 'encargos_pct' };
 const CUSTO_FIXO_MAP = { dataVencimento: 'data_vencimento', pagoEm: 'pago_em', funcionarioId: 'funcionario_id', encargosPct: 'encargos_pct' };
+const EMERGENCIA_MAP = { cavaloId: 'cavalo_id', observacaoUrgente: 'observacao_urgente', abertaEm: 'aberta_em', encerradaEm: 'encerrada_em', autorAbertura: 'autor_abertura' };
+const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', servicoId: 'servico_id', doseQtd: 'dose_qtd', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', procedimentoId: 'procedimento_id', frascoId: 'frasco_id' };
+const EMERG_AGE_MAP  = { emergenciaId: 'emergencia_id', intervaloHoras: 'intervalo_horas' };
+const FRASCO_MAP     = { insumoId: 'insumo_id', cavaloId: 'cavalo_id', emergenciaId: 'emergencia_id', abertoEm: 'aberto_em', validoAte: 'valido_ate', valorCobrado: 'valor_cobrado', registroId: 'registro_id' };
 
 export function partialToDb(partial, keyMap) {
   const result = {};
@@ -475,7 +611,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP };
+export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 

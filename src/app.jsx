@@ -49,6 +49,14 @@ import {
   fromDbVermifugacaoAnimal, toDbVermifugacaoAnimal,
   fromDbOpg, toDbOpg,
   fromDbCustoFixo, toDbCustoFixo,
+  fromDbEmergencia, toDbEmergencia,
+  fromDbEmergenciaMedicacao, toDbEmergenciaMedicacao,
+  fromDbEmergenciaParamAgenda, toDbEmergenciaParamAgenda,
+  fromDbEmergenciaParametro, toDbEmergenciaParametro,
+  fromDbEmergenciaNota, toDbEmergenciaNota,
+  fromDbEmergenciaExame, toDbEmergenciaExame,
+  fromDbFrascoAberto, toDbFrascoAberto,
+  EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
@@ -100,6 +108,13 @@ function AppEpona() {
   const [exames, setExames] = useState([]);
   const [registrosReproducao, setRegistrosReproducao] = useState([]);
   const [custosFixos, setCustosFixos] = useState([]);
+  const [emergencias, setEmergencias] = useState([]);
+  const [emergMedicacoes, setEmergMedicacoes] = useState([]);
+  const [emergAgendas, setEmergAgendas] = useState([]);
+  const [emergParametros, setEmergParametros] = useState([]);
+  const [emergNotas, setEmergNotas] = useState([]);
+  const [emergExames, setEmergExames] = useState([]);
+  const [frascosAbertos, setFrascosAbertos] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
@@ -125,7 +140,8 @@ const loadAllData = async () => {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
-      protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData
+      protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
+      emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -156,6 +172,13 @@ const loadAllData = async () => {
       fetchAll('exames_complementares', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, tipo: r.tipo, descricao: r.descricao || '', arquivoUrl: r.arquivo_url || '', arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '', mes: r.mes })),
       fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes })),
       fetchAll('custos_fixos', fromDbCustoFixo),
+      fetchAll('emergencias', fromDbEmergencia),
+      fetchAll('emergencia_medicacoes', fromDbEmergenciaMedicacao),
+      fetchAll('emergencia_param_agenda', fromDbEmergenciaParamAgenda),
+      fetchAll('emergencia_parametros', fromDbEmergenciaParametro),
+      fetchAll('emergencia_notas', fromDbEmergenciaNota),
+      fetchAll('emergencia_exames', fromDbEmergenciaExame),
+      fetchAll('frascos_abertos', fromDbFrascoAberto),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -183,6 +206,13 @@ const loadAllData = async () => {
     setExames(examesData || []);
     setRegistrosReproducao(reprosData || []);
     setCustosFixos(custosFixosData || []);
+    setEmergencias(emergenciasData || []);
+    setEmergMedicacoes(emergMedData || []);
+    setEmergAgendas(emergAgeData || []);
+    setEmergParametros(emergParData || []);
+    setEmergNotas(emergNotasData || []);
+    setEmergExames(emergExamesData || []);
+    setFrascosAbertos(frascosData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -362,6 +392,41 @@ const loadAllData = async () => {
         if (et === 'UPDATE') setEstoqueCompras(prev => prev.map(c => c.id === n.id ? fromDbEstoqueCompra(n) : c));
         if (et === 'DELETE') setEstoqueCompras(prev => o?.id ? prev.filter(c => c.id !== o.id) : prev);
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencias' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergencias(prev => prev.some(e => e.id === n.id) ? prev : [fromDbEmergencia(n), ...prev]);
+        if (et === 'UPDATE') setEmergencias(prev => prev.map(e => e.id === n.id ? fromDbEmergencia(n) : e));
+        if (et === 'DELETE') setEmergencias(prev => o?.id ? prev.filter(e => e.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencia_medicacoes' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergMedicacoes(prev => prev.some(m => m.id === n.id) ? prev : [...prev, fromDbEmergenciaMedicacao(n)]);
+        if (et === 'UPDATE') setEmergMedicacoes(prev => prev.map(m => m.id === n.id ? fromDbEmergenciaMedicacao(n) : m));
+        if (et === 'DELETE') setEmergMedicacoes(prev => o?.id ? prev.filter(m => m.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencia_param_agenda' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergAgendas(prev => prev.some(a => a.id === n.id) ? prev : [...prev, fromDbEmergenciaParamAgenda(n)]);
+        if (et === 'UPDATE') setEmergAgendas(prev => prev.map(a => a.id === n.id ? fromDbEmergenciaParamAgenda(n) : a));
+        if (et === 'DELETE') setEmergAgendas(prev => o?.id ? prev.filter(a => a.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencia_parametros' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergParametros(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbEmergenciaParametro(n)]);
+        if (et === 'UPDATE') setEmergParametros(prev => prev.map(p => p.id === n.id ? fromDbEmergenciaParametro(n) : p));
+        if (et === 'DELETE') setEmergParametros(prev => o?.id ? prev.filter(p => p.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencia_notas' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergNotas(prev => prev.some(x => x.id === n.id) ? prev : [fromDbEmergenciaNota(n), ...prev]);
+        if (et === 'UPDATE') setEmergNotas(prev => prev.map(x => x.id === n.id ? fromDbEmergenciaNota(n) : x));
+        if (et === 'DELETE') setEmergNotas(prev => o?.id ? prev.filter(x => x.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'emergencia_exames' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setEmergExames(prev => prev.some(x => x.id === n.id) ? prev : [fromDbEmergenciaExame(n), ...prev]);
+        if (et === 'UPDATE') setEmergExames(prev => prev.map(x => x.id === n.id ? fromDbEmergenciaExame(n) : x));
+        if (et === 'DELETE') setEmergExames(prev => o?.id ? prev.filter(x => x.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'frascos_abertos' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setFrascosAbertos(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFrascoAberto(n)]);
+        if (et === 'UPDATE') setFrascosAbertos(prev => prev.map(f => f.id === n.id ? fromDbFrascoAberto(n) : f));
+        if (et === 'DELETE') setFrascosAbertos(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
+      })
       .subscribe();
     return () => supabase.removeChannel(ch);
   }, []);
@@ -495,6 +560,166 @@ const loadAllData = async () => {
   const deleteOpg = (id) => {
     setOpgs(prev => prev.filter(o => o.id !== id));
     dbDelete('opgs', id);
+  };
+
+  // ── EMERGÊNCIAS CRUD ─────────────────────────────────────
+  // Todo o pipeline segue o padrão otimista com rollback usado no resto do app.
+  const _rid = (pfx) => pfx + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+
+  const addEmergencia = async (data) => {
+    const nova = { id: _rid('emg'), status: 'ativa', abertaEm: new Date().toISOString(), autorAbertura: currentUser?.nome || '', ...data };
+    setEmergencias(prev => [nova, ...prev]);
+    const ok = await dbInsert('emergencias', toDbEmergencia(nova));
+    if (!ok) setEmergencias(prev => prev.filter(e => e.id !== nova.id));
+    return ok ? nova.id : null;
+  };
+  const updateEmergencia = async (id, patch) => {
+    const snap = emergencias;
+    setEmergencias(prev => prev.map(e => e.id === id ? { ...e, ...patch } : e));
+    const ok = await dbUpdate('emergencias', id, partialToDb(patch, EMERGENCIA_MAP));
+    if (!ok) setEmergencias(snap);
+    return ok;
+  };
+  const encerrarEmergencia = async (id) => {
+    // Auto-cancela medicações programadas e desativa agendas de parâmetros.
+    const agora = new Date().toISOString();
+    setEmergMedicacoes(prev => prev.map(m => (m.emergenciaId === id && m.status === 'programado') ? { ...m, status: 'cancelado' } : m));
+    setEmergAgendas(prev => prev.map(a => a.emergenciaId === id ? { ...a, ativo: false } : a));
+    await updateEmergencia(id, { status: 'encerrada', encerradaEm: agora });
+    // Persiste cancelamentos em batch (fire-and-forget).
+    emergMedicacoes.filter(m => m.emergenciaId === id && m.status === 'programado').forEach(m => {
+      dbUpdate('emergencia_medicacoes', m.id, { status: 'cancelado' });
+    });
+    emergAgendas.filter(a => a.emergenciaId === id && a.ativo).forEach(a => {
+      dbUpdate('emergencia_param_agenda', a.id, { ativo: false });
+    });
+  };
+  const deleteEmergencia = (id) => {
+    setEmergencias(prev => prev.filter(e => e.id !== id));
+    dbDelete('emergencias', id);
+    // Cascata local — o DB pode ter FKs próprios; aqui limpo o state.
+    setEmergMedicacoes(prev => prev.filter(m => m.emergenciaId !== id));
+    setEmergAgendas(prev => prev.filter(a => a.emergenciaId !== id));
+    setEmergParametros(prev => prev.filter(p => p.emergenciaId !== id));
+    setEmergNotas(prev => prev.filter(n => n.emergenciaId !== id));
+    setEmergExames(prev => prev.filter(e => e.emergenciaId !== id));
+  };
+
+  const addEmergMedicacao = async (data) => {
+    const nova = { id: _rid('emed'), status: 'programado', ...data };
+    setEmergMedicacoes(prev => [...prev, nova]);
+    const ok = await dbInsert('emergencia_medicacoes', toDbEmergenciaMedicacao(nova));
+    if (!ok) setEmergMedicacoes(prev => prev.filter(m => m.id !== nova.id));
+    return ok ? nova.id : null;
+  };
+  const updateEmergMedicacao = async (id, patch) => {
+    const snap = emergMedicacoes;
+    setEmergMedicacoes(prev => prev.map(m => m.id === id ? { ...m, ...patch } : m));
+    const ok = await dbUpdate('emergencia_medicacoes', id, partialToDb(patch, EMERG_MED_MAP));
+    if (!ok) setEmergMedicacoes(snap);
+    return ok;
+  };
+  const deleteEmergMedicacao = (id) => {
+    setEmergMedicacoes(prev => prev.filter(m => m.id !== id));
+    dbDelete('emergencia_medicacoes', id);
+  };
+
+  const addEmergAgenda = async (data) => {
+    const nova = { id: _rid('eage'), ativo: true, ...data };
+    setEmergAgendas(prev => [...prev, nova]);
+    const ok = await dbInsert('emergencia_param_agenda', toDbEmergenciaParamAgenda(nova));
+    if (!ok) setEmergAgendas(prev => prev.filter(a => a.id !== nova.id));
+    return ok ? nova.id : null;
+  };
+  const updateEmergAgenda = async (id, patch) => {
+    const snap = emergAgendas;
+    setEmergAgendas(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+    const ok = await dbUpdate('emergencia_param_agenda', id, partialToDb(patch, EMERG_AGE_MAP));
+    if (!ok) setEmergAgendas(snap);
+    return ok;
+  };
+  const deleteEmergAgenda = (id) => {
+    setEmergAgendas(prev => prev.filter(a => a.id !== id));
+    dbDelete('emergencia_param_agenda', id);
+  };
+
+  const addEmergParametro = async (data) => {
+    const novo = { id: _rid('epar'), autor: currentUser?.nome || '', ...data };
+    setEmergParametros(prev => [...prev, novo]);
+    const ok = await dbInsert('emergencia_parametros', toDbEmergenciaParametro(novo));
+    if (!ok) setEmergParametros(prev => prev.filter(p => p.id !== novo.id));
+    return ok ? novo.id : null;
+  };
+  const updateEmergParametro = async (id, patch) => {
+    const snap = emergParametros;
+    setEmergParametros(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p));
+    // Mapa pequeno inline — só agenda_id e data_hora precisam de rename.
+    const map = { agendaId: 'agenda_id', dataHora: 'data_hora' };
+    const ok = await dbUpdate('emergencia_parametros', id, partialToDb(patch, map));
+    if (!ok) setEmergParametros(snap);
+    return ok;
+  };
+  const deleteEmergParametro = (id) => {
+    setEmergParametros(prev => prev.filter(p => p.id !== id));
+    dbDelete('emergencia_parametros', id);
+  };
+
+  const addEmergNota = async (data) => {
+    const nova = { id: _rid('enot'), autor: currentUser?.nome || '', ...data };
+    setEmergNotas(prev => [nova, ...prev]);
+    const ok = await dbInsert('emergencia_notas', toDbEmergenciaNota(nova));
+    if (!ok) setEmergNotas(prev => prev.filter(n => n.id !== nova.id));
+    return ok ? nova.id : null;
+  };
+  const updateEmergNota = async (id, patch) => {
+    const snap = emergNotas;
+    setEmergNotas(prev => prev.map(n => n.id === id ? { ...n, ...patch } : n));
+    const map = { dataHora: 'data_hora' };
+    const ok = await dbUpdate('emergencia_notas', id, partialToDb(patch, map));
+    if (!ok) setEmergNotas(snap);
+    return ok;
+  };
+  const deleteEmergNota = (id) => {
+    setEmergNotas(prev => prev.filter(n => n.id !== id));
+    dbDelete('emergencia_notas', id);
+  };
+
+  // Upload de exame de emergência — reusa o mesmo bucket 'exames' do Storage.
+  const uploadEmergExame = async (meta, file) => {
+    const ext = file.name.split('.').pop();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `emergencias/${meta.emergenciaId}/${Date.now()}_${safeName}`;
+    const { error: upErr } = await supabase.storage.from('exames').upload(path, file, { upsert: false });
+    if (upErr) {
+      window.dispatchEvent(new CustomEvent('db-error', { detail: { op: 'upload', table: 'emergencia_exames', msg: upErr.message } }));
+      return null;
+    }
+    const { data: urlData } = supabase.storage.from('exames').getPublicUrl(path);
+    const exame = { id: _rid('eexa'), ...meta, arquivoUrl: urlData.publicUrl, arquivoNome: file.name, arquivoTipo: file.type, dataHora: new Date().toISOString(), autor: currentUser?.nome || '' };
+    setEmergExames(prev => [exame, ...prev]);
+    const ok = await dbInsert('emergencia_exames', toDbEmergenciaExame(exame));
+    if (!ok) setEmergExames(prev => prev.filter(e => e.id !== exame.id));
+    return ok ? exame.id : null;
+  };
+  const deleteEmergExame = (id) => {
+    setEmergExames(prev => prev.filter(e => e.id !== id));
+    dbDelete('emergencia_exames', id);
+  };
+
+  // Frascos abertos — CRUD interno, usado pelo pipeline de cobrança.
+  const addFrascoAberto = async (data) => {
+    const novo = { id: _rid('frs'), consumido: 0, ...data };
+    setFrascosAbertos(prev => [...prev, novo]);
+    const ok = await dbInsert('frascos_abertos', toDbFrascoAberto(novo));
+    if (!ok) setFrascosAbertos(prev => prev.filter(f => f.id !== novo.id));
+    return ok ? novo : null;
+  };
+  const updateFrascoAberto = async (id, patch) => {
+    const snap = frascosAbertos;
+    setFrascosAbertos(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
+    const ok = await dbUpdate('frascos_abertos', id, partialToDb(patch, FRASCO_MAP));
+    if (!ok) setFrascosAbertos(snap);
+    return ok;
   };
 
   // ── Medições (Desenvolvimento) CRUD ──────────────────────
