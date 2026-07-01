@@ -479,10 +479,25 @@ export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_
 
 // ── Helpers genéricos ─────────────────────────────────────────
 
-export async function fetchAll(table, mapper, limit = 2000) {
-  const { data, error } = await supabase.from(table).select('*').limit(limit);
-  if (error) { console.error(`fetchAll ${table}:`, error.message); return []; }
-  return mapper ? (data || []).map(mapper) : (data || []);
+// Pagina por baixo do teto do PostgREST (default 1000 linhas/req) — assim não
+// truncamos a base do cliente quando tem >1000 registros numa tabela (ex.: muitas
+// faturas após o auto-close).
+export async function fetchAll(table, mapper, hardLimit = 50000) {
+  const PAGE = 1000;
+  const out = [];
+  let offset = 0;
+  while (offset < hardLimit) {
+    const { data, error } = await supabase
+      .from(table)
+      .select('*')
+      .range(offset, offset + PAGE - 1);
+    if (error) { console.error(`fetchAll ${table}:`, error.message); break; }
+    const rows = data || [];
+    out.push(...rows);
+    if (rows.length < PAGE) break; // fim
+    offset += PAGE;
+  }
+  return mapper ? out.map(mapper) : out;
 }
 
 // Traduz erros comuns do Postgres para PT-BR amigável.
