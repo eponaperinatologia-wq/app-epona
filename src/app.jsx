@@ -909,7 +909,10 @@ const loadAllData = async () => {
     const ins = insumos.find(i => i.id === data.insumoId);
     let lancamentoId = null;
 
-    if (data.tipo !== 'ajuste' && (data.valorTotal || 0) > 0) {
+    // Cria lançamento em Saídas apenas se o usuário optou por isso.
+    // Quando desmarcado (ex.: boletos parcelados serão lançados à parte),
+    // só entra no estoque, sem tocar em Financeiro.
+    if (data.tipo !== 'ajuste' && data.criarLancamento !== false && (data.valorTotal || 0) > 0) {
       const lancId = 'lan_' + ecId;
       lancamentoId = lancId;
       const dataLan = data.pago ? data.data : (data.dataVencimento || data.data);
@@ -925,6 +928,15 @@ const loadAllData = async () => {
       };
       setLancamentos(prev => [...prev, lancamento]);
       dbInsert('financeiro_lancamentos', toDbLancamento(lancamento));
+    }
+
+    // Compra atualiza o valor de compra do insumo em Cadastro e recalcula
+    // o valor de venda mantendo o markup existente.
+    if (data.tipo === 'compra' && ins && Number(data.valorUnit) > 0) {
+      const markup = Number(ins.markup) || 0;
+      const novoValorCompra = Number(data.valorUnit);
+      const novoValorVenda = Number((novoValorCompra * (1 + markup / 100)).toFixed(2));
+      updateInsumo(ins.id, { valorCompra: novoValorCompra, valorVenda: novoValorVenda });
     }
 
     const novaCompra = { ...data, id: ecId, lancamentoId };

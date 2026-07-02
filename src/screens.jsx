@@ -4299,6 +4299,7 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
   const [obs, setObs] = useState('');
   const [pago, setPago] = useState(false);
   const [dataVencimento, setDataVencimento] = useState('');
+  const [criarLancamento, setCriarLancamento] = useState(true);
 
   const insumoSel = insumos.find(i => i.id === insumoId);
   const unidade = insumoSel?.unidade || 'un';
@@ -4323,6 +4324,7 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
       obs: obs.trim(),
       pago: tipo === 'compra' ? pago : false,
       dataVencimento: (tipo === 'compra' && !pago && dataVencimento) ? dataVencimento : null,
+      criarLancamento: tipo === 'compra' ? criarLancamento : false,
     });
   };
 
@@ -4389,13 +4391,29 @@ const CompraForm = ({ onSave, onCancel, insumos = [] }) => {
             <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Fornecedor</div>
             <input value={fornecedor} onChange={e => setFornecedor(e.target.value)} placeholder="Nome do fornecedor" style={inp} />
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--soft)', borderRadius: 10, cursor: 'pointer' }} onClick={() => setPago(v => !v)}>
-            <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${pago ? '#16a34a' : 'var(--line)'}`, background: pago ? '#16a34a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
-              {pago && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
+          {/* Toggle: registrar em Saídas ou só estoque */}
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: criarLancamento ? '#f0f9ff' : 'var(--soft)', border: '1px solid ' + (criarLancamento ? '#bae6fd' : 'var(--line)'), borderRadius: 10, cursor: 'pointer' }} onClick={() => setCriarLancamento(v => !v)}>
+            <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${criarLancamento ? '#0284c7' : 'var(--line)'}`, background: criarLancamento ? '#0284c7' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginTop: 1 }}>
+              {criarLancamento && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
             </div>
-            <span style={{ fontSize: 14, color: 'var(--ink)', userSelect: 'none' }}>Já pago</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600, userSelect: 'none' }}>Registrar em Saídas (Financeiro)</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2, lineHeight: 1.35 }}>
+                {criarLancamento
+                  ? 'Cria uma saída em Financeiro com esse valor.'
+                  : 'Só estoque — sem lançamento financeiro. Use quando lançar boletos parcelados separadamente.'}
+              </div>
+            </div>
           </div>
-          {!pago && (
+          {criarLancamento && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--soft)', borderRadius: 10, cursor: 'pointer' }} onClick={() => setPago(v => !v)}>
+              <div style={{ width: 20, height: 20, borderRadius: 6, border: `2px solid ${pago ? '#16a34a' : 'var(--line)'}`, background: pago ? '#16a34a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'all 0.15s' }}>
+                {pago && <span style={{ color: '#fff', fontSize: 13, lineHeight: 1 }}>✓</span>}
+              </div>
+              <span style={{ fontSize: 14, color: 'var(--ink)', userSelect: 'none' }}>Já pago</span>
+            </div>
+          )}
+          {criarLancamento && !pago && (
             <div>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Vencimento do pagamento</div>
               <input type="date" value={dataVencimento} onChange={e => setDataVencimento(e.target.value)} style={inp} />
@@ -4525,7 +4543,7 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
                           </div>
                     )}
                   </div>
-                  <button onClick={() => { if (window.confirm('Excluir esta entrada? O lançamento financeiro vinculado também será removido.')) deleteEstoqueCompra(c.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)', flexShrink: 0 }}>×</button>
+                  <button onClick={() => { const msg = c.lancamentoId ? 'Excluir esta entrada? O lançamento financeiro vinculado também será removido.' : 'Excluir esta entrada do estoque?'; if (window.confirm(msg)) deleteEstoqueCompra(c.id); }} style={{ background: 'none', border: '1px solid #fca5a5', borderRadius: 6, padding: '2px 8px', fontSize: 11, color: '#dc2626', cursor: 'pointer', fontFamily: 'var(--sans)', flexShrink: 0 }}>×</button>
                 </div>
               ))}
               {compras.length === 0 && <div style={{ fontSize: 13, color: 'var(--ink-3)' }}>Nenhuma compra</div>}
