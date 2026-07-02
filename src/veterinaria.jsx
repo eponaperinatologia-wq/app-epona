@@ -691,11 +691,6 @@ export function VeterinariaScreen({
 
   const CARDS = [
     {
-      id: 'cronograma', label: 'Cronograma\nVeterinário', icon: 'clock', cor: '#0f766e', bg: '#ccfbf1',
-      badge: tarefasHoje > 0 ? `${tarefasHoje} hoje` : 'Agenda central',
-      badgeCor: tarefasHoje > 0 ? '#0f766e' : '#6b7280',
-    },
-    {
       id: 'emergencias', label: 'Emergências', icon: 'medical-cross', cor: '#dc2626', bg: '#fee2e2',
       badge: emergenciasAtivas > 0 ? `${emergenciasAtivas} ativa${emergenciasAtivas > 1 ? 's' : ''}` : 'Painel · plantão',
       badgeCor: emergenciasAtivas > 0 ? '#dc2626' : '#6b7280',
@@ -719,6 +714,11 @@ export function VeterinariaScreen({
     { id: 'desenvolvimento', label: 'Desenvolvimento', icon: 'bar-chart', cor: '#b45309', bg: '#fef3c7', badge: animaisMedidos > 0 ? `${(medicoes||[]).length} medições` : 'Biometria', badgeCor: '#b45309' },
     { id: 'exames', label: 'Exames\nComplementares', icon: 'test-tube', cor: '#0e7490', bg: '#cffafe', badge: totalExames > 0 ? `${totalExames} arquivo${totalExames>1?'s':''}` : 'PDF · Imagens', badgeCor: '#0e7490' },
     { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'clipboard', cor: '#374151', bg: '#f3f4f6', badge: 'Por animal · mês', badgeCor: '#374151' },
+    {
+      id: 'cronograma', label: 'Cronograma\nVeterinário', icon: 'clock', cor: '#0f766e', bg: '#ccfbf1',
+      badge: tarefasHoje > 0 ? `${tarefasHoje} hoje` : 'Agenda central',
+      badgeCor: tarefasHoje > 0 ? '#0f766e' : '#6b7280',
+    },
   ];
 
   return (
