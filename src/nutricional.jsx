@@ -336,8 +336,41 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
   const [ordemGrupos, setOrdemGrupos] = useState(nutricaoOrdem);
+  const [filtroInsumoId, setFiltroInsumoId] = useState(null);
   const trato = getTratoAtual();
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
+
+  // Insumos em uso na dieta (ração principal + suplementos por cavalo).
+  // Filtramos só quem tem ao menos 1 cavalo consumindo — insumos ociosos
+  // ficam de fora dos chips.
+  const chipsInsumos = useMemo(() => {
+    const consumoPorInsumo = new Map(); // insumoId → nº cavalos
+    const presentes = cavalos.filter(c => c.presente);
+    presentes.forEach(c => {
+      const n = c.nutricao || {};
+      if (n.racaoId) {
+        consumoPorInsumo.set(n.racaoId, (consumoPorInsumo.get(n.racaoId) || 0) + 1);
+      }
+      (n.suplementos || []).forEach(s => {
+        if (s.insumoId && Number(s.qtdDia) > 0) {
+          consumoPorInsumo.set(s.insumoId, (consumoPorInsumo.get(s.insumoId) || 0) + 1);
+        }
+      });
+    });
+    return [...consumoPorInsumo.entries()]
+      .map(([insumoId, n]) => {
+        const ins = insumos.find(i => i.id === insumoId);
+        return { insumoId, nome: ins?.nome || insumoId, n };
+      })
+      .filter(x => !!x.nome)
+      .sort((a, b) => b.n - a.n || a.nome.localeCompare(b.nome, 'pt'));
+  }, [cavalos, insumos]);
+
+  const consomeInsumo = (c, insumoId) => {
+    const n = c.nutricao || {};
+    if (n.racaoId === insumoId) return true;
+    return (n.suplementos || []).some(s => s.insumoId === insumoId && Number(s.qtdDia) > 0);
+  };
 
   const togglePiquete = (key) => {
     setColapsados(prev => {
@@ -359,13 +392,14 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
   const groups = useMemo(() => {
     const presentes = cavalos.filter(c => c.presente);
     const q = busca.trim();
-    const filtered = q
+    let filtered = q
       ? presentes.filter(c =>
           norm(c.nome).includes(norm(q)) ||
           norm(c.baia).includes(norm(q)) ||
           norm(String(c.piquete || '')).includes(norm(q))
         )
       : presentes;
+    if (filtroInsumoId) filtered = filtered.filter(c => consomeInsumo(c, filtroInsumoId));
 
     const map = {};
     filtered.forEach(c => {
@@ -382,7 +416,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
     ];
 
     return ordered.map(k => ({ key: k, cavalos: map[k] }));
-  }, [cavalos, busca, ordemGrupos]);
+  }, [cavalos, busca, ordemGrupos, filtroInsumoId]);
 
   const moverGrupo = (key, dir) => {
     const keys = groups.map(g => g.key);
@@ -470,10 +504,49 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
             </button>
           )}
         </div>
+        {/* Chips de filtro por insumo em uso */}
+        {chipsInsumos.length > 0 && (
+          <div style={{ display: 'flex', gap: 6, overflowX: 'auto', paddingTop: 6, paddingBottom: 2, WebkitOverflowScrolling: 'touch' }}>
+            <button
+              onClick={() => setFiltroInsumoId(null)}
+              style={{
+                flexShrink: 0, padding: '5px 11px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                border: '1px solid ' + (filtroInsumoId === null ? 'var(--accent)' : 'var(--line)'),
+                background: filtroInsumoId === null ? 'var(--accent)' : 'var(--card)',
+                color: filtroInsumoId === null ? '#fff' : 'var(--ink-2)',
+                cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}
+            >Todos</button>
+            {chipsInsumos.map(c => (
+              <button
+                key={c.insumoId}
+                onClick={() => setFiltroInsumoId(prev => prev === c.insumoId ? null : c.insumoId)}
+                style={{
+                  flexShrink: 0, padding: '5px 11px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+                  border: '1px solid ' + (filtroInsumoId === c.insumoId ? 'var(--accent)' : 'var(--line)'),
+                  background: filtroInsumoId === c.insumoId ? 'var(--accent)' : 'var(--card)',
+                  color: filtroInsumoId === c.insumoId ? '#fff' : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)', whiteSpace: 'nowrap',
+                  display: 'flex', alignItems: 'center', gap: 5,
+                }}
+              >
+                {c.nome}
+                <span style={{
+                  fontSize: 9, fontWeight: 700,
+                  background: filtroInsumoId === c.insumoId ? 'rgba(255,255,255,0.25)' : 'var(--soft)',
+                  color: filtroInsumoId === c.insumoId ? '#fff' : 'var(--ink-3)',
+                  padding: '1px 5px', borderRadius: 8,
+                }}>{c.n}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 5, paddingLeft: 2 }}>
-          {temBusca ? (
+          {temBusca || filtroInsumoId ? (
             <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-              {totalFiltrado} {totalFiltrado === 1 ? 'animal encontrado' : 'animais encontrados'}
+              {totalFiltrado} {totalFiltrado === 1 ? 'animal' : 'animais'}
+              {filtroInsumoId && ` · ${chipsInsumos.find(c => c.insumoId === filtroInsumoId)?.nome || ''}`}
             </div>
           ) : <div />}
           {!temBusca && groups.length > 0 && (

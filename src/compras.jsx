@@ -24,6 +24,37 @@ const ListaComprasScreen = ({ compras = [], addCompra, deleteCompra, toggleCompr
   const [quantidade, setQuantidade] = useState('');
   const [aba, setAba] = useState('atual');
   const [mesArquivo, setMesArquivo] = useState('');
+  const [copiado, setCopiado] = useState(false);
+
+  const gerarTextoLista = (itens, titulo) => {
+    const linhas = [`📋 ${titulo}`, ''];
+    itens.forEach(it => {
+      const qtd = it.quantidade ? ` — ${it.quantidade}` : '';
+      const check = it.comprado ? '✓' : '•';
+      linhas.push(`${check} ${it.nome}${qtd}`);
+    });
+    linhas.push('');
+    linhas.push(`${itens.length} ${itens.length === 1 ? 'item' : 'itens'}`);
+    return linhas.join('\n');
+  };
+
+  const copiarLista = async (itens, titulo) => {
+    if (itens.length === 0) return;
+    const texto = gerarTextoLista(itens, titulo);
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch (e) {
+      // Fallback pra browsers sem clipboard API
+      const ta = document.createElement('textarea');
+      ta.value = texto;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand('copy'); setCopiado(true); setTimeout(() => setCopiado(false), 2000); } catch {}
+      document.body.removeChild(ta);
+    }
+  };
 
   const hoje = mesAtual();
   const meses = mesesDisponiveis(compras);
@@ -105,8 +136,26 @@ const ListaComprasScreen = ({ compras = [], addCompra, deleteCompra, toggleCompr
 
           {/* Pendentes */}
           <div style={{ padding: '16px 20px 0' }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-              Pendentes
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Pendentes
+              </div>
+              {pendentes.length > 0 && (
+                <button
+                  onClick={() => copiarLista(pendentes, `Lista de Compras · ${mesLabel(hoje)}`)}
+                  style={{
+                    background: copiado ? '#15803d' : 'var(--card)',
+                    color: copiado ? '#fff' : 'var(--accent)',
+                    border: '1px solid ' + (copiado ? '#15803d' : 'var(--line)'),
+                    borderRadius: 8, padding: '4px 10px',
+                    fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--sans)',
+                  }}
+                >
+                  <Icon name={copiado ? 'check' : 'copy'} size={12} color={copiado ? '#fff' : 'var(--accent)'} />
+                  {copiado ? 'Copiado' : 'Copiar lista'}
+                </button>
+              )}
             </div>
             {pendentes.length === 0 && (
               <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
@@ -152,8 +201,26 @@ const ListaComprasScreen = ({ compras = [], addCompra, deleteCompra, toggleCompr
 
           {mesArquivo && (
             <div style={{ padding: '16px 20px 0' }}>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
-                {mesLabel(mesArquivo)}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                  {mesLabel(mesArquivo)}
+                </div>
+                {arquivoItems.length > 0 && (
+                  <button
+                    onClick={() => copiarLista(arquivoItems, `Compras · ${mesLabel(mesArquivo)}`)}
+                    style={{
+                      background: copiado ? '#15803d' : 'var(--card)',
+                      color: copiado ? '#fff' : 'var(--accent)',
+                      border: '1px solid ' + (copiado ? '#15803d' : 'var(--line)'),
+                      borderRadius: 8, padding: '4px 10px',
+                      fontSize: 11, fontWeight: 600, cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', gap: 5, fontFamily: 'var(--sans)',
+                    }}
+                  >
+                    <Icon name={copiado ? 'check' : 'copy'} size={12} color={copiado ? '#fff' : 'var(--accent)'} />
+                    {copiado ? 'Copiado' : 'Copiar lista'}
+                  </button>
+                )}
               </div>
               {arquivoItems.length === 0 && (
                 <div style={{ padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
