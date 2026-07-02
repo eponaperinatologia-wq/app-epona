@@ -807,23 +807,61 @@ function VacinacaoVermifugacaoTab({
     return item.dataPrevista && item.dataPrevista >= inicioGestacao;
   };
 
-  // Agenda de vacinas pra este cavalo
+  // Agenda de vacinas pra este cavalo (inclui feitas — calcAgendaVac já emite)
   const agendaVacFull = useMemo(
     () => calcAgendaVac(protocolosVacinacao || [], [cavalo], vacinacoesAnimais || []),
     [protocolosVacinacao, cavalo, vacinacoesAnimais]
   );
   const agendaVac = useMemo(
-    () => agendaVacFull.filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i)),
+    () => agendaVacFull
+      .filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i))
+      .map(i => ({ ...i, tipo: 'vac' })),
     [agendaVacFull, cavalo.id, inicioGestacao]
   );
 
+  // Vermifugações pendentes (calcAgendaVerm só emite pendentes)
   const agendaVermFull = useMemo(
     () => calcAgendaVerm(protocolosVermifugacao || [], [cavalo], vermifugacoesAnimais || []),
     [protocolosVermifugacao, cavalo, vermifugacoesAnimais]
   );
   const agendaVerm = useMemo(
-    () => agendaVermFull.filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i)),
+    () => agendaVermFull
+      .filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i))
+      .map(i => ({ ...i, tipo: 'verm' })),
     [agendaVermFull, cavalo.id, inicioGestacao]
+  );
+
+  // Vermifugações realizadas — calcAgendaVerm não devolve feitas, então
+  // resolvemos direto da tabela e reconstruímos os campos que LinhaAgenda usa.
+  const vermFeitas = useMemo(() => {
+    return (vermifugacoesAnimais || [])
+      .filter(v => v.cavaloId === cavalo.id && !v.cancelado && !v.reagendadoPara)
+      .filter(v => !inicioGestacao || (v.dataRealizacao || '') >= inicioGestacao)
+      .map(v => {
+        const prot = (protocolosVermifugacao || []).find(p => p.id === v.protocoloId);
+        const etapa = prot && v.etapaIdx != null ? (prot.etapas || [])[v.etapaIdx] : null;
+        return {
+          key: `verm_feita_${v.id}`,
+          tipo: 'verm',
+          protocoloId: v.protocoloId,
+          protocoloNome: prot?.nome || v.produto || 'Vermífugo',
+          cavaloId: v.cavaloId, cavaloNome: cavalo.nome,
+          dataPrevista: v.dataRealizacao || null,
+          feitoEm: v.dataRealizacao || null,
+          feitoPor: v.registradoPor || '',
+          feito: true,
+          insumoId: etapa?.insumoId || prot?.insumoId || '',
+          etapaIdx: v.etapaIdx,
+          etapaLabel: etapa?.label || null,
+          diasRestantes: null,
+        };
+      });
+  }, [vermifugacoesAnimais, protocolosVermifugacao, cavalo.id, cavalo.nome, inicioGestacao]);
+
+  // Lista única: vacinação + vermifugação juntos
+  const agendaTudo = useMemo(
+    () => [...agendaVac, ...agendaVerm, ...vermFeitas],
+    [agendaVac, agendaVerm, vermFeitas]
   );
 
   // Separar em atrasadas / hoje / futuras / feitas, ordenadas por data
@@ -843,8 +881,7 @@ function VacinacaoVermifugacaoTab({
     return { atrasadas, hoje, futuras, feitas };
   };
 
-  const vacGrupos = splitAgenda(agendaVac);
-  const vermGrupos = splitAgenda(agendaVerm);
+  const grupos = splitAgenda(agendaTudo);
 
   // Handler de aplicar vacina (mesma pipeline da tela de Vacinação)
   const aplicarVacina = (item) => {
@@ -933,48 +970,39 @@ function VacinacaoVermifugacaoTab({
     });
   };
 
-  const secaoVazia = agendaVac.length === 0 && agendaVerm.length === 0;
+  const secaoVazia = agendaTudo.length === 0;
+
+  // Dispatcher: cada item traz seu tipo (vac | verm)
+  const aplicarItem = (it) => it.tipo === 'verm' ? aplicarVermifugacao(it) : aplicarVacina(it);
+  const cancelarItem = (it) => it.tipo === 'verm' ? cancelarVermifugacao(it) : cancelarVacina(it);
+  const tipoLabelItem = (it) => it.tipo === 'verm' ? 'vermífugo' : 'vacina';
 
   return (
     <div style={{ padding: '14px 16px 16px' }}>
       {secaoVazia && (
         <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 12, padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-          Sem vacinas ou vermifugações agendadas pra esta égua.
+          Sem vacinas ou vermifugações no período gestacional.
         </div>
       )}
 
-      {/* Bloco Vacinação */}
-      {agendaVac.length > 0 && (
+      {agendaTudo.length > 0 && (
         <BlocoAgenda
-          titulo="Vacinação"
+          titulo="Vacinação e Vermifugação"
           icone="syringe"
           cor="#1d4ed8"
-          grupos={vacGrupos}
+          grupos={grupos}
           insumos={insumos}
-          onAplicar={aplicarVacina}
-          onCancelar={cancelarVacina}
-          tipoLabel="vacina"
-        />
-      )}
-
-      {/* Bloco Vermifugação */}
-      {agendaVerm.length > 0 && (
-        <BlocoAgenda
-          titulo="Vermifugação"
-          icone="worm"
-          cor="#15803d"
-          grupos={vermGrupos}
-          insumos={insumos}
-          onAplicar={aplicarVermifugacao}
-          onCancelar={cancelarVermifugacao}
-          tipoLabel="vermífugo"
+          onAplicar={aplicarItem}
+          onCancelar={cancelarItem}
+          tipoLabelPorItem={tipoLabelItem}
         />
       )}
     </div>
   );
 }
 
-function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, onCancelar, tipoLabel }) {
+function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, onCancelar, tipoLabel, tipoLabelPorItem }) {
+  const labelDe = (it) => tipoLabelPorItem ? tipoLabelPorItem(it) : tipoLabel;
   return (
     <div style={{ marginBottom: 18, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -988,19 +1016,19 @@ function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, onCancela
         {grupos.atrasadas.length > 0 && (
           <>
             <SubTituloAgenda cor="#dc2626">Atrasadas ({grupos.atrasadas.length})</SubTituloAgenda>
-            {grupos.atrasadas.map(it => <LinhaAgenda key={it.key} it={it} cor="#dc2626" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
+            {grupos.atrasadas.map(it => <LinhaAgenda key={it.key} it={it} cor="#dc2626" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={labelDe(it)} />)}
           </>
         )}
         {grupos.hoje.length > 0 && (
           <>
             <SubTituloAgenda cor="var(--accent)">Hoje ({grupos.hoje.length})</SubTituloAgenda>
-            {grupos.hoje.map(it => <LinhaAgenda key={it.key} it={it} cor="var(--accent)" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
+            {grupos.hoje.map(it => <LinhaAgenda key={it.key} it={it} cor="var(--accent)" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={labelDe(it)} />)}
           </>
         )}
         {grupos.futuras.length > 0 && (
           <>
             <SubTituloAgenda cor="#b45309">Futuras ({grupos.futuras.length})</SubTituloAgenda>
-            {grupos.futuras.map(it => <LinhaAgenda key={it.key} it={it} cor="#b45309" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
+            {grupos.futuras.map(it => <LinhaAgenda key={it.key} it={it} cor="#b45309" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={labelDe(it)} />)}
           </>
         )}
         {grupos.feitas.length > 0 && (
@@ -1497,6 +1525,10 @@ function LinhaAgenda({ it, cor, insumos, onAplicar, onCancelar, tipoLabel, feita
   const insumo = insumos.find(i => i.id === insumoId);
   const doseLabel = it.dose?.label || it.etapaLabel || 'Aplicação';
   const dataFmt = it.dataPrevista ? fmtDate(it.dataPrevista) : '—';
+  const ehVerm = it.tipo === 'verm';
+  const tagCor = ehVerm ? '#15803d' : '#1d4ed8';
+  const tagBg = ehVerm ? '#dcfce7' : '#dbeafe';
+  const tagLabel = ehVerm ? 'VERM' : 'VAC';
 
   return (
     <div style={{
@@ -1505,6 +1537,7 @@ function LinhaAgenda({ it, cor, insumos, onAplicar, onCancelar, tipoLabel, feita
       borderRadius: 8, padding: '8px 10px', marginBottom: 5,
       display: 'flex', alignItems: 'center', gap: 10,
     }}>
+      <span style={{ background: tagBg, color: tagCor, borderRadius: 4, padding: '2px 5px', fontSize: 9, fontWeight: 700, letterSpacing: '0.05em', flexShrink: 0 }}>{tagLabel}</span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
           {it.protocoloNome} <span style={{ color: 'var(--ink-3)', fontWeight: 400 }}>· {doseLabel}</span>
