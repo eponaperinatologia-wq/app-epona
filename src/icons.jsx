@@ -86,20 +86,19 @@ const Icon = ({ name, size = 24, color = 'currentColor', style = {} }) => {
       // Cruz vermelha clássica
       return <svg {...props} fill={color} stroke="none"><path d="M10 3h4a1 1 0 011 1v5h5a1 1 0 011 1v4a1 1 0 01-1 1h-5v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5H4a1 1 0 01-1-1v-4a1 1 0 011-1h5V4a1 1 0 011-1z"/></svg>;
     case 'sperm-egg':
-      // Óvulo + espermatozóide se aproximando
+      // Só o óvulo — centralizado e maior. Membrana + núcleo pontilhado.
       return <svg {...props}>
-        <circle cx="16.5" cy="12" r="5"/>
-        <circle cx="16.5" cy="12" r="2.5" strokeDasharray="1 2"/>
-        <circle cx="4" cy="12" r="1.7"/>
-        <path d="M5.5 12 Q7 10 6 8.5 M5.5 12 Q7 14 6 15.5" />
+        <circle cx="12" cy="12" r="8.5"/>
+        <circle cx="12" cy="12" r="4" strokeDasharray="1.5 2"/>
       </svg>;
     case 'syringe':
-      // Seringa horizontal com agulha à esquerda
+      // Seringa horizontal apontando pra esquerda: agulha + corpo + êmbolo
       return <svg {...props}>
-        <path d="M2 12h3M5 10.5v3"/>
-        <path d="M8 8l8 8M15 7l2 2"/>
-        <rect x="7" y="9" width="10" height="6" rx="1" transform="rotate(45 12 12)"/>
-        <path d="M18 6l3 3"/>
+        <path d="M2 12h3"/>
+        <rect x="5" y="9" width="10" height="6" rx="0.5"/>
+        <path d="M8 9.5v1M10 9.5v1M12 9.5v1"/>
+        <path d="M15 12h4"/>
+        <path d="M19 9v6"/>
       </svg>;
     case 'worm':
       // Verme ondulado com cabeça
