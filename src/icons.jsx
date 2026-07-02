@@ -82,6 +82,54 @@ const Icon = ({ name, size = 24, color = 'currentColor', style = {} }) => {
       return <svg {...props}><circle cx="9" cy="20" r="1.5"/><circle cx="19" cy="20" r="1.5"/><path d="M3 4h2l2 11h12l2-9H6"/></svg>;
     case 'trash':
       return <svg {...props}><path d="M4 7h16M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M10 11v6M14 11v6M5 7l1 12a2 2 0 002 2h8a2 2 0 002-2l1-12"/></svg>;
+    case 'medical-cross':
+      // Cruz vermelha clássica
+      return <svg {...props} fill={color} stroke="none"><path d="M10 3h4a1 1 0 011 1v5h5a1 1 0 011 1v4a1 1 0 01-1 1h-5v5a1 1 0 01-1 1h-4a1 1 0 01-1-1v-5H4a1 1 0 01-1-1v-4a1 1 0 011-1h5V4a1 1 0 011-1z"/></svg>;
+    case 'sperm-egg':
+      // Óvulo + espermatozóide se aproximando
+      return <svg {...props}>
+        <circle cx="16.5" cy="12" r="5"/>
+        <circle cx="16.5" cy="12" r="2.5" strokeDasharray="1 2"/>
+        <circle cx="4" cy="12" r="1.7"/>
+        <path d="M5.5 12 Q7 10 6 8.5 M5.5 12 Q7 14 6 15.5" />
+      </svg>;
+    case 'syringe':
+      // Seringa horizontal com agulha à esquerda
+      return <svg {...props}>
+        <path d="M2 12h3M5 10.5v3"/>
+        <path d="M8 8l8 8M15 7l2 2"/>
+        <rect x="7" y="9" width="10" height="6" rx="1" transform="rotate(45 12 12)"/>
+        <path d="M18 6l3 3"/>
+      </svg>;
+    case 'worm':
+      // Verme ondulado com cabeça
+      return <svg {...props}>
+        <path d="M3 15 Q6 9 9 15 T15 15 T21 15"/>
+        <circle cx="21" cy="14.5" r="1.3" fill={color}/>
+        <circle cx="21.5" cy="14" r="0.4" fill="white" stroke="none"/>
+      </svg>;
+    case 'bar-chart':
+      // Gráfico de barras crescente
+      return <svg {...props}>
+        <rect x="4" y="14" width="3" height="6" rx="0.5" fill={color} stroke="none"/>
+        <rect x="10" y="10" width="3" height="10" rx="0.5" fill={color} stroke="none"/>
+        <rect x="16" y="6" width="3" height="14" rx="0.5" fill={color} stroke="none"/>
+        <path d="M3 20h18"/>
+      </svg>;
+    case 'test-tube':
+      // Tubo de coleta com sangue no fundo
+      return <svg {...props}>
+        <path d="M9 3h6M10 3v14a2 2 0 004 0V3"/>
+        <path d="M10 11c2 1 2 1 4 0v6a2 2 0 01-4 0z" fill={color} stroke="none"/>
+        <path d="M10 11c2 1 2 1 4 0"/>
+      </svg>;
+    case 'clipboard':
+      // Prancheta com linhas de texto (documento clínico)
+      return <svg {...props}>
+        <rect x="5" y="5" width="14" height="17" rx="2"/>
+        <rect x="9" y="3" width="6" height="4" rx="1"/>
+        <path d="M9 12h6M9 15h6M9 18h4"/>
+      </svg>;
     default:
       return <svg {...props}><circle cx="12" cy="12" r="9"/></svg>;
   }
