@@ -752,8 +752,13 @@ const loadAllData = async () => {
     return `${yy}-${mm}-${dd}`;
   };
   const _expandirProgesterona = (programa) => {
-    const inicio = new Date(programa.inicio + 'T12:00:00');
-    const fim = new Date(programa.fim + 'T12:00:00');
+    // Nunca gera aplicações no passado. Progesterona anterior já foi cobrada
+    // em outro fluxo — o programa acompanha apenas dose futuras.
+    const hoje0h = new Date(); hoje0h.setHours(0, 0, 0, 0);
+    const inicioReq = new Date(programa.inicio + 'T12:00:00');
+    const inicio = inicioReq < hoje0h ? hoje0h : inicioReq;
+    const fim = new Date(programa.fim + 'T23:59:59');
+    if (fim < hoje0h) return []; // fim já passou, nada a gerar
     const freqDias = Number(programa.freqDias) || 7;
     const diaSemana = Number(programa.diaSemana);
     let cursor = new Date(inicio);

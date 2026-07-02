@@ -1000,11 +1000,14 @@ function ProgesteronaTab({
   const ativos = programasVisiveis.filter(p => p.status === 'ativo');
   const encerrados = programasVisiveis.filter(p => p.status !== 'ativo');
 
-  const receptorasElegiveis = cavalos.filter(c =>
-    c.presente && c.gestacao?.dataCobricao &&
-    (c.categorias || []).includes('Receptora') &&
-    !programas.some(p => p.cavaloId === c.id && p.status === 'ativo')
-  );
+  // Todas as gestantes elegíveis (receptora, matriz, doadora — qualquer
+  // égua com cobertura registrada), em ordem alfabética.
+  const gestantesElegiveis = cavalos
+    .filter(c =>
+      c.presente && c.gestacao?.dataCobricao &&
+      !programas.some(p => p.cavaloId === c.id && p.status === 'ativo')
+    )
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
   const marcarAplicacao = async (aplicacao, programa) => {
     const insumo = insumos.find(i => i.id === programa.insumoId);
@@ -1047,7 +1050,7 @@ function ProgesteronaTab({
 
   return (
     <div style={{ padding: '14px 16px 16px' }}>
-      {!showForm && receptorasElegiveis.length > 0 && (
+      {!showForm && gestantesElegiveis.length > 0 && (
         <button
           onClick={() => setShowForm(true)}
           style={{
@@ -1062,7 +1065,7 @@ function ProgesteronaTab({
 
       {showForm && (
         <ProgesteronaForm
-          receptoras={receptorasElegiveis}
+          gestantes={gestantesElegiveis}
           insumos={insumos}
           onCancel={() => setShowForm(false)}
           onSave={async (data) => {
@@ -1074,10 +1077,10 @@ function ProgesteronaTab({
 
       {ativos.length === 0 && encerrados.length === 0 && !showForm && (
         <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 12, padding: 24, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-          Nenhuma receptora com programa de progesterona ativo.
-          {receptorasElegiveis.length === 0 && (
+          Nenhum programa de progesterona ativo.
+          {gestantesElegiveis.length === 0 && (
             <div style={{ fontSize: 11, marginTop: 8 }}>
-              Cadastre receptoras (categoria "Receptora") com data de cobertura pra elas aparecerem aqui.
+              Cadastre uma égua gestante (com data de cobertura) para poder criar um programa.
             </div>
           )}
         </div>
@@ -1255,16 +1258,21 @@ function LinhaAplicacao({ a, hoje, insumo, doseQtd, dim, onMarcar, onDesmarcar, 
   );
 }
 
-function ProgesteronaForm({ receptoras, insumos, onCancel, onSave }) {
+function ProgesteronaForm({ gestantes, insumos, onCancel, onSave }) {
   const [cavaloId, setCavaloId] = useState('');
+  const [busca, setBusca] = useState('');
   const [insumoId, setInsumoId] = useState('');
   const [doseQtd, setDoseQtd] = useState('1');
   const [freqDias, setFreqDias] = useState(7);
   const [diaSemana, setDiaSemana] = useState(1); // Segunda
   const [saving, setSaving] = useState(false);
 
-  const cavalo = receptoras.find(c => c.id === cavaloId);
+  const cavalo = gestantes.find(c => c.id === cavaloId);
   const dataCobricao = cavalo?.gestacao?.dataCobricao;
+
+  const gestantesFiltradas = busca.trim()
+    ? gestantes.filter(c => norm(c.nome).includes(norm(busca)))
+    : gestantes;
 
   // Defaults: início = data cobertura, fim = cobertura + 120 dias
   const [inicio, setInicio] = useState('');
@@ -1272,9 +1280,18 @@ function ProgesteronaForm({ receptoras, insumos, onCancel, onSave }) {
 
   React.useEffect(() => {
     if (!cavalo || !dataCobricao) { setInicio(''); setFim(''); return; }
-    setInicio(dataCobricao);
+    // Default de INÍCIO: hoje (não a data de cobertura). Progesterona passada
+    // já foi cobrada em outro lugar — o programa acompanha só as futuras.
+    const hoje = new Date();
+    setInicio(hoje.toISOString().slice(0, 10));
+    // Default de FIM: 120 dias depois da COBERTURA (regra clínica), ou hoje
+    // + 30 dias caso a cobertura já esteja além do 120º dia.
     const fimD = new Date(dataCobricao + 'T12:00:00');
     fimD.setDate(fimD.getDate() + 120);
+    if (fimD < hoje) {
+      fimD.setTime(hoje.getTime());
+      fimD.setDate(fimD.getDate() + 30);
+    }
     setFim(fimD.toISOString().slice(0, 10));
   }, [cavaloId, dataCobricao]);
 
@@ -1303,19 +1320,44 @@ function ProgesteronaForm({ receptoras, insumos, onCancel, onSave }) {
       <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)', marginBottom: 12 }}>Novo programa de progesterona</div>
 
       <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Receptora</div>
-        <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt}>
-          <option value="">— Selecione —</option>
-          {receptoras.map(c => (
-            <option key={c.id} value={c.id}>
-              {c.nome} · cobertura {fmtDate(c.gestacao?.dataCobricao)}
-            </option>
-          ))}
-        </select>
-        {receptoras.length === 0 && (
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4, fontStyle: 'italic' }}>
-            Nenhuma receptora com cobertura sem programa ativo.
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Égua gestante</div>
+        {cavaloId ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 10, padding: '9px 12px' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 700 }}>{cavalo?.nome}</div>
+              {dataCobricao && (
+                <div style={{ fontSize: 11, color: 'var(--accent)', opacity: 0.75, marginTop: 1 }}>Cobertura {fmtDate(dataCobricao)}</div>
+              )}
+            </div>
+            <button onClick={() => setCavaloId('')} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 18, cursor: 'pointer', padding: 0 }}>×</button>
           </div>
+        ) : (
+          <>
+            <input
+              value={busca} onChange={e => setBusca(e.target.value)}
+              placeholder={`Buscar entre ${gestantes.length} gestante${gestantes.length !== 1 ? 's' : ''}…`}
+              style={{ ...inputSt, marginBottom: 5 }}
+            />
+            <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)' }}>
+              {gestantesFiltradas.length === 0 ? (
+                <div style={{ padding: 10, fontSize: 12, color: 'var(--ink-3)', textAlign: 'center' }}>
+                  {gestantes.length === 0 ? 'Nenhuma gestante elegível.' : 'Nenhuma égua encontrada.'}
+                </div>
+              ) : gestantesFiltradas.map(c => (
+                <button
+                  key={c.id}
+                  onClick={() => { setCavaloId(c.id); setBusca(''); }}
+                  style={{ width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--line)', padding: '8px 10px', textAlign: 'left', cursor: 'pointer', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                >
+                  <div style={{ fontWeight: 500 }}>{c.nome}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                    Cobertura {fmtDate(c.gestacao?.dataCobricao)}
+                    {(c.categorias || []).includes('Receptora') && ' · Receptora'}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
