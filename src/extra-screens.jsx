@@ -3,7 +3,8 @@ import React from 'react';
 import { Icon } from './icons';
 import { getCavalo, getProprietario, formatBRL, PROPRIETARIOS, norm } from './data';
 import { TopBar, HorseAvatar, fmtDataHora } from './screens';
-const { useState: useStateE } = React;
+import { NavegacaoDias } from './emergencias';
+const { useState: useStateE, useMemo: useMemoE } = React;
 
 // ─────────────────────────────────────────────────────────────
 // AVISOS · Mural compartilhado
@@ -70,14 +71,10 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
         </div>
       </div>
 
-      {/* Lista */}
-      <div style={{ padding: '14px 20px 0' }}>
-        {[...avisos].sort((a, b) => {
-          const aUrg = a.urgente && !a.resolvido ? 0 : 1;
-          const bUrg = b.urgente && !b.resolvido ? 0 : 1;
-          if (aUrg !== bUrg) return aUrg - bUrg;
-          return ((b.data_entrada || '') + 'T' + (b.tempo || '')).localeCompare((a.data_entrada || '') + 'T' + (a.tempo || ''));
-        }).map(a => {
+      {/* Lista organizada por dia — mantém 1 ano de histórico */}
+      <AvisosPorDia
+        avisos={avisos}
+        renderAviso={(a) => {
           const cav = a.cavaloId && getCavalo(a.cavaloId);
           const isGtaPendente = a.tipo === 'gta_pendente';
 
@@ -224,11 +221,62 @@ const AvisosScreen = ({ setScreen, avisos, addAviso, addAtividade, removeAviso, 
               )}
             </div>
           );
-        })}
-      </div>
+        }}
+      />
     </div>
   );
 };
+
+// Wrapper que agrupa avisos por dia + navegação horizontal
+function AvisosPorDia({ avisos, renderAviso }) {
+  const hojeStr = new Date().toLocaleDateString('sv-SE');
+  const cutoff1Ano = (() => {
+    const d = new Date(); d.setDate(d.getDate() - 365);
+    return d.toLocaleDateString('sv-SE');
+  })();
+
+  const itemsPorDia = useMemoE(() => {
+    const dentroDe1Ano = (avisos || []).filter(a => (a.data_entrada || '') >= cutoff1Ano);
+    const buckets = new Map();
+    dentroDe1Ano.forEach(a => {
+      // Urgentes/GTA não resolvidos carregam para o dia de hoje até resolver.
+      const persistente = (a.urgente || a.tipo === 'gta_pendente') && !a.resolvido;
+      const dia = persistente ? hojeStr : (a.data_entrada || hojeStr);
+      if (!buckets.has(dia)) buckets.set(dia, []);
+      buckets.get(dia).push(a);
+    });
+    // Dentro de cada dia, mais recentes no topo
+    buckets.forEach(list => {
+      list.sort((a, b) => (
+        ((b.data_entrada || '') + 'T' + (b.tempo || ''))
+          .localeCompare((a.data_entrada || '') + 'T' + (a.tempo || ''))
+      ));
+    });
+    return [...buckets.entries()]
+      .map(([dia, lista]) => [dia, lista.map(a => ({ ...a, dataHora: `${a.data_entrada || dia}T${a.tempo || '00:00'}:00`, id: a.id }))])
+      .sort((a, b) => a[0].localeCompare(b[0]));
+  }, [avisos, hojeStr, cutoff1Ano]);
+
+  return (
+    <div style={{ padding: '14px 20px 0' }}>
+      {itemsPorDia.length === 0 ? (
+        <div style={{ padding: 30, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+          Sem avisos no último ano.
+        </div>
+      ) : (
+        <NavegacaoDias
+          itemsPorDia={itemsPorDia}
+          emptyText="Sem avisos neste dia."
+          renderItem={(a) => (
+            <React.Fragment key={a.id}>
+              {renderAviso(a)}
+            </React.Fragment>
+          )}
+        />
+      )}
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
 // MOVIMENTAÇÃO · Entrada/Saída de animais

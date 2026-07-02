@@ -624,7 +624,12 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
   const hojeStr = new Date().toLocaleDateString('sv-SE');
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.filter(c => c.presente).length;
-  const totalAvisos = avisos.length;
+  // Avisos "hoje" = postados hoje + urgentes/GTA pendentes não resolvidos.
+  // Zera dia a dia; os urgentes/GTA continuam contando até resolver.
+  const totalAvisos = avisos.filter(a =>
+    a.data_entrada === hojeStr ||
+    ((a.urgente || a.tipo === 'gta_pendente') && !a.resolvido)
+  ).length;
   const avisosUrgentes = avisos.filter(a => a.urgente && !a.resolvido).length;
   const comprasPendentes = compras.filter(c => !c.comprado);
 
