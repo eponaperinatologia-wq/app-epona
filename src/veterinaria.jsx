@@ -305,6 +305,10 @@ function calcAgendaOpg(protocolos, cavalos, opgs) {
             o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.etapaIdx === etapaIdx && o.aplicado
           );
           if (feito) return;
+          // Pula etapa histórica sem aplicação (mesma regra da vac/verm):
+          // não faz sentido gerar exames de OPG de anos atrás pra um cavalo
+          // que nasceu antes da existência do protocolo.
+          if (isDoseHistoricaSemAplicacao(dataPrevista, cavalo)) return;
           const opgPendente = (opgs || []).find(o =>
             o.cavaloId === cavalo.id && o.protocoloId === prot.id && o.etapaIdx === etapaIdx && !o.aplicado
           ) || null;
