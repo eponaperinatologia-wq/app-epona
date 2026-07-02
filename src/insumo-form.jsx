@@ -52,7 +52,7 @@ const Toggle = ({ value, onChange, label, desc }) => (
 // ─────────────────────────────────────────────────────────────
 // Form compartilhado
 // ─────────────────────────────────────────────────────────────
-function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
+function InsumoForm({ initialValues, onSave, onBack, title, insumos, onDelete }) {
   const [nome, setNome] = useState(initialValues.nome || '');
   const [categoria, setCategoria] = useState(initialValues.categoria || 'medicamento');
   const [fornecedor, setFornecedor] = useState(initialValues.fornecedor || '');
@@ -434,6 +434,23 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos }) {
           <Icon name="check" size={18} color={canSave ? '#fff' : 'var(--ink-3)'} />
           Salvar insumo
         </button>
+
+        {/* Botão excluir (só em edição) */}
+        {onDelete && (
+          <button onClick={() => {
+            if (!window.confirm(`Excluir "${nome || 'este insumo'}"? Essa ação não pode ser desfeita.`)) return;
+            onDelete();
+          }} style={{
+            width: '100%', background: 'transparent',
+            color: '#dc2626', border: '1px solid #fecaca', borderRadius: 14,
+            padding: '13px', fontSize: 14, fontWeight: 600,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            marginTop: 4, marginBottom: 8, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>
+            <Icon name="trash" size={16} color="#dc2626" />
+            Excluir insumo
+          </button>
+        )}
       </div>
     </div>
   );
@@ -460,7 +477,7 @@ export function AddInsumoScreen({ setScreen, addInsumo, insumos }) {
 // ─────────────────────────────────────────────────────────────
 // EDITAR INSUMO
 // ─────────────────────────────────────────────────────────────
-export function EditarInsumoScreen({ id, setScreen, insumos, updateInsumo }) {
+export function EditarInsumoScreen({ id, setScreen, insumos, updateInsumo, deleteInsumo }) {
   const insumo = insumos.find(i => i.id === id);
   if (!insumo) return null;
 
@@ -474,6 +491,10 @@ export function EditarInsumoScreen({ id, setScreen, insumos, updateInsumo }) {
         updateInsumo(id, data);
         setScreen('cadInsumos');
       }}
+      onDelete={deleteInsumo ? () => {
+        deleteInsumo(id);
+        setScreen('cadInsumos');
+      } : undefined}
     />
   );
 }
