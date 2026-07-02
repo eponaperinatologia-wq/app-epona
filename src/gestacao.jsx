@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { norm } from './data';
 import { TopBar } from './screens';
+import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
 
 // ── Helpers ───────────────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -76,7 +77,14 @@ const SexagemBadge = ({ sexagem }) => {
 // ─────────────────────────────────────────────────────────────
 // TELA PRINCIPAL — Gestação e Partos (2 sub-tabs)
 // ─────────────────────────────────────────────────────────────
-export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, onBack }) {
+export function GestacaoPartosScreen({
+  setScreen, setSelected, partos, cavalos, proprietarios, movimentacoes, onBack,
+  insumos = [], currentUser,
+  progProgramas = [], progAplicacoes = [],
+  addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
+  updateProgesteronaAplicacao,
+  addRegistro, addAtividade,
+}) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
 
@@ -115,6 +123,7 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
           tabs={[
             { id:'gestacoes', label:`Gestações (${gestantesDentro.length})` },
             { id:'partos', label:`Partos (${partosFiltrados.length})` },
+            { id:'progesterona', label:`Progesterona (${(progProgramas||[]).filter(p => p.status === 'ativo').length})` },
           ]}
           active={subTab}
           onChange={setSubTab}
@@ -152,6 +161,19 @@ export function GestacaoPartosScreen({ setScreen, setSelected, partos, cavalos, 
         )}
         {subTab === 'partos' && (
           <PartosTab partos={partosFiltrados} cavalos={cavalos} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
+        )}
+        {subTab === 'progesterona' && (
+          <ProgesteronaTab
+            cavalos={cavalos} proprietarios={proprietarios} insumos={insumos}
+            currentUser={currentUser}
+            programas={progProgramas} aplicacoes={progAplicacoes}
+            addPrograma={addProgesteronaPrograma}
+            encerrarPrograma={encerrarProgesteronaPrograma}
+            deletePrograma={deleteProgesteronaPrograma}
+            updateAplicacao={updateProgesteronaAplicacao}
+            addRegistro={addRegistro} addAtividade={addAtividade}
+            busca={busca}
+          />
         )}
       </div>
     </div>
@@ -322,7 +344,12 @@ function PartosTab({ partos, cavalos, proprietarios, setScreen, setSelected }) {
 // ─────────────────────────────────────────────────────────────
 // DETALHE DA ÉGUA GESTANTE — 3 abas
 // ─────────────────────────────────────────────────────────────
-export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo, proprietarios, insumos, addAviso, addAtividade, currentUser }) {
+export function EguaGestanteDetalheScreen({
+  id, setScreen, cavalos, updateCavalo, proprietarios, insumos, addAviso, addAtividade, currentUser,
+  protocolosVacinacao = [], vacinacoesAnimais = [], upsertVacinacaoAnimal,
+  protocolosVermifugacao = [], vermifugacoesAnimais = [], addVermifugacaoAnimal,
+  addRegistro, servicos = [], addProcedimento,
+}) {
   const c = cavalos.find(cv => cv.id === id);
   const [subTab, setSubTab] = useState('gestacao');
 
@@ -376,6 +403,7 @@ export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo
             { id:'gestacao', label:'Gestação' },
             { id:'alimentacao', label:'Alimentação' },
             { id:'acompanhamento', label:'Acompanhamento' },
+            { id:'vacverm', label:'Vac. / Verm.' },
           ]}
           active={subTab}
           onChange={setSubTab}
@@ -385,6 +413,23 @@ export function EguaGestanteDetalheScreen({ id, setScreen, cavalos, updateCavalo
         {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} />}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
         {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />}
+        {subTab === 'vacverm' && (
+          <VacinacaoVermifugacaoTab
+            cavalo={c}
+            protocolosVacinacao={protocolosVacinacao}
+            vacinacoesAnimais={vacinacoesAnimais}
+            upsertVacinacaoAnimal={upsertVacinacaoAnimal}
+            protocolosVermifugacao={protocolosVermifugacao}
+            vermifugacoesAnimais={vermifugacoesAnimais}
+            addVermifugacaoAnimal={addVermifugacaoAnimal}
+            insumos={insumos}
+            addRegistro={addRegistro}
+            addAtividade={addAtividade}
+            addProcedimento={addProcedimento}
+            servicos={servicos}
+            currentUser={currentUser}
+          />
+        )}
       </div>
     </div>
   );
@@ -733,6 +778,634 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Aba: Vacinação / Vermifugação da égua gestante
+// Reutiliza calcAgendaVac / calcAgendaVerm (definidos em veterinaria.jsx)
+// e filtra pra ESTE cavalo específico. "Aplicar" chama a mesma pipeline
+// da Vacinação/Vermifugação padrão — cobrança via addRegistro.
+// ─────────────────────────────────────────────────────────────
+function VacinacaoVermifugacaoTab({
+  cavalo, protocolosVacinacao, vacinacoesAnimais, upsertVacinacaoAnimal,
+  protocolosVermifugacao, vermifugacoesAnimais, addVermifugacaoAnimal,
+  insumos = [], addRegistro, addAtividade, currentUser,
+}) {
+  const hojeStr = new Date().toISOString().slice(0, 10);
+
+  // Agenda de vacinas pra este cavalo
+  const agendaVacFull = useMemo(
+    () => calcAgendaVac(protocolosVacinacao || [], [cavalo], vacinacoesAnimais || []),
+    [protocolosVacinacao, cavalo, vacinacoesAnimais]
+  );
+  const agendaVac = useMemo(() => agendaVacFull.filter(i => i.cavaloId === cavalo.id), [agendaVacFull, cavalo.id]);
+
+  const agendaVermFull = useMemo(
+    () => calcAgendaVerm(protocolosVermifugacao || [], [cavalo], vermifugacoesAnimais || []),
+    [protocolosVermifugacao, cavalo, vermifugacoesAnimais]
+  );
+  const agendaVerm = useMemo(() => agendaVermFull.filter(i => i.cavaloId === cavalo.id), [agendaVermFull, cavalo.id]);
+
+  // Separar em atrasadas / hoje / futuras / feitas
+  const splitAgenda = (items) => {
+    const atrasadas = [], hoje = [], futuras = [], feitas = [];
+    items.forEach(it => {
+      if (it.feito) { feitas.push(it); return; }
+      const dias = it.diasRestantes;
+      if (dias == null) { futuras.push(it); return; }
+      if (dias < 0) atrasadas.push(it);
+      else if (dias === 0) hoje.push(it);
+      else futuras.push(it);
+    });
+    return { atrasadas, hoje, futuras, feitas };
+  };
+
+  const vacGrupos = splitAgenda(agendaVac);
+  const vermGrupos = splitAgenda(agendaVerm);
+
+  // Handler de aplicar vacina (mesma pipeline da tela de Vacinação)
+  const aplicarVacina = (item) => {
+    const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
+    const vacinaId = item.dose?.insumoId || item.insumoId;
+    const vacina = insumos.find(i => i.id === vacinaId);
+    upsertVacinacaoAnimal({
+      id: vacId, protocoloId: item.protocoloId, doseIdx: item.doseIdx,
+      cavaloId: item.cavaloId, dataPrevista: item.dataPrevista,
+      feito: true, feitoPor: currentUser?.nome || '', feitoEm: hojeStr + 'T12:00:00',
+    });
+    if (vacina) {
+      addRegistro && addRegistro({
+        id: 'reg_vac_' + Date.now() + '_' + cavalo.id,
+        cavaloId: cavalo.id, insumoId: vacina.id, qtd: 1,
+        hora: new Date().toTimeString().slice(0, 5),
+        usuario: currentUser?.nome || '', isAuto: false, data: hojeStr,
+      });
+      (vacina.descartaveis || []).forEach(d => {
+        addRegistro && addRegistro({
+          id: 'reg_vac_desc_' + d.insumoId + '_' + Date.now() + '_' + cavalo.id,
+          cavaloId: cavalo.id, insumoId: d.insumoId, qtd: d.qtd || 1,
+          hora: new Date().toTimeString().slice(0, 5),
+          usuario: currentUser?.nome || '', isAuto: true, data: hojeStr,
+        });
+      });
+      addAtividade && addAtividade({
+        id: 'at_vac_' + Date.now() + '_' + cavalo.id,
+        tipo: 'vacinacao', cavaloId: cavalo.id, insumoId: vacina.id, qtd: 1,
+        motivo: `${item.protocoloNome} · ${item.dose?.label || 'Dose ' + (item.doseIdx + 1)}`,
+        usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
+        mes: hojeStr.slice(0, 7), data: hojeStr,
+        hora: new Date().toTimeString().slice(0, 5), texto: '',
+      });
+    }
+  };
+
+  // Handler aplicar vermifugação
+  const aplicarVermifugacao = (item) => {
+    const insumo = insumos.find(i => i.id === item.insumoId);
+    const vermId = 'verm_' + Date.now() + '_' + cavalo.id;
+    addVermifugacaoAnimal && addVermifugacaoAnimal({
+      id: vermId, protocoloId: item.protocoloId, cavaloId: cavalo.id,
+      dataRealizacao: hojeStr, produto: insumo?.nome || '',
+      registradoPor: currentUser?.nome || '',
+      etapaIdx: item.etapaIdx ?? null,
+    });
+    if (insumo) {
+      addRegistro && addRegistro({
+        id: 'reg_verm_' + Date.now() + '_' + cavalo.id,
+        cavaloId: cavalo.id, insumoId: insumo.id, qtd: 1,
+        hora: new Date().toTimeString().slice(0, 5),
+        usuario: currentUser?.nome || '', isAuto: false, data: hojeStr,
+      });
+      addAtividade && addAtividade({
+        id: 'at_verm_' + Date.now() + '_' + cavalo.id,
+        tipo: 'vermifugacao', cavaloId: cavalo.id, insumoId: insumo.id, qtd: 1,
+        motivo: `${item.protocoloNome}${item.etapaLabel ? ' · ' + item.etapaLabel : ''}`,
+        usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
+        mes: hojeStr.slice(0, 7), data: hojeStr,
+        hora: new Date().toTimeString().slice(0, 5), texto: '',
+      });
+    }
+  };
+
+  const secaoVazia = agendaVac.length === 0 && agendaVerm.length === 0;
+
+  return (
+    <div style={{ padding: '14px 16px 16px' }}>
+      {secaoVazia && (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 12, padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+          Sem vacinas ou vermifugações agendadas pra esta égua.
+        </div>
+      )}
+
+      {/* Bloco Vacinação */}
+      {agendaVac.length > 0 && (
+        <BlocoAgenda
+          titulo="Vacinação"
+          icone="syringe"
+          cor="#1d4ed8"
+          grupos={vacGrupos}
+          insumos={insumos}
+          onAplicar={aplicarVacina}
+          tipoLabel="vacina"
+        />
+      )}
+
+      {/* Bloco Vermifugação */}
+      {agendaVerm.length > 0 && (
+        <BlocoAgenda
+          titulo="Vermifugação"
+          icone="worm"
+          cor="#15803d"
+          grupos={vermGrupos}
+          insumos={insumos}
+          onAplicar={aplicarVermifugacao}
+          tipoLabel="vermífugo"
+        />
+      )}
+    </div>
+  );
+}
+
+function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, tipoLabel }) {
+  return (
+    <div style={{ marginBottom: 18, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
+        <span style={{ width: 28, height: 28, borderRadius: 8, background: cor + '22', display: 'grid', placeItems: 'center' }}>
+          <Icon name={icone} size={15} color={cor} />
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{titulo}</span>
+      </div>
+
+      <div style={{ padding: '10px 12px' }}>
+        {grupos.atrasadas.length > 0 && (
+          <>
+            <SubTituloAgenda cor="#dc2626">Atrasadas ({grupos.atrasadas.length})</SubTituloAgenda>
+            {grupos.atrasadas.map(it => <LinhaAgenda key={it.key} it={it} cor="#dc2626" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+          </>
+        )}
+        {grupos.hoje.length > 0 && (
+          <>
+            <SubTituloAgenda cor="var(--accent)">Hoje ({grupos.hoje.length})</SubTituloAgenda>
+            {grupos.hoje.map(it => <LinhaAgenda key={it.key} it={it} cor="var(--accent)" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+          </>
+        )}
+        {grupos.futuras.length > 0 && (
+          <>
+            <SubTituloAgenda cor="#b45309">Futuras ({grupos.futuras.length})</SubTituloAgenda>
+            {grupos.futuras.map(it => <LinhaAgenda key={it.key} it={it} cor="#b45309" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+          </>
+        )}
+        {grupos.feitas.length > 0 && (
+          <>
+            <SubTituloAgenda cor="#6b7280">Realizadas ({grupos.feitas.length})</SubTituloAgenda>
+            {grupos.feitas.map(it => <LinhaAgenda key={it.key} it={it} cor="#6b7280" insumos={insumos} feita />)}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SubTituloAgenda({ cor, children }) {
+  return (
+    <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: cor, marginTop: 8, marginBottom: 6 }}>
+      {children}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// PROGESTERONA — controle de aplicação exógena em receptoras
+// ═════════════════════════════════════════════════════════════
+const DIAS_SEMANA_ABREV = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+function ProgesteronaTab({
+  cavalos, proprietarios, insumos, currentUser,
+  programas, aplicacoes, busca,
+  addPrograma, encerrarPrograma, deletePrograma, updateAplicacao,
+  addRegistro, addAtividade,
+}) {
+  const [showForm, setShowForm] = useState(false);
+
+  const q = (busca || '').trim().toLowerCase();
+  const programasVisiveis = programas.filter(p => {
+    if (!q) return true;
+    const cav = cavalos.find(c => c.id === p.cavaloId);
+    const prop = cav && proprietarios.find(o => o.id === cav.proprietarioId);
+    return norm(cav?.nome).includes(norm(q)) || (prop?.nome && norm(prop.nome).includes(norm(q)));
+  });
+
+  const ativos = programasVisiveis.filter(p => p.status === 'ativo');
+  const encerrados = programasVisiveis.filter(p => p.status !== 'ativo');
+
+  const receptorasElegiveis = cavalos.filter(c =>
+    c.presente && c.gestacao?.dataCobricao &&
+    (c.categorias || []).includes('Receptora') &&
+    !programas.some(p => p.cavaloId === c.id && p.status === 'ativo')
+  );
+
+  const marcarAplicacao = async (aplicacao, programa) => {
+    const insumo = insumos.find(i => i.id === programa.insumoId);
+    const hoje = new Date().toISOString().slice(0, 10);
+    const usuario = currentUser?.nome || '';
+    const rid = 'reg_prog_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+    if (insumo) {
+      addRegistro && addRegistro({
+        id: rid, cavaloId: programa.cavaloId, insumoId: insumo.id,
+        qtd: Number(programa.doseQtd) || 1,
+        hora: new Date().toTimeString().slice(0, 5),
+        usuario, isAuto: false, data: hoje,
+      });
+      addAtividade && addAtividade({
+        id: 'at_' + rid, tipo: 'insumo', cavaloId: programa.cavaloId,
+        insumoId: insumo.id, qtd: Number(programa.doseQtd) || 1,
+        motivo: `Progesterona · ${insumo.nome}`,
+        usuario, autor: usuario, mes: hoje.slice(0, 7),
+        data: hoje, hora: new Date().toTimeString().slice(0, 5), texto: '',
+      });
+    }
+    await updateAplicacao(aplicacao.id, {
+      status: 'feito', feitoEm: new Date().toISOString(),
+      feitoPor: usuario, registroId: rid,
+    });
+  };
+
+  const desmarcarAplicacao = async (aplicacao) => {
+    if (!window.confirm('Desfazer? Remove a cobrança da fatura.')) return;
+    // TODO: deletar registro relacionado — precisaria de deleteRegistro passado
+    await updateAplicacao(aplicacao.id, {
+      status: 'programado', feitoEm: null, feitoPor: '', registroId: null,
+    });
+  };
+
+  const cancelarAplicacao = async (aplicacao) => {
+    if (!window.confirm('Cancelar esta aplicação (não vai aplicar nessa data)?')) return;
+    await updateAplicacao(aplicacao.id, { status: 'cancelado' });
+  };
+
+  return (
+    <div style={{ padding: '14px 16px 16px' }}>
+      {!showForm && receptorasElegiveis.length > 0 && (
+        <button
+          onClick={() => setShowForm(true)}
+          style={{
+            width: '100%', background: 'var(--accent)', color: '#fff',
+            border: 'none', borderRadius: 10, padding: '10px', fontSize: 13, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 14,
+          }}
+        >
+          + Novo programa de progesterona
+        </button>
+      )}
+
+      {showForm && (
+        <ProgesteronaForm
+          receptoras={receptorasElegiveis}
+          insumos={insumos}
+          onCancel={() => setShowForm(false)}
+          onSave={async (data) => {
+            const id = await addPrograma(data);
+            if (id) setShowForm(false);
+          }}
+        />
+      )}
+
+      {ativos.length === 0 && encerrados.length === 0 && !showForm && (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 12, padding: 24, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+          Nenhuma receptora com programa de progesterona ativo.
+          {receptorasElegiveis.length === 0 && (
+            <div style={{ fontSize: 11, marginTop: 8 }}>
+              Cadastre receptoras (categoria "Receptora") com data de cobertura pra elas aparecerem aqui.
+            </div>
+          )}
+        </div>
+      )}
+
+      {ativos.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--accent)', marginBottom: 8 }}>
+            Ativos ({ativos.length})
+          </div>
+          {ativos.map(p => (
+            <ProgramaCard
+              key={p.id} programa={p}
+              cavalo={cavalos.find(c => c.id === p.cavaloId)}
+              proprietario={proprietarios.find(pr => {
+                const cav = cavalos.find(c => c.id === p.cavaloId);
+                return cav && pr.id === cav.proprietarioId;
+              })}
+              insumo={insumos.find(i => i.id === p.insumoId)}
+              aplicacoes={aplicacoes.filter(a => a.programaId === p.id)}
+              onMarcar={(apl) => marcarAplicacao(apl, p)}
+              onDesmarcar={desmarcarAplicacao}
+              onCancelar={cancelarAplicacao}
+              onEncerrar={() => { if (window.confirm('Encerrar programa? Aplicações futuras serão canceladas.')) encerrarPrograma(p.id); }}
+              onDelete={() => { if (window.confirm('EXCLUIR programa e todas as aplicações? Não pode ser desfeito.')) deletePrograma(p.id); }}
+            />
+          ))}
+        </div>
+      )}
+
+      {encerrados.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 8 }}>
+            Encerrados ({encerrados.length})
+          </div>
+          {encerrados.map(p => (
+            <ProgramaCard
+              key={p.id} programa={p} dim
+              cavalo={cavalos.find(c => c.id === p.cavaloId)}
+              proprietario={proprietarios.find(pr => {
+                const cav = cavalos.find(c => c.id === p.cavaloId);
+                return cav && pr.id === cav.proprietarioId;
+              })}
+              insumo={insumos.find(i => i.id === p.insumoId)}
+              aplicacoes={aplicacoes.filter(a => a.programaId === p.id)}
+              onDelete={() => { if (window.confirm('EXCLUIR programa encerrado e todo o histórico?')) deletePrograma(p.id); }}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgramaCard({ programa, cavalo, proprietario, insumo, aplicacoes, onMarcar, onDesmarcar, onCancelar, onEncerrar, onDelete, dim }) {
+  const [aberto, setAberto] = useState(!dim);
+  const hoje = new Date().toISOString().slice(0, 10);
+  const feitas = aplicacoes.filter(a => a.status === 'feito').length;
+  const programadas = aplicacoes.filter(a => a.status === 'programado').length;
+  const proxima = aplicacoes
+    .filter(a => a.status === 'programado')
+    .sort((a, b) => a.data.localeCompare(b.data))[0];
+
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)',
+      borderLeft: `3px solid ${dim ? '#9ca3af' : '#7c3aed'}`,
+      borderRadius: 10, padding: '10px 12px', marginBottom: 8,
+      opacity: dim ? 0.7 : 1,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={() => setAberto(v => !v)}
+          style={{ flex: 1, background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+        >
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>
+            {cavalo?.nome || '—'}
+            {proprietario && <span style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 400, marginLeft: 6 }}>· {proprietario.nome}</span>}
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+            {insumo?.nome || '—'} · {programa.doseQtd} {insumo?.unidade || 'ml'} · a cada {programa.freqDias}d ({DIAS_SEMANA_ABREV[programa.diaSemana]})
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+            {fmtDate(programa.inicio)} → {fmtDate(programa.fim)} · <b>{feitas}</b> feitas · <b>{programadas}</b> programadas
+            {proxima && `· próxima ${fmtDate(proxima.data)}`}
+          </div>
+        </button>
+        <span style={{ fontSize: 12, color: 'var(--ink-3)', transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
+      </div>
+
+      {aberto && (
+        <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)' }}>
+          {aplicacoes.length === 0 ? (
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', padding: '8px 0' }}>
+              Nenhuma aplicação gerada.
+            </div>
+          ) : aplicacoes
+            .sort((a, b) => a.data.localeCompare(b.data))
+            .map(a => (
+              <LinhaAplicacao
+                key={a.id} a={a} hoje={hoje}
+                insumo={insumo}
+                doseQtd={programa.doseQtd}
+                dim={dim}
+                onMarcar={onMarcar && (() => onMarcar(a))}
+                onDesmarcar={onDesmarcar && (() => onDesmarcar(a))}
+                onCancelar={onCancelar && (() => onCancelar(a))}
+              />
+            ))}
+
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
+            {onEncerrar && (
+              <button
+                onClick={onEncerrar}
+                style={{ flex: 1, background: 'var(--soft)', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, padding: '7px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}
+              >Encerrar programa</button>
+            )}
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                style={{ background: 'transparent', color: '#dc2626', border: '1px solid #fecaca', borderRadius: 8, padding: '7px 12px', fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}
+              >Excluir</button>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function LinhaAplicacao({ a, hoje, insumo, doseQtd, dim, onMarcar, onDesmarcar, onCancelar }) {
+  const CFG = {
+    programado: { cor: '#7c3aed', bg: '#7c3aed10', label: 'Prog.' },
+    feito:      { cor: '#15803d', bg: '#15803d10', label: 'Feito' },
+    cancelado:  { cor: '#6b7280', bg: '#6b728010', label: 'Cancel.' },
+  };
+  const c = CFG[a.status] || CFG.programado;
+  const atrasado = a.status === 'programado' && a.data < hoje;
+
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)',
+      borderLeft: `3px solid ${atrasado ? '#dc2626' : c.cor}`,
+      borderRadius: 6, padding: '6px 8px', marginBottom: 4,
+      display: 'flex', alignItems: 'center', gap: 8,
+      opacity: a.status === 'cancelado' ? 0.6 : 1,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, color: 'var(--ink)', textDecoration: a.status === 'cancelado' ? 'line-through' : 'none' }}>
+          {fmtDate(a.data)}
+          {atrasado && <span style={{ marginLeft: 6, fontSize: 9, color: '#dc2626', background: '#fee2e2', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.05em' }}>ATRASADO</span>}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+          {doseQtd} {insumo?.unidade || 'ml'} {insumo?.nome}
+          {a.feitoPor && ` · ${a.feitoPor}`}
+        </div>
+      </div>
+      <span style={{ fontSize: 9, fontWeight: 700, color: c.cor, background: c.bg, padding: '2px 6px', borderRadius: 4, letterSpacing: '0.05em', textTransform: 'uppercase' }}>
+        {c.label}
+      </span>
+      {!dim && (
+        <div style={{ display: 'flex', gap: 3 }}>
+          {a.status === 'programado' && onMarcar && (
+            <>
+              <button onClick={onMarcar} title="Aplicar" style={{ width: 24, height: 24, borderRadius: 5, background: '#15803d15', border: '1px solid #15803d45', color: '#15803d', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: 'var(--sans)' }}>✓</button>
+              <button onClick={onCancelar} title="Cancelar" style={{ width: 24, height: 24, borderRadius: 5, background: '#b4530915', border: '1px solid #b4530945', color: '#b45309', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: 'var(--sans)' }}>⊘</button>
+            </>
+          )}
+          {a.status === 'feito' && onDesmarcar && (
+            <button onClick={onDesmarcar} title="Desfazer" style={{ width: 24, height: 24, borderRadius: 5, background: '#dc262615', border: '1px solid #dc262645', color: '#dc2626', cursor: 'pointer', fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: 'var(--sans)' }}>↺</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ProgesteronaForm({ receptoras, insumos, onCancel, onSave }) {
+  const [cavaloId, setCavaloId] = useState('');
+  const [insumoId, setInsumoId] = useState('');
+  const [doseQtd, setDoseQtd] = useState('1');
+  const [freqDias, setFreqDias] = useState(7);
+  const [diaSemana, setDiaSemana] = useState(1); // Segunda
+  const [saving, setSaving] = useState(false);
+
+  const cavalo = receptoras.find(c => c.id === cavaloId);
+  const dataCobricao = cavalo?.gestacao?.dataCobricao;
+
+  // Defaults: início = data cobertura, fim = cobertura + 120 dias
+  const [inicio, setInicio] = useState('');
+  const [fim, setFim] = useState('');
+
+  React.useEffect(() => {
+    if (!cavalo || !dataCobricao) { setInicio(''); setFim(''); return; }
+    setInicio(dataCobricao);
+    const fimD = new Date(dataCobricao + 'T12:00:00');
+    fimD.setDate(fimD.getDate() + 120);
+    setFim(fimD.toISOString().slice(0, 10));
+  }, [cavaloId, dataCobricao]);
+
+  const canSave = cavaloId && insumoId && Number(doseQtd) > 0 && inicio && fim && !saving;
+
+  const insumosProgesterona = insumos
+    .filter(i => i.categoria !== 'descartavel' && i.categoria !== 'racao' && i.categoria !== 'nutricao_base')
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
+
+  const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box' };
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave({
+        cavaloId, insumoId, doseQtd: Number(doseQtd),
+        freqDias: Number(freqDias), diaSemana: Number(diaSemana),
+        inicio, fim,
+      });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)', marginBottom: 12 }}>Novo programa de progesterona</div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Receptora</div>
+        <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputSt}>
+          <option value="">— Selecione —</option>
+          {receptoras.map(c => (
+            <option key={c.id} value={c.id}>
+              {c.nome} · cobertura {fmtDate(c.gestacao?.dataCobricao)}
+            </option>
+          ))}
+        </select>
+        {receptoras.length === 0 && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4, fontStyle: 'italic' }}>
+            Nenhuma receptora com cobertura sem programa ativo.
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>Insumo (progesterona)</div>
+        <select value={insumoId} onChange={e => setInsumoId(e.target.value)} style={inputSt}>
+          <option value="">— Selecione —</option>
+          {insumosProgesterona.map(i => (
+            <option key={i.id} value={i.id}>{i.nome} · {i.unidade}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>Dose</div>
+          <input type="number" min="0" step="0.1" value={doseQtd} onChange={e => setDoseQtd(e.target.value)} style={inputSt} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>A cada</div>
+          <select value={freqDias} onChange={e => setFreqDias(Number(e.target.value))} style={inputSt}>
+            <option value={7}>7 dias</option>
+            <option value={14}>14 dias</option>
+          </select>
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>Dia da semana</div>
+          <select value={diaSemana} onChange={e => setDiaSemana(Number(e.target.value))} style={inputSt}>
+            {DIAS_SEMANA_ABREV.map((d, i) => <option key={i} value={i}>{d}</option>)}
+          </select>
+        </div>
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>Início</div>
+          <input type="date" value={inicio} onChange={e => setInicio(e.target.value)} style={inputSt} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 4 }}>Fim <span style={{ color: 'var(--ink-3)', textTransform: 'none' }}>(padrão: cobertura + 120d)</span></div>
+          <input type="date" value={fim} onChange={e => setFim(e.target.value)} style={inputSt} />
+        </div>
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <button onClick={onCancel} style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+        <button
+          onClick={handleSave}
+          disabled={!canSave}
+          style={{ flex: 2, background: canSave ? 'var(--accent)' : 'var(--soft)', border: 'none', color: canSave ? '#fff' : 'var(--ink-3)', borderRadius: 8, padding: '10px', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: canSave ? 'pointer' : 'default' }}
+        >Criar programa</button>
+      </div>
+    </div>
+  );
+}
+
+function LinhaAgenda({ it, cor, insumos, onAplicar, tipoLabel, feita }) {
+  const insumoId = it.dose?.insumoId || it.insumoId;
+  const insumo = insumos.find(i => i.id === insumoId);
+  const doseLabel = it.dose?.label || it.etapaLabel || 'Aplicação';
+  const dataFmt = it.dataPrevista ? fmtDate(it.dataPrevista) : '—';
+
+  return (
+    <div style={{
+      background: feita ? 'var(--soft)' : 'var(--card)',
+      border: '1px solid var(--line)', borderLeft: `3px solid ${cor}`,
+      borderRadius: 8, padding: '8px 10px', marginBottom: 5,
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>
+          {it.protocoloNome} <span style={{ color: 'var(--ink-3)', fontWeight: 400 }}>· {doseLabel}</span>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+          {dataFmt} {insumo && `· ${insumo.nome}`}
+        </div>
+      </div>
+      {!feita && onAplicar && (
+        <button
+          onClick={() => onAplicar(it)}
+          title={`Aplicar ${tipoLabel}`}
+          style={{
+            background: cor === '#dc2626' ? '#dc2626' : 'var(--accent)',
+            color: '#fff', border: 'none', borderRadius: 8,
+            padding: '5px 12px', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}
+        >Aplicar</button>
+      )}
+      {feita && <span style={{ fontSize: 10, color: '#15803d', fontWeight: 700, letterSpacing: '0.05em' }}>✓ FEITO</span>}
     </div>
   );
 }

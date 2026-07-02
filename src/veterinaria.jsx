@@ -52,7 +52,7 @@ const inputSt = {
 };
 
 // ─── Vacinação: cálculo de agenda ─────────────────────────────
-function calcDoseDate(protocolo, doseIdx, cavalo) {
+export function calcDoseDate(protocolo, doseIdx, cavalo) {
   const dose = protocolo.doses?.[doseIdx];
   if (!dose) return null;
   if (protocolo.tipo === 'gestante') return addDays(cavalo.gestacao?.dataCobricao, dose.diasDesdeEvento);
@@ -76,7 +76,7 @@ function isDoseHistoricaSemAplicacao(dataPrevista, cavalo) {
   return false;
 }
 
-function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
+export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   const feitas = new Set(vacinacoesAnimais.filter(v => v.feito).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
   const items = [];
   const today = todayStr();
@@ -173,7 +173,7 @@ const CATEGORIAS_PROTOCOLO = [
 ];
 
 // ─── Vermifugação: cálculo de agenda ──────────────────────────
-function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
+export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   const items = [];
   const today = todayStr();
   for (const prot of protocolos) {
@@ -455,6 +455,9 @@ export function VeterinariaScreen({
   addEmergNota, updateEmergNota, deleteEmergNota,
   uploadEmergExame, deleteEmergExame,
   frascosAbertos, addFrascoAberto, updateFrascoAberto,
+  progProgramas, progAplicacoes,
+  addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
+  updateProgesteronaAplicacao,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -480,6 +483,13 @@ export function VeterinariaScreen({
         setScreen={setScreen} setSelected={setSelected}
         partos={partos} cavalos={cavalos}
         proprietarios={proprietarios} movimentacoes={movimentacoes}
+        insumos={insumos} currentUser={currentUser}
+        progProgramas={progProgramas} progAplicacoes={progAplicacoes}
+        addProgesteronaPrograma={addProgesteronaPrograma}
+        encerrarProgesteronaPrograma={encerrarProgesteronaPrograma}
+        deleteProgesteronaPrograma={deleteProgesteronaPrograma}
+        updateProgesteronaAplicacao={updateProgesteronaAplicacao}
+        addRegistro={addRegistro} addAtividade={addAtividade}
         onBack={() => setSecao(null)}
       />
     );

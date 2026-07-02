@@ -56,7 +56,10 @@ import {
   fromDbEmergenciaNota, toDbEmergenciaNota,
   fromDbEmergenciaExame, toDbEmergenciaExame,
   fromDbFrascoAberto, toDbFrascoAberto,
+  fromDbProgesteronaPrograma, toDbProgesteronaPrograma,
+  fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
   EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
+  PROG_PROG_MAP, PROG_APL_MAP,
   dbUpsert,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
@@ -115,6 +118,8 @@ function AppEpona() {
   const [emergNotas, setEmergNotas] = useState([]);
   const [emergExames, setEmergExames] = useState([]);
   const [frascosAbertos, setFrascosAbertos] = useState([]);
+  const [progProgramas, setProgProgramas] = useState([]);
+  const [progAplicacoes, setProgAplicacoes] = useState([]);
   const [loadError, setLoadError] = useState(null);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
@@ -141,7 +146,8 @@ const loadAllData = async () => {
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
-      emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData
+      emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
+      progProgramasData, progAplicacoesData
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -179,6 +185,8 @@ const loadAllData = async () => {
       fetchAll('emergencia_notas', fromDbEmergenciaNota),
       fetchAll('emergencia_exames', fromDbEmergenciaExame),
       fetchAll('frascos_abertos', fromDbFrascoAberto),
+      fetchAll('progesterona_programas', fromDbProgesteronaPrograma),
+      fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -213,6 +221,8 @@ const loadAllData = async () => {
     setEmergNotas(emergNotasData || []);
     setEmergExames(emergExamesData || []);
     setFrascosAbertos(frascosData || []);
+    setProgProgramas(progProgramasData || []);
+    setProgAplicacoes(progAplicacoesData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
     const today = new Date().toISOString().slice(0, 10);
@@ -426,6 +436,16 @@ const loadAllData = async () => {
         if (et === 'INSERT') setFrascosAbertos(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFrascoAberto(n)]);
         if (et === 'UPDATE') setFrascosAbertos(prev => prev.map(f => f.id === n.id ? fromDbFrascoAberto(n) : f));
         if (et === 'DELETE') setFrascosAbertos(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'progesterona_programas' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setProgProgramas(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbProgesteronaPrograma(n)]);
+        if (et === 'UPDATE') setProgProgramas(prev => prev.map(p => p.id === n.id ? fromDbProgesteronaPrograma(n) : p));
+        if (et === 'DELETE') setProgProgramas(prev => o?.id ? prev.filter(p => p.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'progesterona_aplicacoes' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setProgAplicacoes(prev => prev.some(a => a.id === n.id) ? prev : [...prev, fromDbProgesteronaAplicacao(n)]);
+        if (et === 'UPDATE') setProgAplicacoes(prev => prev.map(a => a.id === n.id ? fromDbProgesteronaAplicacao(n) : a));
+        if (et === 'DELETE') setProgAplicacoes(prev => o?.id ? prev.filter(a => a.id !== o.id) : prev);
       })
       .subscribe();
     return () => supabase.removeChannel(ch);
@@ -719,6 +739,84 @@ const loadAllData = async () => {
     setFrascosAbertos(prev => prev.map(f => f.id === id ? { ...f, ...patch } : f));
     const ok = await dbUpdate('frascos_abertos', id, partialToDb(patch, FRASCO_MAP));
     if (!ok) setFrascosAbertos(snap);
+    return ok;
+  };
+
+  // ── Progesterona (programas + aplicações) ────────────────
+  // Cria o programa E expande as aplicações programadas (uma linha por
+  // ocorrência esperada). Retorna id do programa.
+  const _fmtDataLocal = (d) => {
+    const yy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yy}-${mm}-${dd}`;
+  };
+  const _expandirProgesterona = (programa) => {
+    const inicio = new Date(programa.inicio + 'T12:00:00');
+    const fim = new Date(programa.fim + 'T12:00:00');
+    const freqDias = Number(programa.freqDias) || 7;
+    const diaSemana = Number(programa.diaSemana);
+    let cursor = new Date(inicio);
+    // Avança até o próximo dia-da-semana desejado (inclusive hoje se bater)
+    while (cursor.getDay() !== diaSemana && cursor <= fim) {
+      cursor.setDate(cursor.getDate() + 1);
+    }
+    const out = [];
+    let safety = 0;
+    while (cursor <= fim && safety < 200) {
+      out.push({
+        id: 'progapl_' + Date.now() + '_' + safety + '_' + Math.random().toString(36).slice(2, 4),
+        programaId: programa.id, cavaloId: programa.cavaloId,
+        data: _fmtDataLocal(cursor), status: 'programado',
+      });
+      cursor = new Date(cursor.getTime() + freqDias * 86400000);
+      safety++;
+    }
+    return out;
+  };
+  const addProgesteronaPrograma = async (data) => {
+    const programa = {
+      id: 'progprg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5),
+      status: 'ativo', criadoEm: new Date().toISOString(),
+      criadoPor: currentUser?.nome || '', ...data,
+    };
+    setProgProgramas(prev => [...prev, programa]);
+    const ok = await dbInsert('progesterona_programas', toDbProgesteronaPrograma(programa));
+    if (!ok) {
+      setProgProgramas(prev => prev.filter(p => p.id !== programa.id));
+      return null;
+    }
+    const aplicacoes = _expandirProgesterona(programa);
+    setProgAplicacoes(prev => [...prev, ...aplicacoes]);
+    for (const a of aplicacoes) {
+      await dbInsert('progesterona_aplicacoes', toDbProgesteronaAplicacao(a));
+    }
+    return programa.id;
+  };
+  const encerrarProgesteronaPrograma = async (id) => {
+    const snap = progProgramas;
+    setProgProgramas(prev => prev.map(p => p.id === id ? { ...p, status: 'encerrado' } : p));
+    // Cancela aplicações programadas futuras
+    setProgAplicacoes(prev => prev.map(a => (a.programaId === id && a.status === 'programado') ? { ...a, status: 'cancelado' } : a));
+    const ok = await dbUpdate('progesterona_programas', id, { status: 'encerrado' });
+    if (!ok) setProgProgramas(snap);
+    progAplicacoes.filter(a => a.programaId === id && a.status === 'programado').forEach(a => {
+      dbUpdate('progesterona_aplicacoes', a.id, { status: 'cancelado' });
+    });
+  };
+  const deleteProgesteronaPrograma = (id) => {
+    setProgProgramas(prev => prev.filter(p => p.id !== id));
+    setProgAplicacoes(prev => prev.filter(a => a.programaId !== id));
+    dbDelete('progesterona_programas', id);
+    progAplicacoes.filter(a => a.programaId === id).forEach(a => {
+      dbDelete('progesterona_aplicacoes', a.id);
+    });
+  };
+  const updateProgesteronaAplicacao = async (id, patch) => {
+    const snap = progAplicacoes;
+    setProgAplicacoes(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+    const ok = await dbUpdate('progesterona_aplicacoes', id, partialToDb(patch, PROG_APL_MAP));
+    if (!ok) setProgAplicacoes(snap);
     return ok;
   };
 
@@ -1465,10 +1563,10 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
-  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} />;
+  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} insumos={insumos} addProcedimento={addProcedimento} />;
-  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} />;
+  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} updateCavalo={updateCavalo} proprietarios={proprietarios} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} addVermifugacaoAnimal={addVermifugacaoAnimal} addRegistro={addRegistro} servicos={servicos} addProcedimento={addProcedimento} />;
   else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;

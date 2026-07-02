@@ -585,6 +585,41 @@ export const toDbFrascoAberto = f => ({
   registro_id: f.registroId || null,
 });
 
+// ── Progesterona (receptoras) ────────────────────────────────
+
+export const fromDbProgesteronaPrograma = r => ({
+  id: r.id, cavaloId: r.cavalo_id, insumoId: r.insumo_id,
+  doseQtd: Number(r.dose_qtd) || 0,
+  diaSemana: Number(r.dia_semana) || 1,
+  freqDias: Number(r.freq_dias) || 7,
+  inicio: r.inicio, fim: r.fim,
+  status: r.status || 'ativo',
+  criadoEm: r.criado_em, criadoPor: r.criado_por || '',
+});
+export const toDbProgesteronaPrograma = p => ({
+  id: p.id, cavalo_id: p.cavaloId, insumo_id: p.insumoId,
+  dose_qtd: Number(p.doseQtd) || 0,
+  dia_semana: Number(p.diaSemana) || 1,
+  freq_dias: Number(p.freqDias) || 7,
+  inicio: p.inicio, fim: p.fim,
+  status: p.status || 'ativo',
+  criado_em: p.criadoEm || new Date().toISOString(),
+  criado_por: p.criadoPor || '',
+});
+
+export const fromDbProgesteronaAplicacao = r => ({
+  id: r.id, programaId: r.programa_id, cavaloId: r.cavalo_id,
+  data: r.data, status: r.status || 'programado',
+  feitoEm: r.feito_em, feitoPor: r.feito_por || '',
+  registroId: r.registro_id || null, nota: r.nota || '',
+});
+export const toDbProgesteronaAplicacao = a => ({
+  id: a.id, programa_id: a.programaId, cavalo_id: a.cavaloId,
+  data: a.data, status: a.status || 'programado',
+  feito_em: a.feitoEm || null, feito_por: a.feitoPor || '',
+  registro_id: a.registroId || null, nota: a.nota || '',
+});
+
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
@@ -597,6 +632,8 @@ const EMERGENCIA_MAP = { cavaloId: 'cavalo_id', observacaoUrgente: 'observacao_u
 const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', servicoId: 'servico_id', doseQtd: 'dose_qtd', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', procedimentoId: 'procedimento_id', frascoId: 'frasco_id', descartaveisRegistros: 'descartaveis_registros', insumosAdicionais: 'insumos_adicionais' };
 const EMERG_AGE_MAP  = { emergenciaId: 'emergencia_id', intervaloHoras: 'intervalo_horas' };
 const FRASCO_MAP     = { insumoId: 'insumo_id', cavaloId: 'cavalo_id', emergenciaId: 'emergencia_id', abertoEm: 'aberto_em', validoAte: 'valido_ate', valorCobrado: 'valor_cobrado', registroId: 'registro_id' };
+const PROG_PROG_MAP  = { cavaloId: 'cavalo_id', insumoId: 'insumo_id', doseQtd: 'dose_qtd', diaSemana: 'dia_semana', freqDias: 'freq_dias' };
+const PROG_APL_MAP   = { programaId: 'programa_id', cavaloId: 'cavalo_id', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id' };
 
 export function partialToDb(partial, keyMap) {
   const result = {};
@@ -615,7 +652,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP };
+export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, PROG_PROG_MAP, PROG_APL_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 
