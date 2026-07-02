@@ -140,7 +140,14 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
     const alvo = cavalos.filter(c => {
       if (!c.presente) return false;
       if (prot.tipo === 'gestante') return !!c.gestacao?.dataCobricao;
-      if (prot.tipo === 'potro') return !!c.nascimento;
+      if (prot.tipo === 'potro') {
+        // Não vale para cavalos que já passaram da idade de potro (>2 anos).
+        // Sem isso, um adulto entrando com data de nascimento antiga vira alvo
+        // de todas as doses históricas do protocolo de potro.
+        if (!c.nascimento) return false;
+        if (diffDays(today, c.nascimento) > 730) return false;
+        return true;
+      }
       return false;
     });
     for (const cavalo of alvo) {

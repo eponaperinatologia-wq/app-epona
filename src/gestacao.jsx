@@ -794,19 +794,37 @@ function VacinacaoVermifugacaoTab({
   insumos = [], addRegistro, addAtividade, currentUser,
 }) {
   const hojeStr = new Date().toISOString().slice(0, 10);
+  // Esta aba é do período GESTACIONAL — só mostra doses relevantes à gestação
+  // atual. Ignora vacinas antigas (ex.: protocolo de potro aplicado em 2017
+  // quando esta hoje-égua era potra) que só poluem a lista.
+  const inicioGestacao = cavalo.gestacao?.dataCobricao || null;
+  const filtrarPorGestacao = (item) => {
+    if (!inicioGestacao) return true;
+    if (item.feito) {
+      const dataFeita = (item.feitoEm || '').slice(0, 10) || item.dataPrevista;
+      return !!dataFeita && dataFeita >= inicioGestacao;
+    }
+    return item.dataPrevista && item.dataPrevista >= inicioGestacao;
+  };
 
   // Agenda de vacinas pra este cavalo
   const agendaVacFull = useMemo(
     () => calcAgendaVac(protocolosVacinacao || [], [cavalo], vacinacoesAnimais || []),
     [protocolosVacinacao, cavalo, vacinacoesAnimais]
   );
-  const agendaVac = useMemo(() => agendaVacFull.filter(i => i.cavaloId === cavalo.id), [agendaVacFull, cavalo.id]);
+  const agendaVac = useMemo(
+    () => agendaVacFull.filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i)),
+    [agendaVacFull, cavalo.id, inicioGestacao]
+  );
 
   const agendaVermFull = useMemo(
     () => calcAgendaVerm(protocolosVermifugacao || [], [cavalo], vermifugacoesAnimais || []),
     [protocolosVermifugacao, cavalo, vermifugacoesAnimais]
   );
-  const agendaVerm = useMemo(() => agendaVermFull.filter(i => i.cavaloId === cavalo.id), [agendaVermFull, cavalo.id]);
+  const agendaVerm = useMemo(
+    () => agendaVermFull.filter(i => i.cavaloId === cavalo.id && filtrarPorGestacao(i)),
+    [agendaVermFull, cavalo.id, inicioGestacao]
+  );
 
   // Separar em atrasadas / hoje / futuras / feitas
   const splitAgenda = (items) => {
