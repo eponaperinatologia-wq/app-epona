@@ -60,6 +60,22 @@ function calcDoseDate(protocolo, doseIdx, cavalo) {
   return null;
 }
 
+// ─── Cutoff pra evitar backlog histórico ────────────────────
+// Retorna true quando uma dose/etapa DEVE ser pulada. Usada só para itens
+// ainda NÃO feitos — o histórico marcado como feito não é afetado.
+// Duas condições (qualquer uma → pula):
+//   1) Dose planejada ANTES da entrada do cavalo no haras (não é
+//      responsabilidade do haras atual).
+//   2) Dose mais de 90 dias no passado (janela realista de catch-up).
+function isDoseHistoricaSemAplicacao(dataPrevista, cavalo) {
+  if (!dataPrevista) return false;
+  const cutoffAtraso = addDays(todayStr(), -90);
+  if (dataPrevista < cutoffAtraso) return true;
+  const dataEntrada = cavalo?.dataEntrada;
+  if (dataEntrada && dataPrevista < dataEntrada) return true;
+  return false;
+}
+
 function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   const feitas = new Set(vacinacoesAnimais.filter(v => v.feito).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
   const items = [];
@@ -122,11 +138,16 @@ function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
         const dataPrev = calcDoseDate(prot, i, cavalo);
         if (!dataPrev) continue;
         const key = `${prot.id}_${i}_${cavalo.id}`;
+        const jaFeito = feitas.has(key);
+        // Pula doses históricas não aplicáveis ao cavalo atual (ex.: cavalo
+        // nascido em 2006 sendo cadastrado agora — não fazer o vet clicar
+        // Aplicar em dose de 2006).
+        if (!jaFeito && isDoseHistoricaSemAplicacao(dataPrev, cavalo)) continue;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: i, dose: prot.doses[i],
           cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-          dataPrevista: dataPrev, feito: feitas.has(key),
+          dataPrevista: dataPrev, feito: jaFeito,
           diasRestantes: diffDays(dataPrev),
         });
       }
@@ -200,6 +221,8 @@ function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
             v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === etapaIdx
           );
           if (!feito) {
+            // Pula etapa histórica não aplicável (mesma regra da vacinação).
+            if (isDoseHistoricaSemAplicacao(dataPrevista, cavalo)) return;
             items.push({
               key: `verm_${prot.id}_${cavalo.id}_${etapaIdx}`,
               protocoloId: prot.id, protocoloNome: prot.nome,
