@@ -550,6 +550,21 @@ const ActivityRow = ({ a, first, currentUser, removeAtividade, insumos = [], cav
     const linhas = (a.texto || '').split('\n');
     title = linhas[0] || 'Procedimento';
     sub = linhas.slice(1).join('\n');
+  } else if (a.tipo === 'vacinacao') {
+    const ins = insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId);
+    icon = 'syringe'; color = '#1d4ed8';
+    title = `Vacinação · ${cav?.nome || a.cavaloId || ''}`;
+    sub = `${ins?.nome || ''}${a.motivo ? ' · ' + a.motivo : ''} · ${a.usuario || ''}`;
+  } else if (a.tipo === 'vermifugacao') {
+    const ins = insumos.find(i => i.id === a.insumoId) || getInsumo(a.insumoId);
+    icon = 'worm'; color = '#15803d';
+    title = `Vermifugação · ${cav?.nome || a.cavaloId || ''}`;
+    sub = `${ins?.nome || ''}${a.motivo ? ' · ' + a.motivo : ''} · ${a.usuario || ''}`;
+  } else {
+    // Fallback pra tipos não mapeados — mostra o que tiver em vez de ficar em branco
+    icon = 'package'; color = '#6b7280';
+    title = `${cav?.nome || a.cavaloId || ''}${a.motivo ? ' · ' + a.motivo : ''}`.trim() || (a.tipo || 'Atividade');
+    sub = a.texto || a.usuario || '';
   }
   return (
     <div style={{
