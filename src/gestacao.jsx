@@ -1,7 +1,7 @@
 // gestacao.jsx — Gestação e Partos: gestantes, detalhe e acompanhamento mensal
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
-import { norm } from './data';
+import { norm, addDescartaveis } from './data';
 import { TopBar } from './screens';
 import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
 
@@ -83,7 +83,7 @@ export function GestacaoPartosScreen({
   progProgramas = [], progAplicacoes = [],
   addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
   updateProgesteronaAplicacao,
-  addRegistro, addAtividade,
+  addRegistro, deleteRegistro, addAtividade,
 }) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
@@ -171,7 +171,7 @@ export function GestacaoPartosScreen({
             encerrarPrograma={encerrarProgesteronaPrograma}
             deletePrograma={deleteProgesteronaPrograma}
             updateAplicacao={updateProgesteronaAplicacao}
-            addRegistro={addRegistro} addAtividade={addAtividade}
+            addRegistro={addRegistro} deleteRegistro={deleteRegistro} addAtividade={addAtividade}
             busca={busca}
           />
         )}
@@ -985,7 +985,7 @@ function ProgesteronaTab({
   cavalos, proprietarios, insumos, currentUser,
   programas, aplicacoes, busca,
   addPrograma, encerrarPrograma, deletePrograma, updateAplicacao,
-  addRegistro, addAtividade,
+  addRegistro, deleteRegistro, addAtividade,
 }) {
   const [showForm, setShowForm] = useState(false);
 
@@ -1000,11 +1000,17 @@ function ProgesteronaTab({
   const ativos = programasVisiveis.filter(p => p.status === 'ativo');
   const encerrados = programasVisiveis.filter(p => p.status !== 'ativo');
 
-  // Todas as gestantes elegíveis (receptora, matriz, doadora — qualquer
-  // égua com cobertura registrada), em ordem alfabética.
+  // Todas as gestantes elegíveis: qualquer égua marcada como Gestante
+  // (categoria ou lista de categorias) OU com data de cobertura registrada.
+  // Sem exigir cobertura — algumas não têm essa data preenchida ainda mas
+  // já estão sob cuidado gestacional. Ordem alfabética.
+  const isGestante = (c) =>
+    c.categoria === 'Gestante' ||
+    (c.categorias || []).includes('Gestante') ||
+    !!c.gestacao?.dataCobricao;
   const gestantesElegiveis = cavalos
     .filter(c =>
-      c.presente && c.gestacao?.dataCobricao &&
+      c.presente && isGestante(c) &&
       !programas.some(p => p.cavaloId === c.id && p.status === 'ativo')
     )
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
@@ -1012,34 +1018,52 @@ function ProgesteronaTab({
   const marcarAplicacao = async (aplicacao, programa) => {
     const insumo = insumos.find(i => i.id === programa.insumoId);
     const hoje = new Date().toISOString().slice(0, 10);
+    const hora = new Date().toTimeString().slice(0, 5);
     const usuario = currentUser?.nome || '';
     const rid = 'reg_prog_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
+    let descartaveisRegistros = [];
     if (insumo) {
       addRegistro && addRegistro({
         id: rid, cavaloId: programa.cavaloId, insumoId: insumo.id,
         qtd: Number(programa.doseQtd) || 1,
-        hora: new Date().toTimeString().slice(0, 5),
-        usuario, isAuto: false, data: hoje,
+        hora, usuario, isAuto: false, data: hoje,
       });
       addAtividade && addAtividade({
         id: 'at_' + rid, tipo: 'insumo', cavaloId: programa.cavaloId,
         insumoId: insumo.id, qtd: Number(programa.doseQtd) || 1,
         motivo: `Progesterona · ${insumo.nome}`,
         usuario, autor: usuario, mes: hoje.slice(0, 7),
-        data: hoje, hora: new Date().toTimeString().slice(0, 5), texto: '',
+        data: hoje, hora, texto: '',
       });
+      // Progesterona é injetável — cobra 1 kit descartável (agulha, seringa,
+      // algodão) por dose. Mesma pipeline da vacinação e emergência.
+      if (insumo.injetavel && insumo.descartaveis?.length) {
+        descartaveisRegistros = addDescartaveis(
+          addRegistro, insumo.id, programa.cavaloId, 1,
+          insumos, hora, usuario, hoje
+        );
+      }
     }
     await updateAplicacao(aplicacao.id, {
       status: 'feito', feitoEm: new Date().toISOString(),
       feitoPor: usuario, registroId: rid,
+      descartaveisRegistros,
     });
   };
 
   const desmarcarAplicacao = async (aplicacao) => {
-    if (!window.confirm('Desfazer? Remove a cobrança da fatura.')) return;
-    // TODO: deletar registro relacionado — precisaria de deleteRegistro passado
+    if (!window.confirm('Desfazer? Remove a cobrança da fatura (medicamento + descartáveis).')) return;
+    // Remove registro do medicamento
+    if (aplicacao.registroId) {
+      try { deleteRegistro && deleteRegistro(aplicacao.registroId); } catch (e) { console.error(e); }
+    }
+    // Remove registros dos descartáveis (agulha, seringa, algodão)
+    (aplicacao.descartaveisRegistros || []).forEach(d => {
+      try { deleteRegistro && deleteRegistro(d.registroId); } catch (e) { console.error(e); }
+    });
     await updateAplicacao(aplicacao.id, {
       status: 'programado', feitoEm: null, feitoPor: '', registroId: null,
+      descartaveisRegistros: [],
     });
   };
 
@@ -1279,18 +1303,26 @@ function ProgesteronaForm({ gestantes, insumos, onCancel, onSave }) {
   const [fim, setFim] = useState('');
 
   React.useEffect(() => {
-    if (!cavalo || !dataCobricao) { setInicio(''); setFim(''); return; }
-    // Default de INÍCIO: hoje (não a data de cobertura). Progesterona passada
-    // já foi cobrada em outro lugar — o programa acompanha só as futuras.
+    if (!cavalo) { setInicio(''); setFim(''); return; }
+    // Default de INÍCIO: hoje. Progesterona passada já foi cobrada em outro
+    // lugar — o programa acompanha só as futuras.
     const hoje = new Date();
-    setInicio(hoje.toISOString().slice(0, 10));
-    // Default de FIM: 120 dias depois da COBERTURA (regra clínica), ou hoje
-    // + 30 dias caso a cobertura já esteja além do 120º dia.
-    const fimD = new Date(dataCobricao + 'T12:00:00');
-    fimD.setDate(fimD.getDate() + 120);
-    if (fimD < hoje) {
-      fimD.setTime(hoje.getTime());
-      fimD.setDate(fimD.getDate() + 30);
+    const hojeStr = hoje.toISOString().slice(0, 10);
+    setInicio(hojeStr);
+    // Default de FIM: 120 dias após COBERTURA (regra clínica). Se cobertura
+    // não estiver cadastrada, ou já passou dos 120d, usa hoje + 120d como
+    // fallback razoável — o usuário pode ajustar.
+    let fimD;
+    if (dataCobricao) {
+      fimD = new Date(dataCobricao + 'T12:00:00');
+      fimD.setDate(fimD.getDate() + 120);
+      if (fimD < hoje) {
+        fimD = new Date(hoje);
+        fimD.setDate(fimD.getDate() + 120);
+      }
+    } else {
+      fimD = new Date(hoje);
+      fimD.setDate(fimD.getDate() + 120);
     }
     setFim(fimD.toISOString().slice(0, 10));
   }, [cavaloId, dataCobricao]);

@@ -611,13 +611,17 @@ export const fromDbProgesteronaAplicacao = r => ({
   id: r.id, programaId: r.programa_id, cavaloId: r.cavalo_id,
   data: r.data, status: r.status || 'programado',
   feitoEm: r.feito_em, feitoPor: r.feito_por || '',
-  registroId: r.registro_id || null, nota: r.nota || '',
+  registroId: r.registro_id || null,
+  descartaveisRegistros: r.descartaveis_registros || [],
+  nota: r.nota || '',
 });
 export const toDbProgesteronaAplicacao = a => ({
   id: a.id, programa_id: a.programaId, cavalo_id: a.cavaloId,
   data: a.data, status: a.status || 'programado',
   feito_em: a.feitoEm || null, feito_por: a.feitoPor || '',
-  registro_id: a.registroId || null, nota: a.nota || '',
+  registro_id: a.registroId || null,
+  descartaveis_registros: a.descartaveisRegistros || [],
+  nota: a.nota || '',
 });
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
@@ -633,7 +637,7 @@ const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', s
 const EMERG_AGE_MAP  = { emergenciaId: 'emergencia_id', intervaloHoras: 'intervalo_horas' };
 const FRASCO_MAP     = { insumoId: 'insumo_id', cavaloId: 'cavalo_id', emergenciaId: 'emergencia_id', abertoEm: 'aberto_em', validoAte: 'valido_ate', valorCobrado: 'valor_cobrado', registroId: 'registro_id' };
 const PROG_PROG_MAP  = { cavaloId: 'cavalo_id', insumoId: 'insumo_id', doseQtd: 'dose_qtd', diaSemana: 'dia_semana', freqDias: 'freq_dias' };
-const PROG_APL_MAP   = { programaId: 'programa_id', cavaloId: 'cavalo_id', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id' };
+const PROG_APL_MAP   = { programaId: 'programa_id', cavaloId: 'cavalo_id', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', descartaveisRegistros: 'descartaveis_registros' };
 
 export function partialToDb(partial, keyMap) {
   const result = {};

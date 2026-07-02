@@ -489,7 +489,7 @@ export function VeterinariaScreen({
         encerrarProgesteronaPrograma={encerrarProgesteronaPrograma}
         deleteProgesteronaPrograma={deleteProgesteronaPrograma}
         updateProgesteronaAplicacao={updateProgesteronaAplicacao}
-        addRegistro={addRegistro} addAtividade={addAtividade}
+        addRegistro={addRegistro} deleteRegistro={deleteRegistro} addAtividade={addAtividade}
         onBack={() => setSecao(null)}
       />
     );
