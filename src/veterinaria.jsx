@@ -613,6 +613,8 @@ export function VeterinariaScreen({
       badge: emergenciasAtivas > 0 ? `${emergenciasAtivas} ativa${emergenciasAtivas > 1 ? 's' : ''}` : 'Painel · plantão',
       badgeCor: emergenciasAtivas > 0 ? '#dc2626' : '#6b7280',
     },
+    { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', badge: totalAnotacoes > 0 ? `${totalAnotacoes} registro${totalAnotacoes>1?'s':''}` : 'Novo', badgeCor: '#7c3aed' },
+    { id: 'reproducao', label: 'Reprodução', icon: 'heart', cor: '#7c2d8c', bg: '#f5e8ff', badge: (registrosReproducao||[]).length > 0 ? `${(registrosReproducao||[]).length} registro${(registrosReproducao||[]).length>1?'s':''}` : 'Caderno · Planner', badgeCor: '#7c2d8c' },
     {
       id: 'gestacao', label: 'Gestação\ne Parto', icon: 'heart', cor: '#9d174d', bg: '#fce7f3',
       badge: gestantes.length > 0 ? `${gestantes.length} gestante${gestantes.length > 1 ? 's' : ''}` : null,
@@ -628,10 +630,8 @@ export function VeterinariaScreen({
       badgeCor: dosesVermPend > 0 ? '#dc2626' : '#6b7280',
     },
     { id: 'desenvolvimento', label: 'Desenvolvimento', icon: 'bar-chart', cor: '#b45309', bg: '#fef3c7', badge: animaisMedidos > 0 ? `${(medicoes||[]).length} medições` : 'Biometria', badgeCor: '#b45309' },
-    { id: 'anotacoes', label: 'Anotações\nClínicas', icon: 'edit', cor: '#7c3aed', bg: '#f3e8ff', badge: totalAnotacoes > 0 ? `${totalAnotacoes} registro${totalAnotacoes>1?'s':''}` : 'Novo', badgeCor: '#7c3aed' },
     { id: 'exames', label: 'Exames\nComplementares', icon: 'doc', cor: '#0e7490', bg: '#cffafe', badge: totalExames > 0 ? `${totalExames} arquivo${totalExames>1?'s':''}` : 'PDF · Imagens', badgeCor: '#0e7490' },
     { id: 'relatorio', label: 'Relatório\nVeterinário', icon: 'list', cor: '#374151', bg: '#f3f4f6', badge: 'Por animal · mês', badgeCor: '#374151' },
-    { id: 'reproducao', label: 'Reprodução', icon: 'heart', cor: '#7c2d8c', bg: '#f5e8ff', badge: (registrosReproducao||[]).length > 0 ? `${(registrosReproducao||[]).length} registro${(registrosReproducao||[]).length>1?'s':''}` : 'Caderno · Planner', badgeCor: '#7c2d8c' },
   ];
 
   return (
