@@ -5,6 +5,7 @@
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { TopBar } from './screens';
+import { addDescartaveis } from './data';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -23,6 +24,334 @@ const diasDesde = (iso) => {
   if (!iso) return 0;
   return Math.floor((Date.now() - new Date(iso).getTime()) / (1000 * 60 * 60 * 24));
 };
+
+// ─────────────────────────────────────────────────────────────
+// COBRANÇA: helpers reutilizáveis pelas 3 telas (medicações, cronograma
+// individual, cronograma central). Reutilizam pipeline addRegistro/
+// addProcedimento existentes — nunca refazem regra de fatura.
+//
+// Regras (recap):
+//   por_uso: addRegistro(qtd=doseQtd). Se injetável, addDescartaveis 1×.
+//   frasco_ao_abrir: reutiliza frasco aberto do (cavalo, insumo) se válido +
+//     tem capacidade. Se sim → só soma consumido, custo 0. Se não → abre
+//     frasco novo cobrando qtd=capacidade (opção A). Independente disso, se
+//     o insumo é injetável, cobra descartáveis 1× por dose.
+//   Cancelar/editar antes de feito NÃO cobra. Desmarcar feito remove todos
+//     os registros criados.
+// ─────────────────────────────────────────────────────────────
+async function marcarMedicacaoFeita({
+  m, emergencia, insumos, servicos, frascosAbertos,
+  addRegistro, addProcedimento, addAtividade,
+  updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+  currentUser,
+}) {
+  if (!m || m.status === 'feito') return;
+  const usuario = currentUser?.nome || '';
+  const hora = new Date().toTimeString().slice(0, 5);
+
+  if (m.insumoId) {
+    const insumo = insumos.find(i => i.id === m.insumoId);
+    const doseQtd = Number(m.doseQtd) || 1;
+    const usaFrasco = insumo?.formaCobranca === 'frasco_ao_abrir' && insumo?.capacidadePorFrasco > 0;
+    const injetavel = !!(insumo?.injetavel && insumo?.descartaveis?.length);
+
+    // Descartáveis: SEMPRE cobrados por dose se o insumo for injetável
+    // (tanto no fluxo por_uso quanto no frasco).
+    const descartaveisRegistros = injetavel
+      ? addDescartaveis(addRegistro, m.insumoId, emergencia.cavaloId, 1, insumos, hora, usuario, m.data)
+      : [];
+
+    if (usaFrasco) {
+      await _marcarFeitoComFrasco({
+        m, insumo, doseQtd, hora, usuario, descartaveisRegistros,
+        emergencia, frascosAbertos, addRegistro, addAtividade,
+        updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+      });
+      return;
+    }
+
+    // Fluxo por_uso normal: cobra a dose × valorVenda
+    const rid = 'reg_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    addRegistro({
+      id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
+      qtd: doseQtd, hora, data: m.data, usuario, isAuto: false,
+    });
+    addAtividade && addAtividade({
+      id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
+      insumoId: m.insumoId, qtd: doseQtd,
+      motivo: `Emergência: ${emergencia.titulo}`, usuario, autor: usuario,
+      mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
+    });
+    await updateEmergMedicacao(m.id, {
+      status: 'feito', feitoEm: new Date().toISOString(), feitoPor: usuario,
+      registroId: rid, descartaveisRegistros,
+    });
+    return;
+  }
+
+  if (m.servicoId) {
+    const sv = servicos.find(s => s.id === m.servicoId);
+    const pid = 'proc_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    let total = sv?.valor || 0;
+    (sv?.descartaveisObrigatorios || []).forEach(d => {
+      const ins = insumos.find(i => i.id === d.insumoId);
+      total += (ins?.valorVenda || 0) * d.qtd;
+    });
+    addProcedimento({
+      id: pid, cavaloId: emergencia.cavaloId, servicoId: m.servicoId,
+      valorServico: sv?.valor || 0, total,
+      descartaveisObrigatorios: sv?.descartaveisObrigatorios || [],
+      insumosAdicionais: [],
+      motoboy: { ativo: false, valor: 0, nome: '' },
+      laboratorio: '', tubosSelecionados: [], examesSelecionados: [],
+      hora, nota: `Emergência: ${emergencia.titulo}`, data: m.data,
+    });
+    addAtividade && addAtividade({
+      id: 'at_' + pid, tipo: 'procedimento', cavaloId: emergencia.cavaloId,
+      insumoId: null, qtd: null,
+      motivo: `Emergência: ${emergencia.titulo} — ${sv?.nome || ''}`,
+      usuario, autor: usuario, mes: m.data.slice(0, 7),
+      data: m.data, hora, texto: '',
+    });
+    await updateEmergMedicacao(m.id, {
+      status: 'feito', feitoEm: new Date().toISOString(), feitoPor: usuario, procedimentoId: pid,
+    });
+  }
+}
+
+async function _marcarFeitoComFrasco({
+  m, insumo, doseQtd, hora, usuario, descartaveisRegistros,
+  emergencia, frascosAbertos, addRegistro, addAtividade,
+  updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+}) {
+  const agora = new Date();
+  const agoraIso = agora.toISOString();
+  const capacidade = Number(insumo.capacidadePorFrasco);
+  const validadeDias = Number(insumo.validadeAposAbertaDias) || 5;
+
+  // 1) tenta reutilizar frasco aberto válido e com capacidade
+  const validos = frascosAbertos
+    .filter(f =>
+      f.cavaloId === emergencia.cavaloId &&
+      f.insumoId === m.insumoId &&
+      new Date(f.validoAte) >= agora &&
+      (Number(f.consumido) + doseQtd) <= Number(f.capacidade)
+    )
+    .sort((a, b) => (a.validoAte || '').localeCompare(b.validoAte || ''));
+
+  if (validos.length > 0) {
+    const frasco = validos[0];
+    const novoConsumido = Number(frasco.consumido) + doseQtd;
+    await updateFrascoAberto(frasco.id, { consumido: novoConsumido });
+    addAtividade && addAtividade({
+      id: 'at_frs_' + Date.now(), tipo: 'insumo', cavaloId: emergencia.cavaloId,
+      insumoId: m.insumoId, qtd: doseQtd,
+      motivo: `Emergência: ${emergencia.titulo} · dose do frasco em uso (não cobra medicamento)`,
+      usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
+    });
+    await updateEmergMedicacao(m.id, {
+      status: 'feito', feitoEm: agoraIso, feitoPor: usuario,
+      frascoId: frasco.id, descartaveisRegistros,
+    });
+    return;
+  }
+
+  // 2) sem frasco válido — abre novo(s) frasco(s)
+  const frascosNecessarios = Math.max(1, Math.ceil(doseQtd / capacidade));
+  let ultimoFrascoId = null;
+  let doseRestante = doseQtd;
+  for (let i = 0; i < frascosNecessarios; i++) {
+    const consumoNesse = Math.min(doseRestante, capacidade);
+    doseRestante -= consumoNesse;
+    const validoAteMs = agora.getTime() + validadeDias * 86400000;
+    const validoAte = new Date(validoAteMs).toISOString();
+    const rid = 'reg_emg_frs_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4);
+    addRegistro({
+      id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
+      qtd: capacidade, hora, data: m.data, usuario, isAuto: false,
+    });
+    addAtividade && addAtividade({
+      id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
+      insumoId: m.insumoId, qtd: capacidade,
+      motivo: `Emergência: ${emergencia.titulo} · frasco aberto (válido até ${new Date(validoAte).toLocaleDateString('pt-BR')})`,
+      usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
+    });
+    const novoFrasco = await addFrascoAberto({
+      insumoId: m.insumoId, cavaloId: emergencia.cavaloId, emergenciaId: emergencia.id,
+      abertoEm: agoraIso, validoAte, capacidade,
+      consumido: consumoNesse,
+      valorCobrado: (Number(insumo.valorVenda) || 0) * capacidade,
+      registroId: rid,
+    });
+    if (novoFrasco?.id) ultimoFrascoId = novoFrasco.id;
+  }
+  await updateEmergMedicacao(m.id, {
+    status: 'feito', feitoEm: agoraIso, feitoPor: usuario,
+    frascoId: ultimoFrascoId, descartaveisRegistros,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// UI reutilizável: Acordeão de seção
+// ─────────────────────────────────────────────────────────────
+function SecaoAccordion({ titulo, icone, cor, contador, defaultOpen = false, children, acao }) {
+  const [aberto, setAberto] = useState(defaultOpen);
+  return (
+    <div style={{ marginBottom: 10, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+      <div style={{ display: 'flex', alignItems: 'center', padding: '10px 12px', borderBottom: aberto ? '1px solid var(--line)' : 'none' }}>
+        <button
+          onClick={() => setAberto(v => !v)}
+          style={{ flex: 1, background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: 0 }}
+        >
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: cor + '22', display: 'grid', placeItems: 'center', flexShrink: 0 }}>
+            <Icon name={icone} size={15} color={cor} />
+          </span>
+          <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>{titulo}</span>
+          {contador != null && contador > 0 && (
+            <span style={{ background: cor + '18', color: cor, borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+              {contador}
+            </span>
+          )}
+          <span style={{ fontSize: 12, color: 'var(--ink-3)', transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s', marginLeft: 4 }}>▸</span>
+        </button>
+        {acao}
+      </div>
+      {aberto && (
+        <div style={{ padding: '10px 12px' }}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// UI reutilizável: navegação horizontal por dias
+// Recebe lista de itens (cada um com .dataHora), agrupa por dia, mostra abas
+// e passa itens do dia selecionado pra render.
+// ─────────────────────────────────────────────────────────────
+function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false }) {
+  const dias = itemsPorDia || useMemo(() => {
+    const map = new Map();
+    (itens || []).forEach(it => {
+      const dia = (it.dataHora || '').slice(0, 10);
+      if (!dia) return;
+      if (!map.has(dia)) map.set(dia, []);
+      map.get(dia).push(it);
+    });
+    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [itens]);
+
+  const hoje = _fmtDataLocal(new Date());
+  const idxInicial = dias.findIndex(([d]) => d >= hoje);
+  const [diaIdx, setDiaIdx] = useState(idxInicial >= 0 ? idxInicial : 0);
+
+  if (dias.length === 0) {
+    return (
+      <div style={{ background: 'var(--soft)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+        {emptyText}
+      </div>
+    );
+  }
+
+  const idxAtual = Math.min(Math.max(diaIdx, 0), dias.length - 1);
+  const [diaSel, itensSel] = dias[idxAtual];
+  const atrasadosNoDia = destacaAtrasado
+    ? itensSel.filter(it => new Date(it.dataHora) < new Date()).length
+    : 0;
+
+  return (
+    <div>
+      {/* Abas horizontais de dias */}
+      <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 10, paddingBottom: 3, WebkitOverflowScrolling: 'touch' }}>
+        {dias.map(([d, lista], i) => {
+          const eHoje = d === hoje;
+          const ativa = i === idxAtual;
+          const [ano, mes, dia] = d.split('-');
+          const dow = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'][new Date(d + 'T12:00:00').getDay()];
+          const atrasados = destacaAtrasado ? lista.filter(it => new Date(it.dataHora) < new Date()).length : 0;
+          return (
+            <button
+              key={d}
+              onClick={() => setDiaIdx(i)}
+              style={{
+                flexShrink: 0, minWidth: 54,
+                background: ativa ? 'var(--accent)' : eHoje ? 'var(--accent-soft)' : 'var(--card)',
+                color: ativa ? '#fff' : 'var(--ink)',
+                border: `1px solid ${ativa ? 'var(--accent)' : eHoje ? 'var(--accent)' : 'var(--line)'}`,
+                borderRadius: 10, padding: '6px 8px',
+                display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                cursor: 'pointer', fontFamily: 'var(--sans)', position: 'relative',
+              }}
+            >
+              <div style={{ fontSize: 9, fontWeight: 700, opacity: ativa ? 0.85 : 0.6, letterSpacing: '0.05em' }}>{dow}</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 18, lineHeight: 1, fontWeight: 500 }}>{parseInt(dia)}</div>
+              <div style={{ fontSize: 8, opacity: ativa ? 0.7 : 0.5, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {['jan','fev','mar','abr','mai','jun','jul','ago','set','out','nov','dez'][parseInt(mes) - 1]}
+              </div>
+              <div style={{ fontSize: 9, fontWeight: 700, color: ativa ? '#fff' : 'var(--ink-3)', marginTop: 2, padding: '0 4px', background: ativa ? 'rgba(255,255,255,0.2)' : 'var(--soft)', borderRadius: 4 }}>
+                {lista.length}
+              </div>
+              {atrasados > 0 && !ativa && (
+                <div style={{ position: 'absolute', top: -3, right: -3, width: 12, height: 12, borderRadius: 12, background: '#dc2626', border: '2px solid var(--card)' }} />
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Itens do dia selecionado */}
+      <div>
+        {atrasadosNoDia > 0 && (
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 6 }}>
+            ⚠ {atrasadosNoDia} atrasado{atrasadosNoDia > 1 ? 's' : ''}
+          </div>
+        )}
+        {itensSel
+          .sort((a, b) => (a.dataHora || '').localeCompare(b.dataHora || ''))
+          .map(it => renderItem(it))}
+      </div>
+    </div>
+  );
+}
+
+async function desmarcarMedicacaoFeita({
+  m, frascosAbertos,
+  deleteRegistro, deleteProcedimento,
+  updateEmergMedicacao, updateFrascoAberto,
+}) {
+  if (!m || m.status !== 'feito') return;
+  if (!window.confirm('Desfazer? Isso remove as cobranças (medicamento e descartáveis) da fatura.')) return;
+
+  // Serviço/procedimento
+  if (m.procedimentoId) { try { deleteProcedimento && deleteProcedimento(m.procedimentoId); } catch (e) { console.error(e); } }
+
+  // Descartáveis criados (agulha, seringa, algodão) — sempre remove
+  (m.descartaveisRegistros || []).forEach(d => {
+    try { deleteRegistro && deleteRegistro(d.registroId); } catch (e) { console.error(e); }
+  });
+
+  // Insumo com frasco: 2 cenários
+  if (m.frascoId) {
+    const frasco = frascosAbertos.find(f => f.id === m.frascoId);
+    if (frasco) {
+      if (frasco.registroId && frasco.registroId === m.registroId) {
+        try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
+        try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: 0 }); } catch (e) {}
+      } else {
+        const novoConsumido = Math.max(0, Number(frasco.consumido) - Number(m.doseQtd || 0));
+        try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: novoConsumido }); } catch (e) {}
+      }
+    }
+  } else if (m.registroId) {
+    try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
+  }
+
+  await updateEmergMedicacao(m.id, {
+    status: 'programado', feitoEm: null, feitoPor: '',
+    registroId: null, procedimentoId: null, frascoId: null, descartaveisRegistros: [],
+  });
+}
 
 // ─────────────────────────────────────────────────────────────
 // TELA PRINCIPAL — lista com ativas / encerradas
@@ -141,6 +470,7 @@ export function EmergenciasScreen({
             addProcedimento={addProcedimento}
             addAtividade={addAtividade}
             updateEmergMedicacao={updateEmergMedicacao}
+            addEmergParametro={addEmergParametro}
             frascosAbertos={frascosAbertos}
             addFrascoAberto={addFrascoAberto}
             updateFrascoAberto={updateFrascoAberto}
@@ -503,75 +833,113 @@ function EmergenciaFicha({
         )}
 
         {/* Placeholders das seções que virão */}
-        <SecaoCronogramaIndividual
-          emergencia={emergencia}
-          insumos={insumos}
-          servicos={servicos}
-          medicacoes={emergMedicacoes}
-          agendas={emergAgendas}
-          parametros={emergParametros}
-          currentUser={currentUser}
-          updateEmergMedicacao={updateEmergMedicacao}
-          addRegistro={addRegistro}
-          addProcedimento={addProcedimento}
-          addAtividade={addAtividade}
-          frascosAbertos={frascosAbertos}
-          addFrascoAberto={addFrascoAberto}
-          updateFrascoAberto={updateFrascoAberto}
-          addEmergParametro={addEmergParametro}
-        />
+        {/* Todas as seções em accordions. Cronograma aberto por padrão. */}
+        <SecaoAccordion
+          titulo="Cronograma do animal"
+          icone="clock" cor="#0e7490"
+          contador={emergMedicacoes.filter(m => m.status === 'programado').length}
+          defaultOpen
+        >
+          <SecaoCronogramaIndividual
+            emergencia={emergencia}
+            insumos={insumos}
+            servicos={servicos}
+            medicacoes={emergMedicacoes}
+            agendas={emergAgendas}
+            parametros={emergParametros}
+            currentUser={currentUser}
+            updateEmergMedicacao={updateEmergMedicacao}
+            addRegistro={addRegistro}
+            addProcedimento={addProcedimento}
+            addAtividade={addAtividade}
+            frascosAbertos={frascosAbertos}
+            addFrascoAberto={addFrascoAberto}
+            updateFrascoAberto={updateFrascoAberto}
+            addEmergParametro={addEmergParametro}
+          />
+        </SecaoAccordion>
 
-        <SecaoMedicacoes
-          emergencia={emergencia}
-          currentUser={currentUser}
-          insumos={insumos}
-          servicos={servicos}
-          medicacoes={emergMedicacoes}
-          addEmergMedicacao={addEmergMedicacao}
-          updateEmergMedicacao={updateEmergMedicacao}
-          deleteEmergMedicacao={deleteEmergMedicacao}
-          addRegistro={addRegistro}
-          deleteRegistro={deleteRegistro}
-          addProcedimento={addProcedimento}
-          deleteProcedimento={deleteProcedimento}
-          addAtividade={addAtividade}
-          frascosAbertos={frascosAbertos}
-          addFrascoAberto={addFrascoAberto}
-          updateFrascoAberto={updateFrascoAberto}
-        />
-        <SecaoParametrosSolicitados
-          emergencia={emergencia}
-          agendas={emergAgendas}
-          addEmergAgenda={addEmergAgenda}
-          updateEmergAgenda={updateEmergAgenda}
-          deleteEmergAgenda={deleteEmergAgenda}
-        />
+        <SecaoAccordion
+          titulo="Medicações e insumos"
+          icone="package" cor="#1d4ed8"
+          contador={emergMedicacoes.length}
+        >
+          <SecaoMedicacoes
+            emergencia={emergencia}
+            currentUser={currentUser}
+            insumos={insumos}
+            servicos={servicos}
+            medicacoes={emergMedicacoes}
+            addEmergMedicacao={addEmergMedicacao}
+            updateEmergMedicacao={updateEmergMedicacao}
+            deleteEmergMedicacao={deleteEmergMedicacao}
+            addRegistro={addRegistro}
+            deleteRegistro={deleteRegistro}
+            addProcedimento={addProcedimento}
+            deleteProcedimento={deleteProcedimento}
+            addAtividade={addAtividade}
+            frascosAbertos={frascosAbertos}
+            addFrascoAberto={addFrascoAberto}
+            updateFrascoAberto={updateFrascoAberto}
+          />
+        </SecaoAccordion>
+        <SecaoAccordion
+          titulo="Parâmetros solicitados"
+          icone="bell" cor="#b45309"
+          contador={emergAgendas.filter(a => a.ativo).length}
+        >
+          <SecaoParametrosSolicitados
+            emergencia={emergencia}
+            agendas={emergAgendas}
+            addEmergAgenda={addEmergAgenda}
+            updateEmergAgenda={updateEmergAgenda}
+            deleteEmergAgenda={deleteEmergAgenda}
+          />
+        </SecaoAccordion>
 
-        <SecaoParametrosAferidos
-          emergencia={emergencia}
-          currentUser={currentUser}
-          parametros={emergParametros}
-          addEmergParametro={addEmergParametro}
-          updateEmergParametro={updateEmergParametro}
-          deleteEmergParametro={deleteEmergParametro}
-        />
+        <SecaoAccordion
+          titulo="Parâmetros aferidos"
+          icone="bar-chart" cor="#15803d"
+          contador={emergParametros.length}
+        >
+          <SecaoParametrosAferidos
+            emergencia={emergencia}
+            currentUser={currentUser}
+            parametros={emergParametros}
+            addEmergParametro={addEmergParametro}
+            updateEmergParametro={updateEmergParametro}
+            deleteEmergParametro={deleteEmergParametro}
+          />
+        </SecaoAccordion>
 
-        <SecaoNotasClinicas
-          emergencia={emergencia}
-          currentUser={currentUser}
-          notas={emergNotas}
-          addEmergNota={addEmergNota}
-          updateEmergNota={updateEmergNota}
-          deleteEmergNota={deleteEmergNota}
-        />
+        <SecaoAccordion
+          titulo="Observações clínicas"
+          icone="edit" cor="#7c3aed"
+          contador={emergNotas.length}
+        >
+          <SecaoNotasClinicas
+            emergencia={emergencia}
+            currentUser={currentUser}
+            notas={emergNotas}
+            addEmergNota={addEmergNota}
+            updateEmergNota={updateEmergNota}
+            deleteEmergNota={deleteEmergNota}
+          />
+        </SecaoAccordion>
 
-        <SecaoExames
-          emergencia={emergencia}
-          currentUser={currentUser}
-          exames={emergExames}
-          uploadEmergExame={uploadEmergExame}
-          deleteEmergExame={deleteEmergExame}
-        />
+        <SecaoAccordion
+          titulo="Exames laboratoriais"
+          icone="doc" cor="#0e7490"
+          contador={emergExames.length}
+        >
+          <SecaoExames
+            emergencia={emergencia}
+            currentUser={currentUser}
+            exames={emergExames}
+            uploadEmergExame={uploadEmergExame}
+            deleteEmergExame={deleteEmergExame}
+          />
+        </SecaoAccordion>
 
         {/* Copiar resumo — sempre acima das ações de status */}
         <div style={{ marginTop: 22, marginBottom: 8 }}>
@@ -652,168 +1020,18 @@ function SecaoMedicacoes({
     return { tipo: '?', nome: '—', unidade: '' };
   };
 
-  // ── Fase 5: algoritmo de frasco ao abrir ─────────────────
-  // Regra: procura um frasco ABERTO do mesmo (cavalo, insumo) que ainda esteja
-  // válido (agora <= valido_ate) E com capacidade suficiente. Se achou, apenas
-  // soma a dose ao consumido (custo 0, o frasco já foi cobrado quando aberto).
-  // Se não achou, abre novo frasco: cria um registro cobrando o frasco INTEIRO
-  // (qtd = capacidade × valorVenda cobra na fatura via pipeline padrão).
-  // Caso raro dose > capacidade: abre ceil(dose/capacidade) frascos.
-  const handleMarcarFeitoFrasco = async (m, insumo, doseQtd, hora, usuario) => {
-    const agora = new Date();
-    const agoraIso = agora.toISOString();
-    const capacidade = Number(insumo.capacidadePorFrasco);
-    const validadeDias = Number(insumo.validadeAposAbertaDias) || 5;
+  const handleMarcarFeito = (m) => marcarMedicacaoFeita({
+    m, emergencia, insumos, servicos, frascosAbertos,
+    addRegistro, addProcedimento, addAtividade,
+    updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+    currentUser,
+  });
 
-    // 1) tenta reutilizar um frasco aberto e VÁLIDO
-    const validos = frascosAbertos
-      .filter(f =>
-        f.cavaloId === emergencia.cavaloId &&
-        f.insumoId === m.insumoId &&
-        new Date(f.validoAte) >= agora &&
-        (Number(f.consumido) + doseQtd) <= Number(f.capacidade)
-      )
-      .sort((a, b) => (a.validoAte || '').localeCompare(b.validoAte || '')); // vence antes → usar primeiro
-
-    if (validos.length > 0) {
-      const frasco = validos[0];
-      const novoConsumido = Number(frasco.consumido) + doseQtd;
-      await updateFrascoAberto(frasco.id, { consumido: novoConsumido });
-      // Atividade discreta — sem registro (frasco já cobrado quando aberto)
-      addAtividade && addAtividade({
-        id: 'at_frs_' + Date.now(), tipo: 'insumo', cavaloId: emergencia.cavaloId,
-        insumoId: m.insumoId, qtd: doseQtd,
-        motivo: `Emergência: ${emergencia.titulo} · dose do frasco em uso (não cobra)`,
-        usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
-      });
-      await updateEmergMedicacao(m.id, {
-        status: 'feito', feitoEm: agoraIso, feitoPor: usuario, frascoId: frasco.id,
-      });
-      return;
-    }
-
-    // 2) sem frasco válido — abre novo(s) frasco(s)
-    const frascosNecessarios = Math.max(1, Math.ceil(doseQtd / capacidade));
-    let ultimoFrascoId = null;
-    let doseRestante = doseQtd;
-    for (let i = 0; i < frascosNecessarios; i++) {
-      const consumoNesse = Math.min(doseRestante, capacidade);
-      doseRestante -= consumoNesse;
-      const validoAteMs = agora.getTime() + validadeDias * 86400000;
-      const validoAte = new Date(validoAteMs).toISOString();
-      const rid = 'reg_emg_frs_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4);
-      // Cobra o FRASCO INTEIRO (Opção A): qtd = capacidade × valorVenda por dose
-      addRegistro({
-        id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
-        qtd: capacidade, hora, data: m.data,
-        usuario, isAuto: false,
-      });
-      addAtividade && addAtividade({
-        id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
-        insumoId: m.insumoId, qtd: capacidade,
-        motivo: `Emergência: ${emergencia.titulo} · frasco aberto (válido até ${new Date(validoAte).toLocaleDateString('pt-BR')})`,
-        usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
-      });
-      const novoFrasco = await addFrascoAberto({
-        insumoId: m.insumoId, cavaloId: emergencia.cavaloId, emergenciaId: emergencia.id,
-        abertoEm: agoraIso, validoAte, capacidade,
-        consumido: consumoNesse,
-        valorCobrado: (Number(insumo.valorVenda) || 0) * capacidade,
-        registroId: rid,
-      });
-      if (novoFrasco?.id) ultimoFrascoId = novoFrasco.id;
-    }
-    await updateEmergMedicacao(m.id, {
-      status: 'feito', feitoEm: agoraIso, feitoPor: usuario, frascoId: ultimoFrascoId,
-    });
-  };
-
-  const handleMarcarFeito = async (m) => {
-    if (m.status === 'feito') return;
-    const usuario = currentUser?.nome || '';
-    const hora = new Date().toTimeString().slice(0, 5);
-    if (m.insumoId) {
-      const insumo = insumos.find(i => i.id === m.insumoId);
-      const doseQtd = Number(m.doseQtd) || 1;
-      // ── Fase 5: FRASCO AO ABRIR ─────────────────────────────
-      if (insumo?.formaCobranca === 'frasco_ao_abrir' && insumo?.capacidadePorFrasco > 0) {
-        await handleMarcarFeitoFrasco(m, insumo, doseQtd, hora, usuario);
-        return;
-      }
-      // ── Fluxo padrão (por_uso) ──────────────────────────────
-      const rid = 'reg_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      addRegistro({
-        id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
-        qtd: doseQtd, hora, data: m.data,
-        usuario, isAuto: false,
-      });
-      addAtividade && addAtividade({
-        id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
-        insumoId: m.insumoId, qtd: doseQtd,
-        motivo: `Emergência: ${emergencia.titulo}`, usuario, autor: usuario,
-        mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
-      });
-      await updateEmergMedicacao(m.id, {
-        status: 'feito', feitoEm: new Date().toISOString(), feitoPor: usuario, registroId: rid,
-      });
-    } else if (m.servicoId) {
-      const sv = servicos.find(s => s.id === m.servicoId);
-      const pid = 'proc_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
-      let total = sv?.valor || 0;
-      (sv?.descartaveisObrigatorios || []).forEach(d => {
-        const ins = insumos.find(i => i.id === d.insumoId);
-        total += (ins?.valorVenda || 0) * d.qtd;
-      });
-      addProcedimento({
-        id: pid, cavaloId: emergencia.cavaloId, servicoId: m.servicoId,
-        valorServico: sv?.valor || 0, total,
-        descartaveisObrigatorios: sv?.descartaveisObrigatorios || [],
-        insumosAdicionais: [],
-        motoboy: { ativo: false, valor: 0, nome: '' },
-        laboratorio: '', tubosSelecionados: [], examesSelecionados: [],
-        hora, nota: `Emergência: ${emergencia.titulo}`, data: m.data,
-      });
-      addAtividade && addAtividade({
-        id: 'at_' + pid, tipo: 'procedimento', cavaloId: emergencia.cavaloId,
-        insumoId: null, qtd: null,
-        motivo: `Emergência: ${emergencia.titulo} — ${sv?.nome || ''}`,
-        usuario, autor: usuario, mes: m.data.slice(0, 7),
-        data: m.data, hora, texto: '',
-      });
-      await updateEmergMedicacao(m.id, {
-        status: 'feito', feitoEm: new Date().toISOString(), feitoPor: usuario, procedimentoId: pid,
-      });
-    }
-  };
-
-  const handleDesmarcar = async (m) => {
-    if (m.status !== 'feito') return;
-    if (!window.confirm('Desfazer? Isso remove a cobrança da fatura.')) return;
-    // Serviço/procedimento
-    if (m.procedimentoId) { try { deleteProcedimento && deleteProcedimento(m.procedimentoId); } catch (e) { console.error(e); } }
-    // Insumo com frasco (Fase 5): 2 cenários
-    if (m.frascoId) {
-      const frasco = frascosAbertos.find(f => f.id === m.frascoId);
-      if (frasco) {
-        if (frasco.registroId && frasco.registroId === m.registroId) {
-          // Esta dose foi a que ABRIU o frasco. Remove cobrança e o frasco todo.
-          try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
-          try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: 0 }); } catch (e) { /* ignore */ }
-          // Nota: dbDelete do frasco poderia entrar aqui, mas por segurança deixamos o frasco vazio.
-          // Como não estamos removendo a linha, futuras doses podem reutilizar. Se preferir remover completamente,
-          // adicionar deleteFrascoAberto no futuro.
-        } else {
-          // A dose só CONSUMIU de um frasco existente. Só devolve a quantidade.
-          const novoConsumido = Math.max(0, Number(frasco.consumido) - Number(m.doseQtd || 0));
-          try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: novoConsumido }); } catch (e) { /* ignore */ }
-        }
-      }
-    } else if (m.registroId) {
-      // Fluxo por_uso — desfaz o registro
-      try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
-    }
-    await updateEmergMedicacao(m.id, { status: 'programado', feitoEm: null, feitoPor: '', registroId: null, procedimentoId: null, frascoId: null });
-  };
+  const handleDesmarcar = (m) => desmarcarMedicacaoFeita({
+    m, frascosAbertos,
+    deleteRegistro, deleteProcedimento,
+    updateEmergMedicacao, updateFrascoAberto,
+  });
 
   const handleCancelar = async (m) => {
     if (m.status === 'feito') return;
@@ -847,27 +1065,13 @@ function SecaoMedicacoes({
   };
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      {/* Cabeçalho da seção */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#1d4ed822', display: 'grid', placeItems: 'center' }}>
-            <Icon name="package" size={15} color="#1d4ed8" />
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Medicações e insumos</span>
-          {medicacoes.length > 0 && (
-            <span style={{ background: '#1d4ed818', color: '#1d4ed8', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-              {medicacoes.length}
-            </span>
-          )}
-        </div>
-        {emergAtiva && (
-          <button
-            onClick={() => { setEditando(null); setShowForm(true); }}
-            style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}
-          >+ Nova</button>
-        )}
-      </div>
+    <div>
+      {emergAtiva && !showForm && (
+        <button
+          onClick={() => { setEditando(null); setShowForm(true); }}
+          style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10 }}
+        >+ Nova medicação</button>
+      )}
 
       {/* Form inline */}
       {showForm && (
@@ -1201,6 +1405,20 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
 
 // Expande recorrência em ocorrências separadas (uma linha por ocorrência).
 // Assim é fácil cancelar/editar cada uma sem quebrar a linha do tempo.
+// IMPORTANTE: usa data/hora LOCAL (não UTC) pra não deslocar ocorrências entre
+// dias quando a hora cruza a meia-noite UTC (bug do fuso: dose das 23h local em
+// São Paulo virava data do dia seguinte via toISOString).
+function _fmtDataLocal(d) {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+function _fmtHoraLocal(d) {
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mn = String(d.getMinutes()).padStart(2, '0');
+  return `${hh}:${mn}`;
+}
 function expandirRecorrencia({ recorrencia, data, hora, ...resto }) {
   const rec = recorrencia || { tipo: 'unica' };
   if (rec.tipo === 'unica' || !rec.valor) {
@@ -1216,9 +1434,7 @@ function expandirRecorrencia({ recorrencia, data, hora, ...resto }) {
   let cursor = inicio;
   let safety = 0;
   while (cursor <= ate && safety < 500) {
-    const d = cursor.toISOString().slice(0, 10);
-    const h = cursor.toTimeString().slice(0, 5);
-    out.push({ ...resto, data: d, hora: h, recorrencia: rec });
+    out.push({ ...resto, data: _fmtDataLocal(cursor), hora: _fmtHoraLocal(cursor), recorrencia: rec });
     cursor = new Date(cursor.getTime() + passoMs);
     safety++;
   }
@@ -1253,23 +1469,10 @@ function SecaoParametrosSolicitados({ emergencia, agendas, addEmergAgenda, updat
   const inativas = useMemo(() => agendas.filter(a => !a.ativo), [agendas]);
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#b4530922', display: 'grid', placeItems: 'center' }}>
-            <Icon name="bell" size={15} color="#b45309" />
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Parâmetros solicitados</span>
-          {ativas.length > 0 && (
-            <span style={{ background: '#b4530918', color: '#b45309', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-              {ativas.length}
-            </span>
-          )}
-        </div>
-        {emergAtiva && (
-          <button onClick={() => setShowForm(true)} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Nova</button>
-        )}
-      </div>
+    <div>
+      {emergAtiva && !showForm && (
+        <button onClick={() => setShowForm(true)} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10 }}>+ Nova solicitação</button>
+      )}
 
       {showForm && (
         <AgendaForm
@@ -1418,23 +1621,10 @@ function SecaoParametrosAferidos({ emergencia, currentUser, parametros, addEmerg
   );
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#15803d22', display: 'grid', placeItems: 'center' }}>
-            <Icon name="bar-chart" size={15} color="#15803d" />
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Parâmetros aferidos</span>
-          {timeline.length > 0 && (
-            <span style={{ background: '#15803d18', color: '#15803d', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-              {timeline.length}
-            </span>
-          )}
-        </div>
-        {emergAtiva && (
-          <button onClick={() => { setEditando(null); setShowForm(true); }} style={{ background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Aferir</button>
-        )}
-      </div>
+    <div>
+      {emergAtiva && !showForm && (
+        <button onClick={() => { setEditando(null); setShowForm(true); }} style={{ background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10 }}>+ Aferir</button>
+      )}
 
       {showForm && (
         <ParametroForm
@@ -1625,19 +1815,7 @@ function SecaoNotasClinicas({ emergencia, currentUser, notas, addEmergNota, upda
   const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box', resize: 'vertical' };
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#7c3aed22', display: 'grid', placeItems: 'center' }}>
-          <Icon name="edit" size={15} color="#7c3aed" />
-        </span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Observações clínicas</span>
-        {timeline.length > 0 && (
-          <span style={{ background: '#7c3aed18', color: '#7c3aed', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-            {timeline.length}
-          </span>
-        )}
-      </div>
-
+    <div>
       {emergAtiva && (
         <div style={{ marginBottom: 8 }}>
           <textarea value={novoTexto} onChange={e => setNovoTexto(e.target.value)} rows={2} style={{ ...inputSt, minHeight: 50, marginBottom: 5 }} placeholder="Adicionar observação clínica…" />
@@ -1706,19 +1884,7 @@ function SecaoExames({ emergencia, currentUser, exames, uploadEmergExame, delete
   const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box' };
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
-          <Icon name="doc" size={15} color="#0e7490" />
-        </span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Exames laboratoriais</span>
-        {timeline.length > 0 && (
-          <span style={{ background: '#0e749018', color: '#0e7490', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-            {timeline.length}
-          </span>
-        )}
-      </div>
-
+    <div>
       {emergAtiva && (
         <div style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, marginBottom: 8 }}>
           <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do exame (ex: Hemograma pré)" style={{ ...inputSt, marginBottom: 6 }} />
@@ -1765,63 +1931,41 @@ function SecaoExames({ emergencia, currentUser, exames, uploadEmergExame, delete
 }
 
 // ═════════════════════════════════════════════════════════════
-// FASE 8 — CRONOGRAMA INDIVIDUAL (do animal)
+// FASE 8 — CRONOGRAMA INDIVIDUAL (do animal) — nav horizontal por dia
 // ═════════════════════════════════════════════════════════════
 function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, agendas, parametros, currentUser, updateEmergMedicacao, addRegistro, addProcedimento, addAtividade, frascosAbertos, addFrascoAberto, updateFrascoAberto, addEmergParametro }) {
-  // Só mostra pendências: medicações programadas + próximas ocorrências das agendas
-  const itens = useMemo(() => construirCronograma({ emergencias: [emergencia], medicacoes, agendas, insumos, servicos, parametros }),
-    [emergencia, medicacoes, agendas, insumos, servicos, parametros]);
+  const itens = useMemo(() => construirCronograma({
+    emergencias: [emergencia], medicacoes, agendas, insumos, servicos, parametros,
+  }), [emergencia, medicacoes, agendas, insumos, servicos, parametros]);
 
   const [showParamForm, setShowParamForm] = useState(false);
   const [paramInicialData, setParamInicialData] = useState(null);
 
-  if (itens.length === 0) {
-    return (
-      <div style={{ marginBottom: 12 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
-            <Icon name="clock" size={15} color="#0e7490" />
-          </span>
-          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Cronograma do animal</span>
-        </div>
-        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
-          Nada pendente. Programe medicações ou solicite parâmetros abaixo.
-        </div>
-      </div>
-    );
-  }
-
-  // Agrupa por dia
-  const porDia = new Map();
-  itens.forEach(it => {
-    const dia = it.dataHora.slice(0, 10);
-    if (!porDia.has(dia)) porDia.set(dia, []);
-    porDia.get(dia).push(it);
-  });
-  const dias = [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-
-  const marcarMedicacaoFeita = async (it) => {
-    // Reusa lógica de handleMarcarFeito, mas simplificado (só quando não tem frasco/etc — o botão está apenas pra items simples).
-    // Redirecionamos para a seção de medicações pra evitar duplicação.
-    alert('Marque como feito diretamente na seção "Medicações e insumos" logo abaixo — ali temos o tratamento de frasco ao abrir.');
+  const marcarFeito = async (it) => {
+    if (it.tipoItem === 'parametro') {
+      setParamInicialData({ agendaId: it.agendaId, dataHora: it.dataHora });
+      setShowParamForm(true);
+      return;
+    }
+    if (it.tipoItem === 'medicacao') {
+      // Recupera a medicação real e chama o helper de cobrança
+      const m = medicacoes.find(x => x.id === it.medicacaoId);
+      if (!m) return;
+      await marcarMedicacaoFeita({
+        m, emergencia, insumos, servicos, frascosAbertos,
+        addRegistro, addProcedimento, addAtividade,
+        updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+        currentUser,
+      });
+    }
   };
 
   return (
-    <div style={{ marginBottom: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
-          <Icon name="clock" size={15} color="#0e7490" />
-        </span>
-        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Cronograma do animal</span>
-        <span style={{ background: '#0e749018', color: '#0e7490', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
-          {itens.length}
-        </span>
-      </div>
-
+    <div>
       {showParamForm && (
         <ParametroForm
           initial={paramInicialData}
-          onCancel={() => setShowParamForm(false)}
+          onCancel={() => { setShowParamForm(false); setParamInicialData(null); }}
           onSave={async (data) => {
             await addEmergParametro({ ...data, emergenciaId: emergencia.id, agendaId: paramInicialData?.agendaId });
             setShowParamForm(false); setParamInicialData(null);
@@ -1829,35 +1973,26 @@ function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, 
         />
       )}
 
-      {dias.map(([dia, lista]) => (
-        <div key={dia} style={{ marginBottom: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 4 }}>
-            {fmtDataDiaSemana(dia)}
-          </div>
-          {lista.sort((a, b) => a.dataHora.localeCompare(b.dataHora)).map(it => (
-            <ItemCronograma
-              key={it.id}
-              it={it}
-              atrasado={new Date(it.dataHora) < new Date()}
-              onAcao={() => {
-                if (it.tipoItem === 'parametro') {
-                  setParamInicialData({ agendaId: it.agendaId, dataHora: it.dataHora });
-                  setShowParamForm(true);
-                } else if (it.tipoItem === 'medicacao') {
-                  marcarMedicacaoFeita(it);
-                }
-              }}
-            />
-          ))}
-        </div>
-      ))}
+      <NavegacaoDias
+        itens={itens}
+        destacaAtrasado
+        emptyText="Nada pendente. Programe medicações ou solicite parâmetros abaixo."
+        renderItem={(it) => (
+          <ItemCronograma
+            key={it.id}
+            it={it}
+            atrasado={new Date(it.dataHora) < new Date()}
+            onAcao={() => marcarFeito(it)}
+          />
+        )}
+      />
     </div>
   );
 }
 
-function ItemCronograma({ it, atrasado, onAcao, mostraAnimal }) {
+function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha }) {
   const cor = it.tipoItem === 'medicacao' ? '#1d4ed8' : '#b45309';
-  const [dia, hora] = it.dataHora.split('T');
+  const [, hora] = it.dataHora.split('T');
   const horaFmt = hora ? hora.slice(0, 5) : '';
   return (
     <div style={{
@@ -1875,7 +2010,13 @@ function ItemCronograma({ it, atrasado, onAcao, mostraAnimal }) {
           {atrasado && <span style={{ marginLeft: 6, fontSize: 9, color: '#dc2626', background: '#fee2e2', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.05em' }}>ATRASADO</span>}
         </div>
         {mostraAnimal && it.animalNome && (
-          <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2, fontWeight: 600 }}>🐴 {it.animalNome}</div>
+          onAbrirFicha ? (
+            <button onClick={onAbrirFicha} style={{ background: 'none', border: 'none', color: 'var(--accent)', padding: 0, marginTop: 2, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+              🐴 {it.animalNome}
+            </button>
+          ) : (
+            <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2, fontWeight: 600 }}>🐴 {it.animalNome}</div>
+          )
         )}
         {it.sub && (
           <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{it.sub}</div>
@@ -1891,20 +2032,48 @@ function ItemCronograma({ it, atrasado, onAcao, mostraAnimal }) {
 }
 
 // ═════════════════════════════════════════════════════════════
-// FASE 8 — CRONOGRAMA CENTRAL (todas emergências ativas)
+// FASE 8 — CRONOGRAMA CENTRAL (todas emergências ativas) — nav horizontal por dia
 // ═════════════════════════════════════════════════════════════
-function CronogramaCentral({ emergencias, cavalos, insumos, servicos, emergMedicacoes, emergAgendas, emergParametros, currentUser, onOpenFicha, addRegistro, addProcedimento, addAtividade, updateEmergMedicacao, frascosAbertos, addFrascoAberto, updateFrascoAberto }) {
+function CronogramaCentral({
+  emergencias, cavalos, insumos, servicos, emergMedicacoes, emergAgendas, emergParametros,
+  currentUser, onOpenFicha,
+  addRegistro, addProcedimento, addAtividade, updateEmergMedicacao, addEmergParametro,
+  frascosAbertos, addFrascoAberto, updateFrascoAberto,
+}) {
   const itens = useMemo(() => construirCronograma({
     emergencias, medicacoes: emergMedicacoes, agendas: emergAgendas,
     insumos, servicos, parametros: emergParametros, comAnimal: true, cavalos,
   }), [emergencias, emergMedicacoes, emergAgendas, insumos, servicos, emergParametros, cavalos]);
 
   const [aberto, setAberto] = useState(true);
+  const [showParamForm, setShowParamForm] = useState(false);
+  const [paramInicialData, setParamInicialData] = useState(null);
 
   if (itens.length === 0) return null;
 
   const atrasados = itens.filter(i => new Date(i.dataHora) < new Date());
-  const proximos = itens.filter(i => new Date(i.dataHora) >= new Date());
+
+  const marcarFeito = async (it) => {
+    const emerg = emergencias.find(e => e.id === it.emergenciaId);
+    if (!emerg) return;
+    if (it.tipoItem === 'parametro') {
+      setParamInicialData({
+        emergenciaId: emerg.id, agendaId: it.agendaId, dataHora: it.dataHora,
+      });
+      setShowParamForm(true);
+      return;
+    }
+    if (it.tipoItem === 'medicacao') {
+      const m = emergMedicacoes.find(x => x.id === it.medicacaoId);
+      if (!m) return;
+      await marcarMedicacaoFeita({
+        m, emergencia: emerg, insumos, servicos, frascosAbertos,
+        addRegistro, addProcedimento, addAtividade,
+        updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+        currentUser,
+      });
+    }
+  };
 
   return (
     <div style={{
@@ -1934,22 +2103,37 @@ function CronogramaCentral({ emergencias, cavalos, insumos, servicos, emergMedic
 
       {aberto && (
         <>
-          {atrasados.length > 0 && (
-            <div style={{ marginBottom: 8 }}>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 4 }}>Atrasados</div>
-              {atrasados.slice(0, 12).map(it => (
-                <ItemCronograma key={it.id} it={it} atrasado mostraAnimal onAcao={() => onOpenFicha && onOpenFicha(it.emergenciaId)} />
-              ))}
-            </div>
+          {showParamForm && (
+            <ParametroForm
+              initial={paramInicialData}
+              onCancel={() => { setShowParamForm(false); setParamInicialData(null); }}
+              onSave={async (data) => {
+                if (addEmergParametro && paramInicialData?.emergenciaId) {
+                  await addEmergParametro({
+                    ...data,
+                    emergenciaId: paramInicialData.emergenciaId,
+                    agendaId: paramInicialData.agendaId,
+                  });
+                }
+                setShowParamForm(false); setParamInicialData(null);
+              }}
+            />
           )}
-          {proximos.length > 0 && (
-            <div>
-              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 4 }}>Próximos</div>
-              {proximos.slice(0, 20).map(it => (
-                <ItemCronograma key={it.id} it={it} mostraAnimal onAcao={() => onOpenFicha && onOpenFicha(it.emergenciaId)} />
-              ))}
-            </div>
-          )}
+          <NavegacaoDias
+            itens={itens}
+            destacaAtrasado
+            emptyText="Nada pendente no plantão."
+            renderItem={(it) => (
+              <ItemCronograma
+                key={it.id}
+                it={it}
+                atrasado={new Date(it.dataHora) < new Date()}
+                mostraAnimal
+                onAcao={() => marcarFeito(it)}
+                onAbrirFicha={() => onOpenFicha && onOpenFicha(it.emergenciaId)}
+              />
+            )}
+          />
         </>
       )}
     </div>
@@ -1977,6 +2161,7 @@ function construirCronograma({ emergencias, medicacoes, agendas, insumos = [], s
       itens.push({
         id: `med_${m.id}`,
         emergenciaId: emerg.id,
+        medicacaoId: m.id,
         tipoItem: 'medicacao',
         dataHora,
         label: ins ? `${m.doseQtd || ''} ${ins.unidade || ''} ${ins.nome}`.trim() : (sv ? sv.nome : '—'),
