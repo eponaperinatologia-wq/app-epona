@@ -508,8 +508,9 @@ export function VeterinariaScreen({
   progProgramas, progAplicacoes,
   addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
   updateProgesteronaAplicacao,
+  initialSecao = null,
 }) {
-  const [secao, setSecao] = useState(null);
+  const [secao, setSecao] = useState(initialSecao);
 
   const gestantes = cavalos.filter(c => c.presente && (
     c.categoria === 'Gestante' || (c.categorias || []).includes('Gestante') || c.gestacao?.dataCobricao
@@ -669,7 +670,7 @@ export function VeterinariaScreen({
         progProgramas={progProgramas || []}
         progAplicacoes={progAplicacoes || []}
         updateProgesteronaAplicacao={updateProgesteronaAplicacao}
-        onBack={() => setSecao(null)}
+        onBack={() => initialSecao === 'cronograma' ? setScreen('home') : setSecao(null)}
         onAbrirEmergencia={() => setSecao('emergencias')}
       />
     );

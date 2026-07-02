@@ -675,9 +675,9 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
       {/* Stats */}
       <div style={{ padding: '12px 20px 0', display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
         {[
+          { label: 'Avisos hoje', value: totalAvisos, onClick: () => setScreen('avisos') },
           { label: 'Registros hoje', value: totalHoje, onClick: () => setScreen('historico') },
           { label: 'Cavalos no haras', value: totalCavalos, onClick: () => setScreen('cavalos') },
-          { label: 'Avisos', value: totalAvisos, onClick: () => setScreen('avisos') },
         ].map(s => (
           <button key={s.label} onClick={s.onClick} style={{
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
@@ -687,6 +687,30 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{s.label}</div>
           </button>
         ))}
+      </div>
+
+      {/* Banner: cronograma veterinário */}
+      <div style={{ padding: '12px 20px 0' }}>
+        <button onClick={() => setScreen('cronogramaVet')} style={{
+          width: '100%', border: 'none', cursor: 'pointer',
+          background: 'linear-gradient(90deg, #0f766e 0%, #0d9488 100%)',
+          color: '#fff', borderRadius: 14, padding: '12px 14px',
+          display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+          boxShadow: '0 6px 16px rgba(15,118,110,0.25)',
+          fontFamily: 'var(--sans)',
+        }}>
+          <div style={{
+            width: 36, height: 36, borderRadius: 10, background: 'rgba(255,255,255,0.18)',
+            display: 'grid', placeItems: 'center', flexShrink: 0,
+          }}>
+            <Icon name="clock" size={18} color="#fff" />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 16, lineHeight: 1.15 }}>Acompanhe as tarefas do dia</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Cronograma veterinário</div>
+          </div>
+          <span style={{ fontSize: 18, opacity: 0.85 }}>›</span>
+        </button>
       </div>
 
       {/* CTAs de registro */}
