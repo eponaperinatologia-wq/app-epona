@@ -39,6 +39,8 @@ export function EmergenciasScreen({
   insumos = [], servicos = [],
   // Passados adiante pra cobrança via pipeline existente:
   addRegistro, deleteRegistro, addProcedimento, deleteProcedimento, addAtividade,
+  // Frascos (Fase 5)
+  frascosAbertos = [], addFrascoAberto, updateFrascoAberto,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [fichaId, setFichaId] = useState(null);
@@ -76,11 +78,25 @@ export function EmergenciasScreen({
         addEmergMedicacao={addEmergMedicacao}
         updateEmergMedicacao={updateEmergMedicacao}
         deleteEmergMedicacao={deleteEmergMedicacao}
+        addEmergAgenda={addEmergAgenda}
+        updateEmergAgenda={updateEmergAgenda}
+        deleteEmergAgenda={deleteEmergAgenda}
+        addEmergParametro={addEmergParametro}
+        updateEmergParametro={updateEmergParametro}
+        deleteEmergParametro={deleteEmergParametro}
+        addEmergNota={addEmergNota}
+        updateEmergNota={updateEmergNota}
+        deleteEmergNota={deleteEmergNota}
+        uploadEmergExame={uploadEmergExame}
+        deleteEmergExame={deleteEmergExame}
         addRegistro={addRegistro}
         deleteRegistro={deleteRegistro}
         addProcedimento={addProcedimento}
         deleteProcedimento={deleteProcedimento}
         addAtividade={addAtividade}
+        frascosAbertos={frascosAbertos}
+        addFrascoAberto={addFrascoAberto}
+        updateFrascoAberto={updateFrascoAberto}
         onBack={() => setFichaId(null)}
       />
     );
@@ -106,6 +122,28 @@ export function EmergenciasScreen({
               setShowForm(false);
               if (id) setFichaId(id);
             }}
+          />
+        )}
+
+        {/* Cronograma central — agregação de tudo pendente de emergências ativas */}
+        {!showForm && ativas.length > 0 && (
+          <CronogramaCentral
+            emergencias={ativas}
+            cavalos={cavalos}
+            insumos={insumos}
+            servicos={servicos}
+            emergMedicacoes={emergMedicacoes}
+            emergAgendas={emergAgendas}
+            emergParametros={emergParametros}
+            currentUser={currentUser}
+            onOpenFicha={setFichaId}
+            addRegistro={addRegistro}
+            addProcedimento={addProcedimento}
+            addAtividade={addAtividade}
+            updateEmergMedicacao={updateEmergMedicacao}
+            frascosAbertos={frascosAbertos}
+            addFrascoAberto={addFrascoAberto}
+            updateFrascoAberto={updateFrascoAberto}
           />
         )}
 
@@ -365,7 +403,12 @@ function EmergenciaFicha({
   emergMedicacoes, emergAgendas, emergParametros, emergNotas, emergExames,
   updateEmergencia, encerrarEmergencia, deleteEmergencia,
   addEmergMedicacao, updateEmergMedicacao, deleteEmergMedicacao,
+  addEmergAgenda, updateEmergAgenda, deleteEmergAgenda,
+  addEmergParametro, updateEmergParametro, deleteEmergParametro,
+  addEmergNota, updateEmergNota, deleteEmergNota,
+  uploadEmergExame, deleteEmergExame,
   addRegistro, deleteRegistro, addProcedimento, deleteProcedimento, addAtividade,
+  frascosAbertos = [], addFrascoAberto, updateFrascoAberto,
   onBack,
 }) {
   const cavalo = cavalos.find(c => c.id === emergencia.cavaloId);
@@ -460,7 +503,23 @@ function EmergenciaFicha({
         )}
 
         {/* Placeholders das seções que virão */}
-        <SecaoPendente titulo="Cronograma do animal" icone="clock" cor="#0e7490" nota="Próxima fase (8): agregação das medicações e agendas em um cronograma central + individual." />
+        <SecaoCronogramaIndividual
+          emergencia={emergencia}
+          insumos={insumos}
+          servicos={servicos}
+          medicacoes={emergMedicacoes}
+          agendas={emergAgendas}
+          parametros={emergParametros}
+          currentUser={currentUser}
+          updateEmergMedicacao={updateEmergMedicacao}
+          addRegistro={addRegistro}
+          addProcedimento={addProcedimento}
+          addAtividade={addAtividade}
+          frascosAbertos={frascosAbertos}
+          addFrascoAberto={addFrascoAberto}
+          updateFrascoAberto={updateFrascoAberto}
+          addEmergParametro={addEmergParametro}
+        />
 
         <SecaoMedicacoes
           emergencia={emergencia}
@@ -476,14 +535,61 @@ function EmergenciaFicha({
           addProcedimento={addProcedimento}
           deleteProcedimento={deleteProcedimento}
           addAtividade={addAtividade}
+          frascosAbertos={frascosAbertos}
+          addFrascoAberto={addFrascoAberto}
+          updateFrascoAberto={updateFrascoAberto}
         />
-        <SecaoPendente titulo="Parâmetros solicitados" icone="bell" cor="#b45309" nota="Fase 6 — cria lembretes a cada X horas para as vets aferirem." />
-        <SecaoPendente titulo="Parâmetros aferidos" icone="bar-chart" cor="#15803d" nota="Fase 6 — TPR, mucosas, fezes, urina, atitude, obs. Timeline por data-hora." />
-        <SecaoPendente titulo="Observações clínicas" icone="edit" cor="#7c3aed" nota="Fase 7 — timeline de anotações do caso com autor." />
-        <SecaoPendente titulo="Exames laboratoriais" icone="doc" cor="#0e7490" nota="Fase 7 — upload de PDF/imagem, preview rápido." />
+        <SecaoParametrosSolicitados
+          emergencia={emergencia}
+          agendas={emergAgendas}
+          addEmergAgenda={addEmergAgenda}
+          updateEmergAgenda={updateEmergAgenda}
+          deleteEmergAgenda={deleteEmergAgenda}
+        />
+
+        <SecaoParametrosAferidos
+          emergencia={emergencia}
+          currentUser={currentUser}
+          parametros={emergParametros}
+          addEmergParametro={addEmergParametro}
+          updateEmergParametro={updateEmergParametro}
+          deleteEmergParametro={deleteEmergParametro}
+        />
+
+        <SecaoNotasClinicas
+          emergencia={emergencia}
+          currentUser={currentUser}
+          notas={emergNotas}
+          addEmergNota={addEmergNota}
+          updateEmergNota={updateEmergNota}
+          deleteEmergNota={deleteEmergNota}
+        />
+
+        <SecaoExames
+          emergencia={emergencia}
+          currentUser={currentUser}
+          exames={emergExames}
+          uploadEmergExame={uploadEmergExame}
+          deleteEmergExame={deleteEmergExame}
+        />
+
+        {/* Copiar resumo — sempre acima das ações de status */}
+        <div style={{ marginTop: 22, marginBottom: 8 }}>
+          <BotaoCopiarResumo
+            emergencia={emergencia}
+            cavalo={cavalo}
+            insumos={insumos}
+            servicos={servicos}
+            medicacoes={emergMedicacoes}
+            agendas={emergAgendas}
+            parametros={emergParametros}
+            notas={emergNotas}
+            exames={emergExames}
+          />
+        </div>
 
         {/* Ações de status — sempre no rodapé */}
-        <div style={{ marginTop: 22, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {ativa ? (
             <button
               onClick={handleEncerrar}
@@ -519,6 +625,7 @@ function SecaoMedicacoes({
   emergencia, currentUser, insumos, servicos, medicacoes,
   addEmergMedicacao, updateEmergMedicacao, deleteEmergMedicacao,
   addRegistro, deleteRegistro, addProcedimento, deleteProcedimento, addAtividade,
+  frascosAbertos = [], addFrascoAberto, updateFrascoAberto,
 }) {
   const [showForm, setShowForm] = useState(false);
   const [editando, setEditando] = useState(null); // id da medicação em edição
@@ -545,23 +652,104 @@ function SecaoMedicacoes({
     return { tipo: '?', nome: '—', unidade: '' };
   };
 
+  // ── Fase 5: algoritmo de frasco ao abrir ─────────────────
+  // Regra: procura um frasco ABERTO do mesmo (cavalo, insumo) que ainda esteja
+  // válido (agora <= valido_ate) E com capacidade suficiente. Se achou, apenas
+  // soma a dose ao consumido (custo 0, o frasco já foi cobrado quando aberto).
+  // Se não achou, abre novo frasco: cria um registro cobrando o frasco INTEIRO
+  // (qtd = capacidade × valorVenda cobra na fatura via pipeline padrão).
+  // Caso raro dose > capacidade: abre ceil(dose/capacidade) frascos.
+  const handleMarcarFeitoFrasco = async (m, insumo, doseQtd, hora, usuario) => {
+    const agora = new Date();
+    const agoraIso = agora.toISOString();
+    const capacidade = Number(insumo.capacidadePorFrasco);
+    const validadeDias = Number(insumo.validadeAposAbertaDias) || 5;
+
+    // 1) tenta reutilizar um frasco aberto e VÁLIDO
+    const validos = frascosAbertos
+      .filter(f =>
+        f.cavaloId === emergencia.cavaloId &&
+        f.insumoId === m.insumoId &&
+        new Date(f.validoAte) >= agora &&
+        (Number(f.consumido) + doseQtd) <= Number(f.capacidade)
+      )
+      .sort((a, b) => (a.validoAte || '').localeCompare(b.validoAte || '')); // vence antes → usar primeiro
+
+    if (validos.length > 0) {
+      const frasco = validos[0];
+      const novoConsumido = Number(frasco.consumido) + doseQtd;
+      await updateFrascoAberto(frasco.id, { consumido: novoConsumido });
+      // Atividade discreta — sem registro (frasco já cobrado quando aberto)
+      addAtividade && addAtividade({
+        id: 'at_frs_' + Date.now(), tipo: 'insumo', cavaloId: emergencia.cavaloId,
+        insumoId: m.insumoId, qtd: doseQtd,
+        motivo: `Emergência: ${emergencia.titulo} · dose do frasco em uso (não cobra)`,
+        usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
+      });
+      await updateEmergMedicacao(m.id, {
+        status: 'feito', feitoEm: agoraIso, feitoPor: usuario, frascoId: frasco.id,
+      });
+      return;
+    }
+
+    // 2) sem frasco válido — abre novo(s) frasco(s)
+    const frascosNecessarios = Math.max(1, Math.ceil(doseQtd / capacidade));
+    let ultimoFrascoId = null;
+    let doseRestante = doseQtd;
+    for (let i = 0; i < frascosNecessarios; i++) {
+      const consumoNesse = Math.min(doseRestante, capacidade);
+      doseRestante -= consumoNesse;
+      const validoAteMs = agora.getTime() + validadeDias * 86400000;
+      const validoAte = new Date(validoAteMs).toISOString();
+      const rid = 'reg_emg_frs_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4);
+      // Cobra o FRASCO INTEIRO (Opção A): qtd = capacidade × valorVenda por dose
+      addRegistro({
+        id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
+        qtd: capacidade, hora, data: m.data,
+        usuario, isAuto: false,
+      });
+      addAtividade && addAtividade({
+        id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
+        insumoId: m.insumoId, qtd: capacidade,
+        motivo: `Emergência: ${emergencia.titulo} · frasco aberto (válido até ${new Date(validoAte).toLocaleDateString('pt-BR')})`,
+        usuario, autor: usuario, mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
+      });
+      const novoFrasco = await addFrascoAberto({
+        insumoId: m.insumoId, cavaloId: emergencia.cavaloId, emergenciaId: emergencia.id,
+        abertoEm: agoraIso, validoAte, capacidade,
+        consumido: consumoNesse,
+        valorCobrado: (Number(insumo.valorVenda) || 0) * capacidade,
+        registroId: rid,
+      });
+      if (novoFrasco?.id) ultimoFrascoId = novoFrasco.id;
+    }
+    await updateEmergMedicacao(m.id, {
+      status: 'feito', feitoEm: agoraIso, feitoPor: usuario, frascoId: ultimoFrascoId,
+    });
+  };
+
   const handleMarcarFeito = async (m) => {
     if (m.status === 'feito') return;
     const usuario = currentUser?.nome || '';
     const hora = new Date().toTimeString().slice(0, 5);
     if (m.insumoId) {
       const insumo = insumos.find(i => i.id === m.insumoId);
-      // Fase 5: se formaCobranca === 'frasco_ao_abrir', chamar helper de frasco.
-      // Por ora: cria registro padrão (cobra por_uso).
+      const doseQtd = Number(m.doseQtd) || 1;
+      // ── Fase 5: FRASCO AO ABRIR ─────────────────────────────
+      if (insumo?.formaCobranca === 'frasco_ao_abrir' && insumo?.capacidadePorFrasco > 0) {
+        await handleMarcarFeitoFrasco(m, insumo, doseQtd, hora, usuario);
+        return;
+      }
+      // ── Fluxo padrão (por_uso) ──────────────────────────────
       const rid = 'reg_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
       addRegistro({
         id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
-        qtd: Number(m.doseQtd) || 1, hora, data: m.data,
+        qtd: doseQtd, hora, data: m.data,
         usuario, isAuto: false,
       });
       addAtividade && addAtividade({
         id: 'at_' + rid, tipo: 'insumo', cavaloId: emergencia.cavaloId,
-        insumoId: m.insumoId, qtd: Number(m.doseQtd) || 1,
+        insumoId: m.insumoId, qtd: doseQtd,
         motivo: `Emergência: ${emergencia.titulo}`, usuario, autor: usuario,
         mes: m.data.slice(0, 7), data: m.data, hora, texto: '',
       });
@@ -601,9 +789,30 @@ function SecaoMedicacoes({
   const handleDesmarcar = async (m) => {
     if (m.status !== 'feito') return;
     if (!window.confirm('Desfazer? Isso remove a cobrança da fatura.')) return;
-    if (m.registroId) { try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); } }
+    // Serviço/procedimento
     if (m.procedimentoId) { try { deleteProcedimento && deleteProcedimento(m.procedimentoId); } catch (e) { console.error(e); } }
-    await updateEmergMedicacao(m.id, { status: 'programado', feitoEm: null, feitoPor: '', registroId: null, procedimentoId: null });
+    // Insumo com frasco (Fase 5): 2 cenários
+    if (m.frascoId) {
+      const frasco = frascosAbertos.find(f => f.id === m.frascoId);
+      if (frasco) {
+        if (frasco.registroId && frasco.registroId === m.registroId) {
+          // Esta dose foi a que ABRIU o frasco. Remove cobrança e o frasco todo.
+          try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
+          try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: 0 }); } catch (e) { /* ignore */ }
+          // Nota: dbDelete do frasco poderia entrar aqui, mas por segurança deixamos o frasco vazio.
+          // Como não estamos removendo a linha, futuras doses podem reutilizar. Se preferir remover completamente,
+          // adicionar deleteFrascoAberto no futuro.
+        } else {
+          // A dose só CONSUMIU de um frasco existente. Só devolve a quantidade.
+          const novoConsumido = Math.max(0, Number(frasco.consumido) - Number(m.doseQtd || 0));
+          try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: novoConsumido }); } catch (e) { /* ignore */ }
+        }
+      }
+    } else if (m.registroId) {
+      // Fluxo por_uso — desfaz o registro
+      try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
+    }
+    await updateEmergMedicacao(m.id, { status: 'programado', feitoEm: null, feitoPor: '', registroId: null, procedimentoId: null, frascoId: null });
   };
 
   const handleCancelar = async (m) => {
@@ -1028,6 +1237,904 @@ function fmtDataDiaSemana(dataStr) {
   const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
   const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   return `${dias[d.getDay()]}, ${d.getDate()} ${meses[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 6 — PARÂMETROS SOLICITADOS (agendas de aferição recorrente)
+// ═════════════════════════════════════════════════════════════
+const PARAM_LABELS = { temperatura: 'Temperatura', fc: 'FC', fr: 'FR', mucosas: 'Mucosas', fezes: 'Fezes', urina: 'Urina', atitude: 'Atitude' };
+const PARAM_LIST = Object.keys(PARAM_LABELS);
+
+function SecaoParametrosSolicitados({ emergencia, agendas, addEmergAgenda, updateEmergAgenda, deleteEmergAgenda }) {
+  const [showForm, setShowForm] = useState(false);
+  const emergAtiva = emergencia.status === 'ativa';
+
+  const ativas = useMemo(() => agendas.filter(a => a.ativo), [agendas]);
+  const inativas = useMemo(() => agendas.filter(a => !a.ativo), [agendas]);
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#b4530922', display: 'grid', placeItems: 'center' }}>
+            <Icon name="bell" size={15} color="#b45309" />
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Parâmetros solicitados</span>
+          {ativas.length > 0 && (
+            <span style={{ background: '#b4530918', color: '#b45309', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+              {ativas.length}
+            </span>
+          )}
+        </div>
+        {emergAtiva && (
+          <button onClick={() => setShowForm(true)} style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Nova</button>
+        )}
+      </div>
+
+      {showForm && (
+        <AgendaForm
+          onCancel={() => setShowForm(false)}
+          onSave={async (data) => {
+            await addEmergAgenda({ ...data, emergenciaId: emergencia.id });
+            setShowForm(false);
+          }}
+        />
+      )}
+
+      {!showForm && agendas.length === 0 ? (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+          Nenhuma aferição solicitada. {emergAtiva && 'Toque em "+ Nova" pra criar um lembrete recorrente.'}
+        </div>
+      ) : !showForm && (
+        <>
+          {ativas.map(a => (
+            <AgendaLinha key={a.id} agenda={a} emergAtiva={emergAtiva} onPausar={() => updateEmergAgenda(a.id, { ativo: false })} onExcluir={() => { if (window.confirm('Excluir esta solicitação?')) deleteEmergAgenda(a.id); }} />
+          ))}
+          {inativas.length > 0 && (
+            <div style={{ opacity: 0.6, marginTop: 6 }}>
+              {inativas.map(a => (
+                <AgendaLinha key={a.id} agenda={a} emergAtiva={emergAtiva} inativa onReativar={() => updateEmergAgenda(a.id, { ativo: true })} onExcluir={() => { if (window.confirm('Excluir esta solicitação?')) deleteEmergAgenda(a.id); }} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function AgendaLinha({ agenda, emergAtiva, inativa, onPausar, onReativar, onExcluir }) {
+  const quais = (agenda.quais || []).map(q => PARAM_LABELS[q] || q).join(', ');
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderLeft: `3px solid #b45309`, borderRadius: 8, padding: '8px 10px', marginBottom: 5, display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>A cada {agenda.intervaloHoras}h</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+          {quais || 'todos os parâmetros'}
+        </div>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>
+          {agenda.inicio ? `Desde ${new Date(agenda.inicio).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}` : ''}
+          {agenda.ate ? ` · até ${new Date(agenda.ate).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit' })}` : ''}
+        </div>
+      </div>
+      {emergAtiva && (
+        <div style={{ display: 'flex', gap: 3 }}>
+          {inativa ? (
+            <button onClick={onReativar} title="Reativar" style={btnIco('#1d4ed8')}>↻</button>
+          ) : (
+            <button onClick={onPausar} title="Pausar" style={btnIco('#6b7280')}>⏸</button>
+          )}
+          <button onClick={onExcluir} title="Excluir" style={btnIco('#dc2626')}>×</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgendaForm({ onCancel, onSave, initial }) {
+  const [intervaloHoras, setIntervaloHoras] = useState(initial?.intervaloHoras ? String(initial.intervaloHoras) : '4');
+  const nowIso = new Date().toISOString().slice(0, 16);
+  const [inicio, setInicio] = useState(initial?.inicio ? initial.inicio.slice(0, 16) : nowIso);
+  const [ate, setAte] = useState(initial?.ate ? initial.ate.slice(0, 16) : '');
+  const [quais, setQuais] = useState(new Set(initial?.quais || PARAM_LIST));
+  const [saving, setSaving] = useState(false);
+
+  const toggleParam = (p) => {
+    setQuais(prev => {
+      const n = new Set(prev);
+      if (n.has(p)) n.delete(p); else n.add(p);
+      return n;
+    });
+  };
+  const canSave = Number(intervaloHoras) > 0 && inicio && !saving && quais.size > 0;
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave({
+        intervaloHoras: Number(intervaloHoras),
+        inicio: new Date(inicio).toISOString(),
+        ate: ate ? new Date(ate).toISOString() : null,
+        quais: Array.from(quais),
+        ativo: true,
+      });
+    } finally { setSaving(false); }
+  };
+  const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box' };
+
+  return (
+    <div style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>Nova solicitação de aferição</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr', gap: 8, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 3 }}>A cada (h)</div>
+          <input type="number" min="1" step="1" value={intervaloHoras} onChange={e => setIntervaloHoras(e.target.value)} style={inputSt} />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 3 }}>Início</div>
+          <input type="datetime-local" value={inicio} onChange={e => setInicio(e.target.value)} style={inputSt} />
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 3 }}>Até quando (opcional)</div>
+        <input type="datetime-local" value={ate} onChange={e => setAte(e.target.value)} style={inputSt} />
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 5 }}>Quais parâmetros?</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+          {PARAM_LIST.map(p => {
+            const sel = quais.has(p);
+            return (
+              <button key={p} onClick={() => toggleParam(p)} style={{
+                background: sel ? '#b45309' : 'var(--card)',
+                color: sel ? '#fff' : 'var(--ink)',
+                border: `1px solid ${sel ? '#b45309' : 'var(--line)'}`,
+                borderRadius: 6, padding: '5px 9px', fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>{PARAM_LABELS[p]}</button>
+            );
+          })}
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={onCancel} style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, padding: '9px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{ flex: 2, background: canSave ? '#b45309' : 'var(--soft)', border: 'none', color: canSave ? '#fff' : 'var(--ink-3)', borderRadius: 8, padding: '9px', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: canSave ? 'pointer' : 'default' }}>Criar solicitação</button>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 6 — PARÂMETROS AFERIDOS (registros TPR + timeline)
+// ═════════════════════════════════════════════════════════════
+function SecaoParametrosAferidos({ emergencia, currentUser, parametros, addEmergParametro, updateEmergParametro, deleteEmergParametro }) {
+  const [showForm, setShowForm] = useState(false);
+  const [editando, setEditando] = useState(null);
+  const emergAtiva = emergencia.status === 'ativa';
+
+  // Timeline: mais recente primeiro
+  const timeline = useMemo(
+    () => [...parametros].sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || '')),
+    [parametros]
+  );
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#15803d22', display: 'grid', placeItems: 'center' }}>
+            <Icon name="bar-chart" size={15} color="#15803d" />
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Parâmetros aferidos</span>
+          {timeline.length > 0 && (
+            <span style={{ background: '#15803d18', color: '#15803d', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+              {timeline.length}
+            </span>
+          )}
+        </div>
+        {emergAtiva && (
+          <button onClick={() => { setEditando(null); setShowForm(true); }} style={{ background: '#15803d', color: '#fff', border: 'none', borderRadius: 8, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>+ Aferir</button>
+        )}
+      </div>
+
+      {showForm && (
+        <ParametroForm
+          initial={editando ? timeline.find(p => p.id === editando) : null}
+          onCancel={() => { setShowForm(false); setEditando(null); }}
+          onSave={async (data) => {
+            if (editando) await updateEmergParametro(editando, data);
+            else await addEmergParametro({ ...data, emergenciaId: emergencia.id });
+            setShowForm(false);
+            setEditando(null);
+          }}
+        />
+      )}
+
+      {!showForm && timeline.length === 0 ? (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+          Nenhuma aferição registrada.
+        </div>
+      ) : !showForm && timeline.map(p => (
+        <ParametroLinha
+          key={p.id}
+          p={p}
+          emergAtiva={emergAtiva}
+          onEditar={() => { setEditando(p.id); setShowForm(true); }}
+          onExcluir={() => { if (window.confirm('Excluir esta aferição?')) deleteEmergParametro(p.id); }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function ParametroLinha({ p, emergAtiva, onEditar, onExcluir }) {
+  const partes = [];
+  if (p.temperatura != null) partes.push({ label: 'T', v: `${Number(p.temperatura).toFixed(1)}°C` });
+  if (p.fc != null) partes.push({ label: 'FC', v: `${p.fc} bpm` });
+  if (p.fr != null) partes.push({ label: 'FR', v: `${p.fr} mpm` });
+  if (p.mucosas) partes.push({ label: 'Muc.', v: p.mucosas });
+  if (p.fezes) partes.push({ label: 'Fezes', v: p.fezes });
+  if (p.urina) partes.push({ label: 'Urina', v: p.urina });
+  if (p.atitude) partes.push({ label: 'Ati.', v: p.atitude });
+
+  return (
+    <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderLeft: '3px solid #15803d', borderRadius: 8, padding: '8px 10px', marginBottom: 5 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 8 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)', fontFamily: 'var(--mono, monospace)' }}>
+          {new Date(p.dataHora).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+        </div>
+        {p.autor && <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>{p.autor}</div>}
+        {emergAtiva && (
+          <div style={{ display: 'flex', gap: 3 }}>
+            <button onClick={onEditar} title="Editar" style={btnIco('#374151')}>✎</button>
+            <button onClick={onExcluir} title="Excluir" style={btnIco('#dc2626')}>×</button>
+          </div>
+        )}
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
+        {partes.map((x, i) => (
+          <span key={i} style={{ background: '#15803d15', color: '#15803d', borderRadius: 5, padding: '2px 7px', fontSize: 11, fontWeight: 600 }}>
+            {x.label} <b>{x.v}</b>
+          </span>
+        ))}
+      </div>
+      {p.obs && (
+        <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 5, lineHeight: 1.4, fontStyle: 'italic' }}>
+          {p.obs}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ParametroForm({ initial, onCancel, onSave }) {
+  const nowLocal = new Date();
+  const isoLocal = new Date(nowLocal.getTime() - nowLocal.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  const [dataHora, setDataHora] = useState(initial?.dataHora ? initial.dataHora.slice(0, 16) : isoLocal);
+  const [temperatura, setTemperatura] = useState(initial?.temperatura != null ? String(initial.temperatura) : '');
+  const [fc, setFc] = useState(initial?.fc != null ? String(initial.fc) : '');
+  const [fr, setFr] = useState(initial?.fr != null ? String(initial.fr) : '');
+  const [mucosas, setMucosas] = useState(initial?.mucosas || '');
+  const [fezes, setFezes] = useState(initial?.fezes || '');
+  const [urina, setUrina] = useState(initial?.urina || '');
+  const [atitude, setAtitude] = useState(initial?.atitude || '');
+  const [obs, setObs] = useState(initial?.obs || '');
+  const [saving, setSaving] = useState(false);
+
+  const canSave = dataHora && !saving;
+
+  const handleSave = async () => {
+    if (!canSave) return;
+    setSaving(true);
+    try {
+      await onSave({
+        dataHora: new Date(dataHora).toISOString(),
+        temperatura: temperatura === '' ? null : Number(temperatura),
+        fc: fc === '' ? null : Number(fc),
+        fr: fr === '' ? null : Number(fr),
+        mucosas: mucosas.trim(), fezes: fezes.trim(), urina: urina.trim(), atitude: atitude.trim(),
+        obs: obs.trim(),
+      });
+    } finally { setSaving(false); }
+  };
+  const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box' };
+
+  return (
+    <div style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10 }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 8 }}>{initial ? 'Editar aferição' : 'Nova aferição'}</div>
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', marginBottom: 3 }}>Data / hora</div>
+        <input type="datetime-local" value={dataHora} onChange={e => setDataHora(e.target.value)} style={inputSt} />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Temp (°C)</div>
+          <input type="number" step="0.1" value={temperatura} onChange={e => setTemperatura(e.target.value)} style={inputSt} placeholder="37,5" />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>FC (bpm)</div>
+          <input type="number" step="1" value={fc} onChange={e => setFc(e.target.value)} style={inputSt} placeholder="40" />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>FR (mpm)</div>
+          <input type="number" step="1" value={fr} onChange={e => setFr(e.target.value)} style={inputSt} placeholder="16" />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Mucosas</div>
+          <input value={mucosas} onChange={e => setMucosas(e.target.value)} style={inputSt} placeholder="róseas úmidas" />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Atitude</div>
+          <input value={atitude} onChange={e => setAtitude(e.target.value)} style={inputSt} placeholder="alerta / apática" />
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 8 }}>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Fezes</div>
+          <input value={fezes} onChange={e => setFezes(e.target.value)} style={inputSt} placeholder="normais / diarreia" />
+        </div>
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Urina</div>
+          <input value={urina} onChange={e => setUrina(e.target.value)} style={inputSt} placeholder="clara / concentrada" />
+        </div>
+      </div>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 3 }}>Observações</div>
+        <textarea value={obs} onChange={e => setObs(e.target.value)} rows={2} style={{ ...inputSt, resize: 'vertical', minHeight: 50, fontFamily: 'var(--sans)' }} placeholder="Detalhes adicionais…" />
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <button onClick={onCancel} style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 8, padding: '9px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{ flex: 2, background: canSave ? '#15803d' : 'var(--soft)', border: 'none', color: canSave ? '#fff' : 'var(--ink-3)', borderRadius: 8, padding: '9px', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: canSave ? 'pointer' : 'default' }}>Salvar aferição</button>
+      </div>
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 7 — NOTAS CLÍNICAS (timeline com autor)
+// ═════════════════════════════════════════════════════════════
+function SecaoNotasClinicas({ emergencia, currentUser, notas, addEmergNota, updateEmergNota, deleteEmergNota }) {
+  const [novoTexto, setNovoTexto] = useState('');
+  const [editando, setEditando] = useState(null);
+  const [textoEd, setTextoEd] = useState('');
+  const [saving, setSaving] = useState(false);
+  const emergAtiva = emergencia.status === 'ativa';
+
+  const timeline = useMemo(
+    () => [...notas].sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || '')),
+    [notas]
+  );
+
+  const handleAdicionar = async () => {
+    if (!novoTexto.trim() || saving) return;
+    setSaving(true);
+    try {
+      await addEmergNota({ emergenciaId: emergencia.id, dataHora: new Date().toISOString(), texto: novoTexto.trim() });
+      setNovoTexto('');
+    } finally { setSaving(false); }
+  };
+
+  const salvarEdicao = async (id) => {
+    if (!textoEd.trim()) return;
+    await updateEmergNota(id, { texto: textoEd.trim() });
+    setEditando(null);
+    setTextoEd('');
+  };
+
+  const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box', resize: 'vertical' };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#7c3aed22', display: 'grid', placeItems: 'center' }}>
+          <Icon name="edit" size={15} color="#7c3aed" />
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Observações clínicas</span>
+        {timeline.length > 0 && (
+          <span style={{ background: '#7c3aed18', color: '#7c3aed', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+            {timeline.length}
+          </span>
+        )}
+      </div>
+
+      {emergAtiva && (
+        <div style={{ marginBottom: 8 }}>
+          <textarea value={novoTexto} onChange={e => setNovoTexto(e.target.value)} rows={2} style={{ ...inputSt, minHeight: 50, marginBottom: 5 }} placeholder="Adicionar observação clínica…" />
+          <button onClick={handleAdicionar} disabled={!novoTexto.trim() || saving} style={{ background: novoTexto.trim() ? '#7c3aed' : 'var(--soft)', border: 'none', color: novoTexto.trim() ? '#fff' : 'var(--ink-3)', borderRadius: 8, padding: '7px 14px', fontSize: 12, fontWeight: 700, fontFamily: 'var(--sans)', cursor: novoTexto.trim() ? 'pointer' : 'default' }}>+ Adicionar</button>
+        </div>
+      )}
+
+      {timeline.length === 0 ? (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+          Sem observações registradas.
+        </div>
+      ) : timeline.map(n => (
+        <div key={n.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderLeft: '3px solid #7c3aed', borderRadius: 8, padding: '9px 12px', marginBottom: 6 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, gap: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-2)' }}>
+              {new Date(n.dataHora).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+              {n.autor && <span style={{ fontWeight: 400, color: 'var(--ink-3)', marginLeft: 6 }}>· {n.autor}</span>}
+            </div>
+            {emergAtiva && editando !== n.id && (
+              <div style={{ display: 'flex', gap: 3 }}>
+                <button onClick={() => { setEditando(n.id); setTextoEd(n.texto); }} title="Editar" style={btnIco('#374151')}>✎</button>
+                <button onClick={() => { if (window.confirm('Excluir esta observação?')) deleteEmergNota(n.id); }} title="Excluir" style={btnIco('#dc2626')}>×</button>
+              </div>
+            )}
+          </div>
+          {editando === n.id ? (
+            <>
+              <textarea value={textoEd} onChange={e => setTextoEd(e.target.value)} rows={2} style={{ ...inputSt, minHeight: 50, marginBottom: 5 }} />
+              <div style={{ display: 'flex', gap: 5 }}>
+                <button onClick={() => { setEditando(null); setTextoEd(''); }} style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink)', borderRadius: 7, padding: '6px', fontSize: 12, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+                <button onClick={() => salvarEdicao(n.id)} style={{ flex: 1, background: '#7c3aed', border: 'none', color: '#fff', borderRadius: 7, padding: '6px', fontSize: 12, fontWeight: 700, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Salvar</button>
+              </div>
+            </>
+          ) : (
+            <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{n.texto}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 7 — EXAMES LABORATORIAIS (upload + preview)
+// ═════════════════════════════════════════════════════════════
+function SecaoExames({ emergencia, currentUser, exames, uploadEmergExame, deleteEmergExame }) {
+  const [nome, setNome] = useState('');
+  const [file, setFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const emergAtiva = emergencia.status === 'ativa';
+
+  const timeline = useMemo(
+    () => [...exames].sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || '')),
+    [exames]
+  );
+
+  const handleUpload = async () => {
+    if (!nome.trim() || !file || uploading) return;
+    setUploading(true);
+    try {
+      await uploadEmergExame({ emergenciaId: emergencia.id, nome: nome.trim() }, file);
+      setNome(''); setFile(null);
+    } finally { setUploading(false); }
+  };
+
+  const inputSt = { width: '100%', padding: '8px 10px', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--card)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box' };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
+          <Icon name="doc" size={15} color="#0e7490" />
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Exames laboratoriais</span>
+        {timeline.length > 0 && (
+          <span style={{ background: '#0e749018', color: '#0e7490', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+            {timeline.length}
+          </span>
+        )}
+      </div>
+
+      {emergAtiva && (
+        <div style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+          <input value={nome} onChange={e => setNome(e.target.value)} placeholder="Nome do exame (ex: Hemograma pré)" style={{ ...inputSt, marginBottom: 6 }} />
+          <input type="file" accept="image/*,application/pdf" onChange={e => setFile(e.target.files?.[0] || null)} style={{ ...inputSt, padding: 6, marginBottom: 6 }} />
+          <button
+            onClick={handleUpload}
+            disabled={!nome.trim() || !file || uploading}
+            style={{ background: (nome.trim() && file && !uploading) ? '#0e7490' : 'var(--soft)', border: 'none', color: (nome.trim() && file && !uploading) ? '#fff' : 'var(--ink-3)', borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 700, fontFamily: 'var(--sans)', cursor: (nome.trim() && file && !uploading) ? 'pointer' : 'default', width: '100%' }}
+          >{uploading ? 'Enviando…' : '↑ Enviar exame'}</button>
+        </div>
+      )}
+
+      {timeline.length === 0 ? (
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+          Nenhum exame enviado.
+        </div>
+      ) : timeline.map(e => {
+        const isImg = e.arquivoTipo?.startsWith('image/');
+        return (
+          <div key={e.id} style={{ background: 'var(--card)', border: '1px solid var(--line)', borderLeft: '3px solid #0e7490', borderRadius: 8, padding: '8px 10px', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 10 }}>
+            {isImg && e.arquivoUrl ? (
+              <img src={e.arquivoUrl} alt={e.nome} onClick={() => window.open(e.arquivoUrl, '_blank')} style={{ width: 48, height: 48, objectFit: 'cover', borderRadius: 6, cursor: 'pointer', flexShrink: 0 }} />
+            ) : (
+              <div onClick={() => e.arquivoUrl && window.open(e.arquivoUrl, '_blank')} style={{ width: 48, height: 48, borderRadius: 6, background: '#0e749018', display: 'grid', placeItems: 'center', cursor: e.arquivoUrl ? 'pointer' : 'default', flexShrink: 0, color: '#0e7490', fontWeight: 700, fontSize: 10 }}>PDF</div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>{e.nome}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>
+                {new Date(e.dataHora).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                {e.autor && ` · ${e.autor}`}
+              </div>
+              {e.arquivoUrl && (
+                <a href={e.arquivoUrl} target="_blank" rel="noreferrer" style={{ fontSize: 10, color: '#0e7490', textDecoration: 'underline' }}>abrir</a>
+              )}
+            </div>
+            {emergAtiva && (
+              <button onClick={() => { if (window.confirm('Excluir este exame?')) deleteEmergExame(e.id); }} title="Excluir" style={btnIco('#dc2626')}>×</button>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 8 — CRONOGRAMA INDIVIDUAL (do animal)
+// ═════════════════════════════════════════════════════════════
+function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, agendas, parametros, currentUser, updateEmergMedicacao, addRegistro, addProcedimento, addAtividade, frascosAbertos, addFrascoAberto, updateFrascoAberto, addEmergParametro }) {
+  // Só mostra pendências: medicações programadas + próximas ocorrências das agendas
+  const itens = useMemo(() => construirCronograma({ emergencias: [emergencia], medicacoes, agendas, insumos, servicos, parametros }),
+    [emergencia, medicacoes, agendas, insumos, servicos, parametros]);
+
+  const [showParamForm, setShowParamForm] = useState(false);
+  const [paramInicialData, setParamInicialData] = useState(null);
+
+  if (itens.length === 0) {
+    return (
+      <div style={{ marginBottom: 12 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
+            <Icon name="clock" size={15} color="#0e7490" />
+          </span>
+          <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Cronograma do animal</span>
+        </div>
+        <div style={{ background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 10, padding: '12px 16px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 12 }}>
+          Nada pendente. Programe medicações ou solicite parâmetros abaixo.
+        </div>
+      </div>
+    );
+  }
+
+  // Agrupa por dia
+  const porDia = new Map();
+  itens.forEach(it => {
+    const dia = it.dataHora.slice(0, 10);
+    if (!porDia.has(dia)) porDia.set(dia, []);
+    porDia.get(dia).push(it);
+  });
+  const dias = [...porDia.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+
+  const marcarMedicacaoFeita = async (it) => {
+    // Reusa lógica de handleMarcarFeito, mas simplificado (só quando não tem frasco/etc — o botão está apenas pra items simples).
+    // Redirecionamos para a seção de medicações pra evitar duplicação.
+    alert('Marque como feito diretamente na seção "Medicações e insumos" logo abaixo — ali temos o tratamento de frasco ao abrir.');
+  };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+        <span style={{ width: 28, height: 28, borderRadius: 8, background: '#0e749022', display: 'grid', placeItems: 'center' }}>
+          <Icon name="clock" size={15} color="#0e7490" />
+        </span>
+        <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)' }}>Cronograma do animal</span>
+        <span style={{ background: '#0e749018', color: '#0e7490', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+          {itens.length}
+        </span>
+      </div>
+
+      {showParamForm && (
+        <ParametroForm
+          initial={paramInicialData}
+          onCancel={() => setShowParamForm(false)}
+          onSave={async (data) => {
+            await addEmergParametro({ ...data, emergenciaId: emergencia.id, agendaId: paramInicialData?.agendaId });
+            setShowParamForm(false); setParamInicialData(null);
+          }}
+        />
+      )}
+
+      {dias.map(([dia, lista]) => (
+        <div key={dia} style={{ marginBottom: 8 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--ink-3)', marginBottom: 4 }}>
+            {fmtDataDiaSemana(dia)}
+          </div>
+          {lista.sort((a, b) => a.dataHora.localeCompare(b.dataHora)).map(it => (
+            <ItemCronograma
+              key={it.id}
+              it={it}
+              atrasado={new Date(it.dataHora) < new Date()}
+              onAcao={() => {
+                if (it.tipoItem === 'parametro') {
+                  setParamInicialData({ agendaId: it.agendaId, dataHora: it.dataHora });
+                  setShowParamForm(true);
+                } else if (it.tipoItem === 'medicacao') {
+                  marcarMedicacaoFeita(it);
+                }
+              }}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ItemCronograma({ it, atrasado, onAcao, mostraAnimal }) {
+  const cor = it.tipoItem === 'medicacao' ? '#1d4ed8' : '#b45309';
+  const [dia, hora] = it.dataHora.split('T');
+  const horaFmt = hora ? hora.slice(0, 5) : '';
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)',
+      borderLeft: `3px solid ${atrasado ? '#dc2626' : cor}`,
+      borderRadius: 8, padding: '8px 10px', marginBottom: 5,
+      display: 'flex', alignItems: 'center', gap: 10,
+    }}>
+      <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 12, color: atrasado ? '#dc2626' : 'var(--ink-2)', fontWeight: 700, minWidth: 42 }}>
+        {horaFmt}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, color: 'var(--ink)' }}>
+          {it.label}
+          {atrasado && <span style={{ marginLeft: 6, fontSize: 9, color: '#dc2626', background: '#fee2e2', borderRadius: 4, padding: '1px 5px', fontWeight: 700, letterSpacing: '0.05em' }}>ATRASADO</span>}
+        </div>
+        {mostraAnimal && it.animalNome && (
+          <div style={{ fontSize: 11, color: 'var(--accent)', marginTop: 2, fontWeight: 600 }}>🐴 {it.animalNome}</div>
+        )}
+        {it.sub && (
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{it.sub}</div>
+        )}
+      </div>
+      {onAcao && (
+        <button onClick={onAcao} title={it.tipoItem === 'parametro' ? 'Registrar aferição' : 'Marcar feito'} style={btnIco(atrasado ? '#dc2626' : '#15803d')}>
+          ✓
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 8 — CRONOGRAMA CENTRAL (todas emergências ativas)
+// ═════════════════════════════════════════════════════════════
+function CronogramaCentral({ emergencias, cavalos, insumos, servicos, emergMedicacoes, emergAgendas, emergParametros, currentUser, onOpenFicha, addRegistro, addProcedimento, addAtividade, updateEmergMedicacao, frascosAbertos, addFrascoAberto, updateFrascoAberto }) {
+  const itens = useMemo(() => construirCronograma({
+    emergencias, medicacoes: emergMedicacoes, agendas: emergAgendas,
+    insumos, servicos, parametros: emergParametros, comAnimal: true, cavalos,
+  }), [emergencias, emergMedicacoes, emergAgendas, insumos, servicos, emergParametros, cavalos]);
+
+  const [aberto, setAberto] = useState(true);
+
+  if (itens.length === 0) return null;
+
+  const atrasados = itens.filter(i => new Date(i.dataHora) < new Date());
+  const proximos = itens.filter(i => new Date(i.dataHora) >= new Date());
+
+  return (
+    <div style={{
+      background: 'linear-gradient(180deg, #fef2f2, #fff)',
+      border: '1px solid #fecaca', borderRadius: 14, padding: 12, marginBottom: 18,
+    }}>
+      <button
+        onClick={() => setAberto(v => !v)}
+        style={{ width: '100%', background: 'none', border: 'none', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: 0, marginBottom: aberto ? 10 : 0 }}
+      >
+        <span style={{ width: 30, height: 30, borderRadius: 8, background: '#dc262620', display: 'grid', placeItems: 'center' }}>
+          <Icon name="clock" size={16} color="#dc2626" />
+        </span>
+        <span style={{ flex: 1, textAlign: 'left', fontSize: 14, fontWeight: 700, color: '#991b1b' }}>
+          Cronograma do plantão
+        </span>
+        <span style={{ background: '#dc2626', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+          {itens.length}
+        </span>
+        {atrasados.length > 0 && (
+          <span style={{ background: '#7f1d1d', color: '#fff', borderRadius: 10, padding: '1px 8px', fontSize: 10, fontWeight: 700 }}>
+            {atrasados.length} atrasado{atrasados.length > 1 ? 's' : ''}
+          </span>
+        )}
+        <span style={{ fontSize: 12, color: '#dc2626', transform: aberto ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
+      </button>
+
+      {aberto && (
+        <>
+          {atrasados.length > 0 && (
+            <div style={{ marginBottom: 8 }}>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 4 }}>Atrasados</div>
+              {atrasados.slice(0, 12).map(it => (
+                <ItemCronograma key={it.id} it={it} atrasado mostraAnimal onAcao={() => onOpenFicha && onOpenFicha(it.emergenciaId)} />
+              ))}
+            </div>
+          )}
+          {proximos.length > 0 && (
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 4 }}>Próximos</div>
+              {proximos.slice(0, 20).map(it => (
+                <ItemCronograma key={it.id} it={it} mostraAnimal onAcao={() => onOpenFicha && onOpenFicha(it.emergenciaId)} />
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════
+// AGREGAÇÃO: constrói o cronograma (medicações programadas + próximas ocorrências das agendas)
+// ═════════════════════════════════════════════════════════════
+function construirCronograma({ emergencias, medicacoes, agendas, insumos = [], servicos = [], parametros = [], comAnimal = false, cavalos = [] }) {
+  const itens = [];
+  const agora = new Date();
+  const limiteFuturo = new Date(agora.getTime() + 3 * 24 * 60 * 60 * 1000); // 3 dias adiante
+
+  emergencias.forEach(emerg => {
+    if (emerg.status !== 'ativa') return;
+    const animalNome = comAnimal ? (cavalos.find(c => c.id === emerg.cavaloId)?.nome || '') : '';
+
+    // Medicações programadas
+    medicacoes.filter(m => m.emergenciaId === emerg.id && m.status === 'programado').forEach(m => {
+      const dataHora = m.hora ? `${m.data}T${m.hora}:00` : `${m.data}T09:00:00`;
+      if (new Date(dataHora) > limiteFuturo) return;
+      const ins = m.insumoId ? insumos.find(i => i.id === m.insumoId) : null;
+      const sv = m.servicoId ? servicos.find(s => s.id === m.servicoId) : null;
+      itens.push({
+        id: `med_${m.id}`,
+        emergenciaId: emerg.id,
+        tipoItem: 'medicacao',
+        dataHora,
+        label: ins ? `${m.doseQtd || ''} ${ins.unidade || ''} ${ins.nome}`.trim() : (sv ? sv.nome : '—'),
+        sub: null,
+        animalNome,
+      });
+    });
+
+    // Próximas ocorrências das agendas ativas
+    agendas.filter(a => a.emergenciaId === emerg.id && a.ativo).forEach(a => {
+      const inicio = new Date(a.inicio);
+      const ate = a.ate ? new Date(a.ate) : new Date(agora.getTime() + 7 * 86400000);
+      const intervaloMs = (Number(a.intervaloHoras) || 4) * 3600 * 1000;
+      if (intervaloMs <= 0) return;
+      // Descobre próxima ocorrência não aferida
+      let cursor = new Date(inicio);
+      let safety = 0;
+      while (cursor <= ate && cursor <= limiteFuturo && safety < 200) {
+        // já foi aferido nas proximidades? consideramos "já aferido" se existe um parametro nesta agenda dentro de ±30min
+        const janela = 30 * 60 * 1000;
+        const jaAferido = parametros.some(p =>
+          p.emergenciaId === emerg.id && p.agendaId === a.id &&
+          Math.abs(new Date(p.dataHora).getTime() - cursor.getTime()) < janela
+        );
+        if (!jaAferido) {
+          itens.push({
+            id: `age_${a.id}_${cursor.getTime()}`,
+            emergenciaId: emerg.id,
+            agendaId: a.id,
+            tipoItem: 'parametro',
+            dataHora: cursor.toISOString(),
+            label: `Aferir ${(a.quais || []).map(q => PARAM_LABELS[q] || q).join(', ') || 'parâmetros'}`,
+            sub: `A cada ${a.intervaloHoras}h`,
+            animalNome,
+          });
+        }
+        cursor = new Date(cursor.getTime() + intervaloMs);
+        safety++;
+      }
+    });
+  });
+
+  return itens.sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+}
+
+// ═════════════════════════════════════════════════════════════
+// FASE 9 — COPIAR RESUMO EM TEXTO
+// ═════════════════════════════════════════════════════════════
+function BotaoCopiarResumo({ emergencia, cavalo, insumos, servicos, medicacoes, agendas, parametros, notas, exames }) {
+  const [copiado, setCopiado] = useState(false);
+
+  const gerarResumo = () => {
+    const linhas = [];
+    linhas.push(`⚠️ EMERGÊNCIA — ${cavalo?.nome || '—'}`);
+    linhas.push(`Título: ${emergencia.titulo}`);
+    linhas.push(`Status: ${emergencia.status.toUpperCase()}`);
+    linhas.push(`Aberta em ${fmtDataHora(emergencia.abertaEm)}${emergencia.autorAbertura ? ' por ' + emergencia.autorAbertura : ''}`);
+    if (emergencia.encerradaEm) linhas.push(`Encerrada em ${fmtDataHora(emergencia.encerradaEm)}`);
+    if (emergencia.observacaoUrgente) linhas.push(`\n⚠️ ${emergencia.observacaoUrgente}`);
+    if (emergencia.motivo) linhas.push(`\nMotivo/história:\n${emergencia.motivo}`);
+
+    // Medicações últimas 10 feitas
+    const feitas = medicacoes.filter(m => m.status === 'feito').sort((a, b) => (b.feitoEm || '').localeCompare(a.feitoEm || '')).slice(0, 10);
+    if (feitas.length > 0) {
+      linhas.push('\n💊 MEDICAÇÕES / INSUMOS (últimas 10):');
+      feitas.forEach(m => {
+        const ins = m.insumoId ? insumos.find(i => i.id === m.insumoId) : null;
+        const sv = m.servicoId ? servicos.find(s => s.id === m.servicoId) : null;
+        const nome = ins?.nome || sv?.nome || '—';
+        const dose = ins ? `${m.doseQtd || ''} ${ins.unidade || ''}` : '';
+        linhas.push(`· ${m.data} ${m.hora} — ${nome} ${dose}`.trim());
+      });
+    }
+
+    const programadas = medicacoes.filter(m => m.status === 'programado').sort((a, b) => (a.data + a.hora).localeCompare(b.data + b.hora)).slice(0, 10);
+    if (programadas.length > 0) {
+      linhas.push('\n📅 PROGRAMADAS (próximas 10):');
+      programadas.forEach(m => {
+        const ins = m.insumoId ? insumos.find(i => i.id === m.insumoId) : null;
+        const sv = m.servicoId ? servicos.find(s => s.id === m.servicoId) : null;
+        const nome = ins?.nome || sv?.nome || '—';
+        const dose = ins ? `${m.doseQtd || ''} ${ins.unidade || ''}` : '';
+        linhas.push(`· ${m.data} ${m.hora} — ${nome} ${dose}`.trim());
+      });
+    }
+
+    const agendasAtivas = agendas.filter(a => a.ativo);
+    if (agendasAtivas.length > 0) {
+      linhas.push('\n🔔 PARÂMETROS SOLICITADOS:');
+      agendasAtivas.forEach(a => {
+        const quais = (a.quais || []).map(q => PARAM_LABELS[q] || q).join(', ') || 'todos';
+        linhas.push(`· A cada ${a.intervaloHoras}h — ${quais}`);
+      });
+    }
+
+    const ultimosParam = [...parametros].sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || '')).slice(0, 5);
+    if (ultimosParam.length > 0) {
+      linhas.push('\n📊 ÚLTIMAS 5 AFERIÇÕES:');
+      ultimosParam.forEach(p => {
+        const d = new Date(p.dataHora).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        const partes = [];
+        if (p.temperatura != null) partes.push(`T ${p.temperatura}°C`);
+        if (p.fc != null) partes.push(`FC ${p.fc}`);
+        if (p.fr != null) partes.push(`FR ${p.fr}`);
+        if (p.mucosas) partes.push(`Muc: ${p.mucosas}`);
+        if (p.fezes) partes.push(`Fezes: ${p.fezes}`);
+        if (p.urina) partes.push(`Urina: ${p.urina}`);
+        if (p.atitude) partes.push(`Ati: ${p.atitude}`);
+        linhas.push(`· ${d} — ${partes.join(' · ')}${p.obs ? ` (${p.obs})` : ''}`);
+      });
+    }
+
+    const ultimasNotas = [...notas].sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || '')).slice(0, 5);
+    if (ultimasNotas.length > 0) {
+      linhas.push('\n📝 ÚLTIMAS 5 OBSERVAÇÕES:');
+      ultimasNotas.forEach(n => {
+        const d = new Date(n.dataHora).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+        linhas.push(`· ${d}${n.autor ? ` (${n.autor})` : ''}: ${n.texto}`);
+      });
+    }
+
+    if (exames.length > 0) {
+      linhas.push('\n📄 EXAMES ANEXADOS:');
+      exames.forEach(e => {
+        const d = new Date(e.dataHora).toLocaleDateString('pt-BR');
+        linhas.push(`· ${d} — ${e.nome}${e.arquivoUrl ? ` (${e.arquivoUrl})` : ''}`);
+      });
+    }
+
+    return linhas.join('\n');
+  };
+
+  const handleCopiar = async () => {
+    const texto = gerarResumo();
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch (err) {
+      // Fallback: abre uma janela de alerta pra o usuário copiar manualmente
+      window.prompt('Copie o resumo abaixo:', texto);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleCopiar}
+      style={{
+        width: '100%', background: 'var(--card)', color: 'var(--ink)',
+        border: '1px solid var(--line)', borderRadius: 12,
+        padding: '11px', fontSize: 13, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      }}
+    >
+      {copiado ? '✓ Copiado!' : '📋 Copiar resumo em texto'}
+    </button>
+  );
 }
 
 function SecaoPendente({ titulo, icone, cor, nota }) {

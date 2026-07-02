@@ -431,6 +431,7 @@ export function VeterinariaScreen({
   addEmergParametro, updateEmergParametro, deleteEmergParametro,
   addEmergNota, updateEmergNota, deleteEmergNota,
   uploadEmergExame, deleteEmergExame,
+  frascosAbertos, addFrascoAberto, updateFrascoAberto,
 }) {
   const [secao, setSecao] = useState(null);
 
@@ -593,6 +594,9 @@ export function VeterinariaScreen({
         addProcedimento={addProcedimento}
         deleteProcedimento={deleteProcedimento}
         addAtividade={addAtividade}
+        frascosAbertos={frascosAbertos || []}
+        addFrascoAberto={addFrascoAberto}
+        updateFrascoAberto={updateFrascoAberto}
         onBack={() => setSecao(null)}
       />
     );
