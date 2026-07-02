@@ -7,6 +7,7 @@ import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './uti
 import { supabase } from './utils/supabase';
 import { ReproducaoScreen, resumoReproducaoMes } from './reproducao';
 import { addDescartaveis } from './data';
+import { CronogramaVetScreen } from './cronograma-vet';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -78,6 +79,7 @@ function isDoseHistoricaSemAplicacao(dataPrevista, cavalo) {
 
 export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   const feitas = new Set(vacinacoesAnimais.filter(v => v.feito).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
+  const cancelados = new Set(vacinacoesAnimais.filter(v => v.cancelado).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
   const items = [];
   const today = todayStr();
   for (const prot of protocolos) {
@@ -88,7 +90,7 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
       const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
       for (const cavalo of alvo) {
         const key = `${prot.id}_0_${cavalo.id}`;
-        if (feitas.has(key)) continue;
+        if (feitas.has(key) || cancelados.has(key)) continue;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: 0, dose: { insumoId: prot.insumoId, label: 'Aplicação única' },
@@ -114,7 +116,7 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
           : addDays(today, -1);
         const nextIdx = historico.length;
         const key = `${prot.id}_${nextIdx}_${cavalo.id}`;
-        if (feitas.has(key)) continue;
+        if (feitas.has(key) || cancelados.has(key)) continue;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: nextIdx, dose: { insumoId: prot.insumoId, label: 'Recorrente' },
@@ -139,6 +141,7 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
         if (!dataPrev) continue;
         const key = `${prot.id}_${i}_${cavalo.id}`;
         const jaFeito = feitas.has(key);
+        if (cancelados.has(key)) continue;
         // Pula doses históricas não aplicáveis ao cavalo atual (ex.: cavalo
         // nascido em 2006 sendo cadastrado agora — não fazer o vet clicar
         // Aplicar em dose de 2006).
@@ -217,9 +220,12 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           if (etapa.subtipo === 'opg') return;
           const dataPrevista = addDays(baseDate, etapa.diasDesdeNascimento);
           if (!dataPrevista) return;
-          const feito = (vermifugacoesAnimais || []).find(v =>
+          const registro = (vermifugacoesAnimais || []).find(v =>
             v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === etapaIdx
           );
+          const feito = registro && !registro.cancelado;
+          const cancelado = registro && registro.cancelado;
+          if (cancelado) return; // dose cancelada — não mostrar
           if (!feito) {
             // Pula etapa histórica não aplicável (mesma regra da vacinação).
             if (isDoseHistoricaSemAplicacao(dataPrevista, cavalo)) return;
@@ -235,8 +241,9 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           }
         });
       } else {
+        // Intervalo por histórico — ignora rows canceladas no cálculo do próximo
         const historico = (vermifugacoesAnimais || [])
-          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx == null)
+          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx == null && !v.cancelado)
           .sort((a, b) => b.dataRealizacao.localeCompare(a.dataRealizacao));
         const ultimo = historico[0];
         const dataPrevista = ultimo
@@ -597,6 +604,37 @@ export function VeterinariaScreen({
       />
     );
   }
+  if (secao === 'cronograma') {
+    return (
+      <CronogramaVetScreen
+        cavalos={cavalos} insumos={insumos || []} servicos={servicos || []}
+        currentUser={currentUser}
+        addRegistro={addRegistro} addAtividade={addAtividade}
+        addProcedimento={addProcedimento}
+        deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento}
+        emergencias={emergencias || []}
+        emergMedicacoes={emergMedicacoes || []}
+        emergAgendas={emergAgendas || []}
+        emergParametros={emergParametros || []}
+        updateEmergMedicacao={updateEmergMedicacao}
+        addEmergParametro={addEmergParametro}
+        frascosAbertos={frascosAbertos || []}
+        addFrascoAberto={addFrascoAberto}
+        updateFrascoAberto={updateFrascoAberto}
+        protocolosVacinacao={protocolosVacinacao || []}
+        vacinacoesAnimais={vacinacoesAnimais || []}
+        upsertVacinacaoAnimal={upsertVacinacaoAnimal}
+        protocolosVermifugacao={protocolosVermifugacao || []}
+        vermifugacoesAnimais={vermifugacoesAnimais || []}
+        addVermifugacaoAnimal={addVermifugacaoAnimal}
+        progProgramas={progProgramas || []}
+        progAplicacoes={progAplicacoes || []}
+        updateProgesteronaAplicacao={updateProgesteronaAplicacao}
+        onBack={() => setSecao(null)}
+        onAbrirEmergencia={() => setSecao('emergencias')}
+      />
+    );
+  }
   if (secao === 'emergencias') {
     return (
       <EmergenciasScreen
@@ -644,7 +682,19 @@ export function VeterinariaScreen({
   const totalExames = (exames || []).length;
   const emergenciasAtivas = (emergencias || []).filter(e => e.status === 'ativa').length;
 
+  const hojeStr = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; })();
+  const tarefasHoje =
+    agendaVac.filter(i => !i.feito && i.dataPrevista === hojeStr).length +
+    agendaVerm.filter(i => i.dataPrevista === hojeStr).length +
+    (emergMedicacoes || []).filter(m => m.status === 'programado' && m.data === hojeStr).length +
+    (progAplicacoes || []).filter(a => a.status === 'programado' && a.data === hojeStr).length;
+
   const CARDS = [
+    {
+      id: 'cronograma', label: 'Cronograma\nVeterinário', icon: 'clock', cor: '#0f766e', bg: '#ccfbf1',
+      badge: tarefasHoje > 0 ? `${tarefasHoje} hoje` : 'Agenda central',
+      badgeCor: tarefasHoje > 0 ? '#0f766e' : '#6b7280',
+    },
     {
       id: 'emergencias', label: 'Emergências', icon: 'medical-cross', cor: '#dc2626', bg: '#fee2e2',
       badge: emergenciasAtivas > 0 ? `${emergenciasAtivas} ativa${emergenciasAtivas > 1 ? 's' : ''}` : 'Painel · plantão',
@@ -758,6 +808,17 @@ function VacinacaoScreen({
     }
   };
 
+  const handleCancelarVacina = (item) => {
+    if (!window.confirm('Cancelar esta dose de vacina? Ela some da agenda.')) return;
+    const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
+    upsertVacinacao({
+      id: vacId, protocoloId: item.protocoloId, doseIdx: item.doseIdx,
+      cavaloId: item.cavaloId, dataPrevista: item.dataPrevista,
+      feito: false, cancelado: true,
+      canceladoPor: currentUser?.nome || '', canceladoEm: new Date().toISOString(),
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '14px 20px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
@@ -828,9 +889,9 @@ function VacinacaoScreen({
             {agendaFiltrada.filter(i => !i.feito).length === 0 && protocolos.length > 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma dose pendente.</div>
             )}
-            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} protocolos={protocolos} />}
-            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} protocolos={protocolos} />}
-            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} protocolos={protocolos} />}
+            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
+            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
+            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
             {futuras.length > 0 && <AgendaGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} collapsed protocolos={protocolos} />}
             {feitas.length > 0 && <AgendaGrupo titulo={`Realizadas (${feitas.length})`} cor="#6b7280" items={feitas} cavalos={cavalos} insumos={insumos} onVacinar={null} collapsed protocolos={protocolos} />}
           </>
@@ -864,7 +925,7 @@ function VacinacaoScreen({
 }
 
 // ─── AgendaGrupo ──────────────────────────────────────────────
-function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, collapsed: initCollapsed = false, protocolos = [] }) {
+function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, onCancelar, collapsed: initCollapsed = false, protocolos = [] }) {
   const [open, setOpen] = useState(!initCollapsed);
   return (
     <div style={{ marginBottom: 18 }}>
@@ -874,13 +935,13 @@ function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, collapse
         <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-3)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
       </button>
       {open && items.map(item => (
-        <AgendaItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVacinar={onVacinar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
+        <AgendaItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVacinar={onVacinar} onCancelar={onCancelar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
       ))}
     </div>
   );
 }
 
-function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
+function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
   const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
@@ -905,7 +966,12 @@ function AgendaItem({ item, cavalos, insumos, onVacinar, cor }) {
           ) : !confirmando ? (
             <>
               <div style={{ fontSize: 11, fontWeight: 600, color: cor, marginBottom: 6 }}>{labelDias}</div>
-              <button onClick={() => setConfirmando(true)} style={{ background: cor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Aplicar ✓</button>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                <button onClick={() => setConfirmando(true)} style={{ background: cor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Aplicar ✓</button>
+                {onCancelar && (
+                  <button onClick={() => onCancelar(item)} title="Cancelar esta dose" style={{ background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>⊘</button>
+                )}
+              </div>
             </>
           ) : null}
         </div>
@@ -1264,6 +1330,22 @@ function VermifugacaoScreen({
     }
   };
 
+  const handleCancelarVerm = (item) => {
+    if (!window.confirm('Cancelar esta dose de vermífugo? Ela some da agenda.')) return;
+    addVermifugacao({
+      id: 'verm_cancel_' + Date.now() + '_' + item.cavaloId,
+      protocoloId: item.protocoloId,
+      cavaloId: item.cavaloId,
+      dataRealizacao: today,
+      produto: '(cancelada)',
+      registradoPor: currentUser?.nome || '',
+      etapaIdx: item.etapaIdx ?? null,
+      cancelado: true,
+      canceladoPor: currentUser?.nome || '',
+      canceladoEm: new Date().toISOString(),
+    });
+  };
+
   const agendaOpg = useMemo(
     () => calcAgendaOpg(protocolos, cavalos, opgs || []),
     [protocolos, cavalos, opgs]
@@ -1376,10 +1458,10 @@ function VermifugacaoScreen({
             {agendaFiltrada.length === 0 && protocolos.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum protocolo cadastrado. Crie em "Protocolos".</div>
             )}
-            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} protocolos={protocolos} />}
-            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} protocolos={protocolos} />}
-            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} protocolos={protocolos} />}
-            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} collapsed protocolos={protocolos} />}
+            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
+            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
+            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
+            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} collapsed protocolos={protocolos} />}
             {agendaOpgFiltrada.length > 0 && (
               <div style={{ marginTop: agendaFiltrada.length > 0 ? 16 : 0 }}>
                 <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed', marginBottom:10 }}>
@@ -1470,7 +1552,7 @@ function VermPlanner({ agenda, protocolos }) {
 }
 
 // ─── VermGrupo e VermItem ─────────────────────────────────────
-function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, collapsed: initCollapsed = false, protocolos = [] }) {
+function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, onCancelar, collapsed: initCollapsed = false, protocolos = [] }) {
   const [open, setOpen] = useState(!initCollapsed);
   return (
     <div style={{ marginBottom: 18 }}>
@@ -1480,13 +1562,13 @@ function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, collaps
         <span style={{ marginLeft:'auto', fontSize:13, color:'var(--ink-3)', transform:open?'rotate(90deg)':'none', transition:'transform 0.15s' }}>›</span>
       </button>
       {open && items.map(item => (
-        <VermItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVermifugar={onVermifugar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
+        <VermItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVermifugar={onVermifugar} onCancelar={onCancelar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
       ))}
     </div>
   );
 }
 
-function VermItem({ item, cavalos, insumos, onVermifugar, cor }) {
+function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
   const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
@@ -1512,7 +1594,12 @@ function VermItem({ item, cavalos, insumos, onVermifugar, cor }) {
           {!confirmando && (
             <>
               <div style={{ fontSize:11, fontWeight:600, color:cor, marginBottom:6 }}>{labelDias}</div>
-              <button onClick={()=>setConfirmando(true)} style={{ background:cor, color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>Aplicar ✓</button>
+              <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+                <button onClick={()=>setConfirmando(true)} style={{ background:cor, color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>Aplicar ✓</button>
+                {onCancelar && (
+                  <button onClick={()=>onCancelar(item)} title="Cancelar esta dose" style={{ background:'transparent', color:'var(--ink-3)', border:'1px solid var(--line)', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)' }}>⊘</button>
+                )}
+              </div>
             </>
           )}
         </div>

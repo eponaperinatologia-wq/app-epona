@@ -390,11 +390,13 @@ export const fromDbVacinacaoAnimal = r => ({
   id: r.id, protocoloId: r.protocolo_id || null, doseIdx: r.dose_idx ?? null,
   cavaloId: r.cavalo_id || null, dataPrevista: r.data_prevista || null,
   feito: !!r.feito, feitoPor: r.feito_por || '', feitoEm: r.feito_em || null,
+  cancelado: !!r.cancelado, canceladoPor: r.cancelado_por || '', canceladoEm: r.cancelado_em || null,
 });
 export const toDbVacinacaoAnimal = v => ({
   id: v.id, protocolo_id: v.protocoloId, dose_idx: v.doseIdx ?? null,
   cavalo_id: v.cavaloId, data_prevista: v.dataPrevista || null,
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
+  cancelado: !!v.cancelado, cancelado_por: v.canceladoPor || '', cancelado_em: v.canceladoEm || null,
 });
 
 const _safeParseArray = (v) => {
@@ -480,6 +482,7 @@ export const fromDbVermifugacaoAnimal = r => ({
   produto: r.produto || '',
   registradoPor: r.registrado_por || '',
   etapaIdx: r.etapa_idx ?? null,
+  cancelado: !!r.cancelado, canceladoPor: r.cancelado_por || '', canceladoEm: r.cancelado_em || null,
 });
 export const toDbVermifugacaoAnimal = v => ({
   id: v.id,
@@ -489,6 +492,7 @@ export const toDbVermifugacaoAnimal = v => ({
   produto: v.produto || '',
   registrado_por: v.registradoPor || '',
   etapa_idx: v.etapaIdx ?? null,
+  cancelado: !!v.cancelado, cancelado_por: v.canceladoPor || '', cancelado_em: v.canceladoEm || null,
 });
 
 // ── Emergências veterinárias ──────────────────────────────────

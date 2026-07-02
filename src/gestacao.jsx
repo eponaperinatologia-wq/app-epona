@@ -889,6 +889,29 @@ function VacinacaoVermifugacaoTab({
     }
   };
 
+  // Cancelar dose de vacina — cria um registro cancelado.
+  const cancelarVacina = (item) => {
+    const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
+    upsertVacinacaoAnimal({
+      id: vacId, protocoloId: item.protocoloId, doseIdx: item.doseIdx,
+      cavaloId: item.cavaloId, dataPrevista: item.dataPrevista,
+      feito: false, cancelado: true,
+      canceladoPor: currentUser?.nome || '', canceladoEm: new Date().toISOString(),
+    });
+  };
+  // Cancelar dose de vermífugo — insere um registro cancelado.
+  const cancelarVermifugacao = (item) => {
+    const vermId = 'verm_cancel_' + Date.now() + '_' + cavalo.id;
+    addVermifugacaoAnimal && addVermifugacaoAnimal({
+      id: vermId, protocoloId: item.protocoloId, cavaloId: cavalo.id,
+      dataRealizacao: hojeStr, produto: '(cancelada)',
+      registradoPor: currentUser?.nome || '',
+      etapaIdx: item.etapaIdx ?? null,
+      cancelado: true, canceladoPor: currentUser?.nome || '',
+      canceladoEm: new Date().toISOString(),
+    });
+  };
+
   const secaoVazia = agendaVac.length === 0 && agendaVerm.length === 0;
 
   return (
@@ -908,6 +931,7 @@ function VacinacaoVermifugacaoTab({
           grupos={vacGrupos}
           insumos={insumos}
           onAplicar={aplicarVacina}
+          onCancelar={cancelarVacina}
           tipoLabel="vacina"
         />
       )}
@@ -921,6 +945,7 @@ function VacinacaoVermifugacaoTab({
           grupos={vermGrupos}
           insumos={insumos}
           onAplicar={aplicarVermifugacao}
+          onCancelar={cancelarVermifugacao}
           tipoLabel="vermífugo"
         />
       )}
@@ -928,7 +953,7 @@ function VacinacaoVermifugacaoTab({
   );
 }
 
-function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, tipoLabel }) {
+function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, onCancelar, tipoLabel }) {
   return (
     <div style={{ marginBottom: 18, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderBottom: '1px solid var(--line)' }}>
@@ -942,19 +967,19 @@ function BlocoAgenda({ titulo, icone, cor, grupos, insumos, onAplicar, tipoLabel
         {grupos.atrasadas.length > 0 && (
           <>
             <SubTituloAgenda cor="#dc2626">Atrasadas ({grupos.atrasadas.length})</SubTituloAgenda>
-            {grupos.atrasadas.map(it => <LinhaAgenda key={it.key} it={it} cor="#dc2626" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+            {grupos.atrasadas.map(it => <LinhaAgenda key={it.key} it={it} cor="#dc2626" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
           </>
         )}
         {grupos.hoje.length > 0 && (
           <>
             <SubTituloAgenda cor="var(--accent)">Hoje ({grupos.hoje.length})</SubTituloAgenda>
-            {grupos.hoje.map(it => <LinhaAgenda key={it.key} it={it} cor="var(--accent)" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+            {grupos.hoje.map(it => <LinhaAgenda key={it.key} it={it} cor="var(--accent)" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
           </>
         )}
         {grupos.futuras.length > 0 && (
           <>
             <SubTituloAgenda cor="#b45309">Futuras ({grupos.futuras.length})</SubTituloAgenda>
-            {grupos.futuras.map(it => <LinhaAgenda key={it.key} it={it} cor="#b45309" insumos={insumos} onAplicar={onAplicar} tipoLabel={tipoLabel} />)}
+            {grupos.futuras.map(it => <LinhaAgenda key={it.key} it={it} cor="#b45309" insumos={insumos} onAplicar={onAplicar} onCancelar={onCancelar} tipoLabel={tipoLabel} />)}
           </>
         )}
         {grupos.feitas.length > 0 && (
@@ -1446,7 +1471,7 @@ function ProgesteronaForm({ gestantes, insumos, onCancel, onSave }) {
   );
 }
 
-function LinhaAgenda({ it, cor, insumos, onAplicar, tipoLabel, feita }) {
+function LinhaAgenda({ it, cor, insumos, onAplicar, onCancelar, tipoLabel, feita }) {
   const insumoId = it.dose?.insumoId || it.insumoId;
   const insumo = insumos.find(i => i.id === insumoId);
   const doseLabel = it.dose?.label || it.etapaLabel || 'Aplicação';
@@ -1474,10 +1499,21 @@ function LinhaAgenda({ it, cor, insumos, onAplicar, tipoLabel, feita }) {
           style={{
             background: cor === '#dc2626' ? '#dc2626' : 'var(--accent)',
             color: '#fff', border: 'none', borderRadius: 8,
-            padding: '5px 12px', fontSize: 11, fontWeight: 700,
+            padding: '5px 10px', fontSize: 11, fontWeight: 700,
             cursor: 'pointer', fontFamily: 'var(--sans)',
           }}
         >Aplicar</button>
+      )}
+      {!feita && onCancelar && (
+        <button
+          onClick={() => { if (window.confirm(`Cancelar esta dose (${tipoLabel})? Ela deixa de aparecer na agenda.`)) onCancelar(it); }}
+          title="Cancelar dose"
+          style={{
+            background: 'var(--card)', color: '#dc2626', border: '1px solid #fecaca',
+            borderRadius: 8, padding: '5px 8px', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}
+        >⊘</button>
       )}
       {feita && <span style={{ fontSize: 10, color: '#15803d', fontWeight: 700, letterSpacing: '0.05em' }}>✓ FEITO</span>}
     </div>

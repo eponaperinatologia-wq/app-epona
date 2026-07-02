@@ -39,7 +39,7 @@ const diasDesde = (iso) => {
 //   Cancelar/editar antes de feito NÃO cobra. Desmarcar feito remove todos
 //     os registros criados.
 // ─────────────────────────────────────────────────────────────
-async function marcarMedicacaoFeita({
+export async function marcarMedicacaoFeita({
   m, emergencia, insumos, servicos, frascosAbertos,
   addRegistro, addProcedimento, addAtividade,
   updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
@@ -241,7 +241,7 @@ function SecaoAccordion({ titulo, icone, cor, contador, defaultOpen = false, chi
 // Recebe lista de itens (cada um com .dataHora), agrupa por dia, mostra abas
 // e passa itens do dia selecionado pra render.
 // ─────────────────────────────────────────────────────────────
-function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false }) {
+export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false }) {
   const dias = itemsPorDia || useMemo(() => {
     const map = new Map();
     (itens || []).forEach(it => {
@@ -1510,7 +1510,7 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
 // IMPORTANTE: usa data/hora LOCAL (não UTC) pra não deslocar ocorrências entre
 // dias quando a hora cruza a meia-noite UTC (bug do fuso: dose das 23h local em
 // São Paulo virava data do dia seguinte via toISOString).
-function _fmtDataLocal(d) {
+export function _fmtDataLocal(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
@@ -1798,7 +1798,7 @@ function ParametroLinha({ p, emergAtiva, onEditar, onExcluir }) {
   );
 }
 
-function ParametroForm({ initial, onCancel, onSave }) {
+export function ParametroForm({ initial, onCancel, onSave }) {
   const nowLocal = new Date();
   const isoLocal = new Date(nowLocal.getTime() - nowLocal.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
   const [dataHora, setDataHora] = useState(initial?.dataHora ? initial.dataHora.slice(0, 16) : isoLocal);
@@ -2094,7 +2094,7 @@ function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, 
   );
 }
 
-function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha, onBoxClick, ativa }) {
+export function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha, onBoxClick, ativa }) {
   const cor = it.tipoItem === 'medicacao' ? '#1d4ed8' : '#b45309';
   const [, hora] = it.dataHora.split('T');
   const horaFmt = hora ? hora.slice(0, 5) : '';
