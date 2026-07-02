@@ -327,12 +327,24 @@ export const fromDbProtocoloVacinacao = r => ({
   id: r.id, nome: r.nome,
   tipo: r.tipo || 'gestante', descricao: r.descricao || '',
   ativo: r.ativo !== false,
+  intervaloDias: Number(r.intervalo_dias) || 0,
+  insumoId: r.insumo_id || '',
+  animaisAlvo: r.animais_alvo || [],
+  dataFixa: r.data_fixa || null,
+  eventoUnico: !!r.evento_unico,
+  eventoReferencia: r.evento_referencia || '',
   doses: r.doses || [],
 });
 export const toDbProtocoloVacinacao = p => ({
   id: p.id, nome: p.nome,
   tipo: p.tipo || 'gestante', descricao: p.descricao || '',
   ativo: p.ativo !== false,
+  intervalo_dias: Number(p.intervaloDias) || 0,
+  insumo_id: p.insumoId || '',
+  animais_alvo: p.animaisAlvo || [],
+  data_fixa: p.dataFixa || null,
+  evento_unico: !!p.eventoUnico,
+  evento_referencia: p.eventoReferencia || '',
   doses: p.doses || [],
 });
 
@@ -430,11 +442,33 @@ export const toDbOpg = o => ({
 export const fromDbProtocoloVermifugacao = r => ({
   id: r.id, nome: r.nome || '', descricao: r.descricao || '',
   ativo: r.ativo !== false,
+  tipo: r.tipo || '',
+  subtipo: r.subtipo || '',
+  intervaloDias: Number(r.intervalo_dias) || 0,
+  insumoId: r.insumo_id || '',
+  animaisAlvo: r.animais_alvo || [],
+  dataFixa: r.data_fixa || null,
+  eventoUnico: !!r.evento_unico,
+  eventoReferencia: r.evento_referencia || '',
+  laboratorio: r.laboratorio || '',
+  servicoId: r.servico_id || '',
+  doses: r.doses || [],
   etapas: r.etapas || [],
 });
 export const toDbProtocoloVermifugacao = p => ({
   id: p.id, nome: p.nome || '', descricao: p.descricao || '',
   ativo: p.ativo !== false,
+  tipo: p.tipo || '',
+  subtipo: p.subtipo || '',
+  intervalo_dias: Number(p.intervaloDias) || 0,
+  insumo_id: p.insumoId || '',
+  animais_alvo: p.animaisAlvo || [],
+  data_fixa: p.dataFixa || null,
+  evento_unico: !!p.eventoUnico,
+  evento_referencia: p.eventoReferencia || '',
+  laboratorio: p.laboratorio || '',
+  servico_id: p.servicoId || '',
+  doses: p.doses || [],
   etapas: p.etapas || [],
 });
 
