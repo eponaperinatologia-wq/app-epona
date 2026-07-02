@@ -826,7 +826,7 @@ function VacinacaoVermifugacaoTab({
     [agendaVermFull, cavalo.id, inicioGestacao]
   );
 
-  // Separar em atrasadas / hoje / futuras / feitas
+  // Separar em atrasadas / hoje / futuras / feitas, ordenadas por data
   const splitAgenda = (items) => {
     const atrasadas = [], hoje = [], futuras = [], feitas = [];
     items.forEach(it => {
@@ -837,6 +837,9 @@ function VacinacaoVermifugacaoTab({
       else if (dias === 0) hoje.push(it);
       else futuras.push(it);
     });
+    const dataDe = (it) => (it.feitoEm || '').slice(0, 10) || it.dataPrevista || '';
+    const cmp = (a, b) => (dataDe(a) || '').localeCompare(dataDe(b) || '');
+    atrasadas.sort(cmp); hoje.sort(cmp); futuras.sort(cmp); feitas.sort(cmp);
     return { atrasadas, hoje, futuras, feitas };
   };
 
