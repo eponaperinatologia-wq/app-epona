@@ -241,20 +241,25 @@ function SecaoAccordion({ titulo, icone, cor, contador, defaultOpen = false, chi
 // Recebe lista de itens (cada um com .dataHora), agrupa por dia, mostra abas
 // e passa itens do dia selecionado pra render.
 // ─────────────────────────────────────────────────────────────
-export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false }) {
+export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false, agruparAtrasados = false }) {
+  const hoje = _fmtDataLocal(new Date());
   const dias = itemsPorDia || useMemo(() => {
     const map = new Map();
     (itens || []).forEach(it => {
       const dia = (it.dataHora || '').slice(0, 10);
       if (!dia) return;
-      if (!map.has(dia)) map.set(dia, []);
-      map.get(dia).push(it);
+      const key = (agruparAtrasados && dia < hoje) ? 'atrasados' : dia;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(it);
     });
-    return [...map.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  }, [itens]);
+    return [...map.entries()].sort((a, b) => {
+      if (a[0] === 'atrasados') return -1;
+      if (b[0] === 'atrasados') return 1;
+      return a[0].localeCompare(b[0]);
+    });
+  }, [itens, agruparAtrasados, hoje]);
 
-  const hoje = _fmtDataLocal(new Date());
-  const idxInicial = dias.findIndex(([d]) => d >= hoje);
+  const idxInicial = dias.findIndex(([d]) => d !== 'atrasados' && d >= hoje);
   const [diaIdx, setDiaIdx] = useState(idxInicial >= 0 ? idxInicial : 0);
 
   if (dias.length === 0) {
@@ -267,7 +272,8 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
 
   const idxAtual = Math.min(Math.max(diaIdx, 0), dias.length - 1);
   const [diaSel, itensSel] = dias[idxAtual];
-  const atrasadosNoDia = destacaAtrasado
+  const isAtrasadosBucket = diaSel === 'atrasados';
+  const atrasadosNoDia = destacaAtrasado && !isAtrasadosBucket
     ? itensSel.filter(it => new Date(it.dataHora) < new Date()).length
     : 0;
 
@@ -276,8 +282,32 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
       {/* Abas horizontais de dias */}
       <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 10, paddingBottom: 3, WebkitOverflowScrolling: 'touch' }}>
         {dias.map(([d, lista], i) => {
-          const eHoje = d === hoje;
+          const isAtrasado = d === 'atrasados';
+          const eHoje = !isAtrasado && d === hoje;
           const ativa = i === idxAtual;
+          if (isAtrasado) {
+            return (
+              <button
+                key="atrasados"
+                onClick={() => setDiaIdx(i)}
+                style={{
+                  flexShrink: 0, minWidth: 74,
+                  background: ativa ? '#dc2626' : '#fee2e2',
+                  color: ativa ? '#fff' : '#991b1b',
+                  border: `1px solid ${ativa ? '#dc2626' : '#fca5a5'}`,
+                  borderRadius: 10, padding: '6px 10px',
+                  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                  cursor: 'pointer', fontFamily: 'var(--sans)', position: 'relative',
+                }}
+              >
+                <div style={{ fontSize: 14, lineHeight: 1 }}>⚠</div>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.05em' }}>ATRASADOS</div>
+                <div style={{ fontSize: 9, fontWeight: 700, color: ativa ? '#fff' : '#991b1b', marginTop: 2, padding: '0 4px', background: ativa ? 'rgba(255,255,255,0.2)' : '#fecaca', borderRadius: 4 }}>
+                  {lista.length}
+                </div>
+              </button>
+            );
+          }
           const [ano, mes, dia] = d.split('-');
           const dow = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SÁB'][new Date(d + 'T12:00:00').getDay()];
           const atrasados = destacaAtrasado ? lista.filter(it => new Date(it.dataHora) < new Date()).length : 0;
@@ -313,7 +343,12 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
 
       {/* Itens do dia selecionado */}
       <div>
-        {atrasadosNoDia > 0 && (
+        {isAtrasadosBucket && (
+          <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 6 }}>
+            ⚠ {itensSel.length} atrasado{itensSel.length > 1 ? 's' : ''} · mais antigos primeiro
+          </div>
+        )}
+        {!isAtrasadosBucket && atrasadosNoDia > 0 && (
           <div style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', color: '#7f1d1d', marginBottom: 6 }}>
             ⚠ {atrasadosNoDia} atrasado{atrasadosNoDia > 1 ? 's' : ''}
           </div>
@@ -2094,10 +2129,13 @@ function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, 
   );
 }
 
-export function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha, onBoxClick, ativa }) {
+export function ItemCronograma({ it, atrasado, onAcao, onReagendar, mostraAnimal, onAbrirFicha, onBoxClick, ativa }) {
   const cor = it.tipoItem === 'medicacao' ? '#1d4ed8' : '#b45309';
-  const [, hora] = it.dataHora.split('T');
+  const [dataStr, hora] = it.dataHora.split('T');
   const horaFmt = hora ? hora.slice(0, 5) : '';
+  const hojeStr = _fmtDataLocal(new Date());
+  const mostraData = dataStr && dataStr !== hojeStr;
+  const dataFmt = mostraData ? `${parseInt(dataStr.slice(8,10))}/${parseInt(dataStr.slice(5,7))}` : '';
   // Se onBoxClick foi passado, o BOX INTEIRO fica clicável (usado pra
   // parâmetros — abrir form inline). Caso contrário, só o botão ✓.
   const clicavel = !!onBoxClick;
@@ -2114,8 +2152,9 @@ export function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFich
         transition: 'background 0.15s, border-color 0.15s',
       }}
     >
-      <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 12, color: atrasado ? '#dc2626' : 'var(--ink-2)', fontWeight: 700, minWidth: 42 }}>
-        {horaFmt}
+      <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 12, color: atrasado ? '#dc2626' : 'var(--ink-2)', fontWeight: 700, minWidth: mostraData ? 62 : 42, display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.1 }}>
+        {mostraData && <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.85 }}>{dataFmt}</span>}
+        <span>{horaFmt}</span>
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)' }}>
@@ -2140,14 +2179,27 @@ export function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFich
       </div>
       {clicavel ? (
         <span style={{ fontSize: 14, color: ativa ? '#b45309' : 'var(--ink-3)', transform: ativa ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
-      ) : onAcao && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onAcao(); }}
-          title="Marcar feito"
-          style={btnIco(atrasado ? '#dc2626' : '#15803d')}
-        >
-          ✓
-        </button>
+      ) : (onAcao || onReagendar) && (
+        <div style={{ display: 'flex', gap: 4 }}>
+          {onReagendar && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onReagendar(); }}
+              title="Reagendar"
+              style={{ ...btnIco('#6b7280'), fontSize: 14 }}
+            >
+              🗓
+            </button>
+          )}
+          {onAcao && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAcao(); }}
+              title="Marcar feito"
+              style={btnIco(atrasado ? '#dc2626' : '#15803d')}
+            >
+              ✓
+            </button>
+          )}
+        </div>
       )}
     </div>
   );

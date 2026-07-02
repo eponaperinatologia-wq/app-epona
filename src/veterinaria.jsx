@@ -80,6 +80,9 @@ function isDoseHistoricaSemAplicacao(dataPrevista, cavalo) {
 export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
   const feitas = new Set(vacinacoesAnimais.filter(v => v.feito).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
   const cancelados = new Set(vacinacoesAnimais.filter(v => v.cancelado).map(v => `${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`));
+  const reagendados = new Map();
+  vacinacoesAnimais.filter(v => !v.feito && !v.cancelado && v.reagendadoPara)
+    .forEach(v => reagendados.set(`${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`, v.reagendadoPara));
   const items = [];
   const today = todayStr();
   for (const prot of protocolos) {
@@ -91,12 +94,15 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
       for (const cavalo of alvo) {
         const key = `${prot.id}_0_${cavalo.id}`;
         if (feitas.has(key) || cancelados.has(key)) continue;
+        const dataOrig = prot.dataFixa;
+        const dataPrev = reagendados.get(key) || dataOrig;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: 0, dose: { insumoId: prot.insumoId, label: 'Aplicação única' },
           cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-          dataPrevista: prot.dataFixa, feito: false,
-          diasRestantes: diffDays(prot.dataFixa),
+          dataPrevista: dataPrev, feito: false,
+          diasRestantes: diffDays(dataPrev),
+          reagendadoDe: reagendados.has(key) ? dataOrig : null,
         });
       }
       continue;
@@ -117,12 +123,14 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
         const nextIdx = historico.length;
         const key = `${prot.id}_${nextIdx}_${cavalo.id}`;
         if (feitas.has(key) || cancelados.has(key)) continue;
+        const dataFinal = reagendados.get(key) || dataPrev;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: nextIdx, dose: { insumoId: prot.insumoId, label: 'Recorrente' },
           cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-          dataPrevista: dataPrev, feito: false,
-          diasRestantes: diffDays(dataPrev),
+          dataPrevista: dataFinal, feito: false,
+          diasRestantes: diffDays(dataFinal),
+          reagendadoDe: reagendados.has(key) ? dataPrev : null,
         });
       }
       continue;
@@ -146,12 +154,14 @@ export function calcAgendaVac(protocolos, cavalos, vacinacoesAnimais) {
         // nascido em 2006 sendo cadastrado agora — não fazer o vet clicar
         // Aplicar em dose de 2006).
         if (!jaFeito && isDoseHistoricaSemAplicacao(dataPrev, cavalo)) continue;
+        const dataFinal = (!jaFeito && reagendados.get(key)) || dataPrev;
         items.push({
           key, protocoloId: prot.id, protocoloNome: prot.nome,
           doseIdx: i, dose: prot.doses[i],
           cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-          dataPrevista: dataPrev, feito: jaFeito,
-          diasRestantes: diffDays(dataPrev),
+          dataPrevista: dataFinal, feito: jaFeito,
+          diasRestantes: diffDays(dataFinal),
+          reagendadoDe: (!jaFeito && reagendados.has(key)) ? dataPrev : null,
         });
       }
     }
@@ -179,22 +189,38 @@ const CATEGORIAS_PROTOCOLO = [
 export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   const items = [];
   const today = todayStr();
+  // Reagendados de etapas: key = protocoloId_cavaloId_etapaIdx → nova data
+  const reagEtapa = new Map();
+  // Reagendados de intervalos: key = protocoloId_cavaloId → nova data
+  const reagInterv = new Map();
+  (vermifugacoesAnimais || []).forEach(v => {
+    if (v.cancelado || !v.reagendadoPara) return;
+    if (v.etapaIdx != null) {
+      reagEtapa.set(`${v.protocoloId}_${v.cavaloId}_${v.etapaIdx}`, v.reagendadoPara);
+    } else {
+      reagInterv.set(`${v.protocoloId}_${v.cavaloId}`, v.reagendadoPara);
+    }
+  });
   for (const prot of protocolos) {
     if (!prot.ativo) continue;
     if (prot.subtipo === 'opg') continue;
     if (prot.eventoUnico || prot.tipo === 'unico') {
       const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
       for (const cavalo of alvo) {
-        const feito = (vermifugacoesAnimais || []).some(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id);
+        const feito = (vermifugacoesAnimais || []).some(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && !v.cancelado && !v.reagendadoPara);
         if (feito) continue;
+        const reagKey = `${prot.id}_${cavalo.id}`;
+        const dataOrig = prot.dataFixa;
+        const dataPrev = reagInterv.get(reagKey) || dataOrig;
         items.push({
           key: `verm_unico_${prot.id}_${cavalo.id}`,
           protocoloId: prot.id, protocoloNome: prot.nome,
           cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-          dataPrevista: prot.dataFixa,
-          diasRestantes: diffDays(prot.dataFixa),
+          dataPrevista: dataPrev,
+          diasRestantes: diffDays(dataPrev),
           ultimaRealizacao: null,
           insumoId: prot.insumoId,
+          reagendadoDe: reagInterv.has(reagKey) ? dataOrig : null,
         });
       }
       continue;
@@ -220,35 +246,40 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           if (etapa.subtipo === 'opg') return;
           const dataPrevista = addDays(baseDate, etapa.diasDesdeNascimento);
           if (!dataPrevista) return;
-          const registro = (vermifugacoesAnimais || []).find(v =>
+          const registros = (vermifugacoesAnimais || []).filter(v =>
             v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === etapaIdx
           );
-          const feito = registro && !registro.cancelado;
-          const cancelado = registro && registro.cancelado;
+          const feito = registros.some(r => !r.cancelado && !r.reagendadoPara);
+          const cancelado = registros.some(r => r.cancelado);
           if (cancelado) return; // dose cancelada — não mostrar
           if (!feito) {
+            const reagKey = `${prot.id}_${cavalo.id}_${etapaIdx}`;
+            const dataFinal = reagEtapa.get(reagKey) || dataPrevista;
             // Pula etapa histórica não aplicável (mesma regra da vacinação).
-            if (isDoseHistoricaSemAplicacao(dataPrevista, cavalo)) return;
+            if (isDoseHistoricaSemAplicacao(dataFinal, cavalo)) return;
             items.push({
               key: `verm_${prot.id}_${cavalo.id}_${etapaIdx}`,
               protocoloId: prot.id, protocoloNome: prot.nome,
               cavaloId: cavalo.id, cavaloNome: cavalo.nome,
-              dataPrevista, diasRestantes: diffDays(dataPrevista),
+              dataPrevista: dataFinal, diasRestantes: diffDays(dataFinal),
               ultimaRealizacao: null,
               insumoId: etapa.insumoId || '',
               etapaIdx, etapaLabel: etapa.label || `Etapa ${etapaIdx + 1}`,
+              reagendadoDe: reagEtapa.has(reagKey) ? dataPrevista : null,
             });
           }
         });
       } else {
-        // Intervalo por histórico — ignora rows canceladas no cálculo do próximo
+        // Intervalo por histórico — ignora canceladas e marcadores de reagendamento
         const historico = (vermifugacoesAnimais || [])
-          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx == null && !v.cancelado)
+          .filter(v => v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx == null && !v.cancelado && !v.reagendadoPara)
           .sort((a, b) => b.dataRealizacao.localeCompare(a.dataRealizacao));
         const ultimo = historico[0];
-        const dataPrevista = ultimo
+        const dataOrig = ultimo
           ? addDays(ultimo.dataRealizacao, prot.intervaloDias)
           : addDays(today, -1);
+        const reagKey = `${prot.id}_${cavalo.id}`;
+        const dataPrevista = reagInterv.get(reagKey) || dataOrig;
         items.push({
           key: `verm_${prot.id}_${cavalo.id}`,
           protocoloId: prot.id, protocoloNome: prot.nome,
@@ -256,6 +287,7 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           dataPrevista, diasRestantes: diffDays(dataPrevista),
           ultimaRealizacao: ultimo?.dataRealizacao || null,
           insumoId: prot.insumoId,
+          reagendadoDe: reagInterv.has(reagKey) ? dataOrig : null,
         });
       }
     }
@@ -819,6 +851,17 @@ function VacinacaoScreen({
     });
   };
 
+  const handleReagendarVacina = (item, novaData) => {
+    if (!novaData) return;
+    const vacId = `vac_${item.protocoloId}_${item.doseIdx}_${item.cavaloId}`;
+    upsertVacinacao({
+      id: vacId, protocoloId: item.protocoloId, doseIdx: item.doseIdx,
+      cavaloId: item.cavaloId, dataPrevista: item.dataPrevista,
+      feito: false, cancelado: false,
+      reagendadoPara: novaData,
+    });
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{ padding: '14px 20px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
@@ -889,10 +932,10 @@ function VacinacaoScreen({
             {agendaFiltrada.filter(i => !i.feito).length === 0 && protocolos.length > 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma dose pendente.</div>
             )}
-            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
-            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
-            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} protocolos={protocolos} />}
-            {futuras.length > 0 && <AgendaGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} collapsed protocolos={protocolos} />}
+            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
+            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
+            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
+            {futuras.length > 0 && <AgendaGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onReagendar={handleReagendarVacina} collapsed protocolos={protocolos} />}
             {feitas.length > 0 && <AgendaGrupo titulo={`Realizadas (${feitas.length})`} cor="#6b7280" items={feitas} cavalos={cavalos} insumos={insumos} onVacinar={null} collapsed protocolos={protocolos} />}
           </>
         )}
@@ -925,7 +968,7 @@ function VacinacaoScreen({
 }
 
 // ─── AgendaGrupo ──────────────────────────────────────────────
-function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, onCancelar, collapsed: initCollapsed = false, protocolos = [] }) {
+function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, onCancelar, onReagendar, collapsed: initCollapsed = false, protocolos = [] }) {
   const [open, setOpen] = useState(!initCollapsed);
   return (
     <div style={{ marginBottom: 18 }}>
@@ -935,15 +978,17 @@ function AgendaGrupo({ titulo, cor, items, cavalos, insumos, onVacinar, onCancel
         <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--ink-3)', transform: open ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>›</span>
       </button>
       {open && items.map(item => (
-        <AgendaItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVacinar={onVacinar} onCancelar={onCancelar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
+        <AgendaItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVacinar={onVacinar} onCancelar={onCancelar} onReagendar={onReagendar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
       ))}
     </div>
   );
 }
 
-function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, cor }) {
+function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, onReagendar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [reagendando, setReagendando] = useState(false);
   const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
+  const [novaData, setNovaData] = useState(item.dataPrevista > todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
   const vacina = insumos.find(i => i.id === item.dose?.insumoId);
   const dr = item.diasRestantes;
@@ -952,22 +997,28 @@ function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, cor }) {
   const ehMesAtual = dataReal.slice(0,7) === hoje.slice(0,7);
 
   return (
-    <div style={{ background: 'var(--card)', border: `1px solid ${item.feito ? 'var(--line)' : confirmando ? cor : cor+'40'}`, borderRadius: 13, padding: '12px 14px', marginBottom: 8, opacity: item.feito ? 0.6 : 1 }}>
+    <div style={{ background: 'var(--card)', border: `1px solid ${item.feito ? 'var(--line)' : (confirmando || reagendando) ? cor : cor+'40'}`, borderRadius: 13, padding: '12px 14px', marginBottom: 8, opacity: item.feito ? 0.6 : 1 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
         <div style={{ width: 10, height: 10, borderRadius: 5, flexShrink: 0, background: item.feito ? '#9ca3af' : cor }} />
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)' }}>{item.cavaloNome}</div>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>{vacina?.nome || '—'} · {item.dose?.label||`Dose ${item.doseIdx+1}`}</div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{item.protocoloNome} · {fmtDate(item.dataPrevista)}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+            {item.protocoloNome} · {fmtDate(item.dataPrevista)}
+            {item.reagendadoDe && <span style={{ marginLeft: 6, fontSize: 10, background: '#e5e7eb', color: '#4b5563', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>REAGENDADA (era {fmtDate(item.reagendadoDe)})</span>}
+          </div>
         </div>
         <div style={{ flexShrink: 0, textAlign: 'right' }}>
           {item.feito ? (
             <span style={{ fontSize: 11, color: '#6b7280' }}>✓ {item.feitoPor || 'feito'}</span>
-          ) : !confirmando ? (
+          ) : !confirmando && !reagendando ? (
             <>
               <div style={{ fontSize: 11, fontWeight: 600, color: cor, marginBottom: 6 }}>{labelDias}</div>
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                 <button onClick={() => setConfirmando(true)} style={{ background: cor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Aplicar ✓</button>
+                {onReagendar && (
+                  <button onClick={() => setReagendando(true)} title="Reagendar dose" style={{ background: 'transparent', color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>🗓</button>
+                )}
                 {onCancelar && (
                   <button onClick={() => onCancelar(item)} title="Cancelar esta dose" style={{ background: 'transparent', color: 'var(--ink-3)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>⊘</button>
                 )}
@@ -985,6 +1036,17 @@ function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, cor }) {
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={() => setConfirmando(false)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)' }}>Cancelar</button>
             <button onClick={() => { onVacinar?.(item, dataReal); setConfirmando(false); }} style={{ flex: 2, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)' }}>Confirmar</button>
+          </div>
+        </div>
+      )}
+      {reagendando && (
+        <div style={{ marginTop: 12, padding: '12px 14px', background: 'var(--soft)', borderRadius: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>🗓 Reagendar para qual data?</div>
+          <input type="date" value={novaData} min={hoje} onChange={e => setNovaData(e.target.value)} style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }} />
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8 }}>A dose será movida para essa data e continuará na agenda.</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setReagendando(false)} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)' }}>Cancelar</button>
+            <button onClick={() => { onReagendar?.(item, novaData); setReagendando(false); }} style={{ flex: 2, padding: '8px 0', borderRadius: 8, border: 'none', background: '#6b7280', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)' }}>Reagendar</button>
           </div>
         </div>
       )}
@@ -1346,6 +1408,20 @@ function VermifugacaoScreen({
     });
   };
 
+  const handleReagendarVerm = (item, novaData) => {
+    if (!novaData) return;
+    addVermifugacao({
+      id: 'verm_reag_' + Date.now() + '_' + item.cavaloId,
+      protocoloId: item.protocoloId,
+      cavaloId: item.cavaloId,
+      dataRealizacao: today,
+      produto: '(reagendada)',
+      registradoPor: currentUser?.nome || '',
+      etapaIdx: item.etapaIdx ?? null,
+      reagendadoPara: novaData,
+    });
+  };
+
   const agendaOpg = useMemo(
     () => calcAgendaOpg(protocolos, cavalos, opgs || []),
     [protocolos, cavalos, opgs]
@@ -1458,10 +1534,10 @@ function VermifugacaoScreen({
             {agendaFiltrada.length === 0 && protocolos.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum protocolo cadastrado. Crie em "Protocolos".</div>
             )}
-            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
-            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
-            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} protocolos={protocolos} />}
-            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} collapsed protocolos={protocolos} />}
+            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
+            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
+            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
+            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} collapsed protocolos={protocolos} />}
             {agendaOpgFiltrada.length > 0 && (
               <div style={{ marginTop: agendaFiltrada.length > 0 ? 16 : 0 }}>
                 <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed', marginBottom:10 }}>
@@ -1552,7 +1628,7 @@ function VermPlanner({ agenda, protocolos }) {
 }
 
 // ─── VermGrupo e VermItem ─────────────────────────────────────
-function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, onCancelar, collapsed: initCollapsed = false, protocolos = [] }) {
+function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, onCancelar, onReagendar, collapsed: initCollapsed = false, protocolos = [] }) {
   const [open, setOpen] = useState(!initCollapsed);
   return (
     <div style={{ marginBottom: 18 }}>
@@ -1562,40 +1638,51 @@ function VermGrupo({ titulo, cor, items, cavalos, insumos, onVermifugar, onCance
         <span style={{ marginLeft:'auto', fontSize:13, color:'var(--ink-3)', transform:open?'rotate(90deg)':'none', transition:'transform 0.15s' }}>›</span>
       </button>
       {open && items.map(item => (
-        <VermItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVermifugar={onVermifugar} onCancelar={onCancelar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
+        <VermItem key={item.key} item={item} cavalos={cavalos} insumos={insumos} onVermifugar={onVermifugar} onCancelar={onCancelar} onReagendar={onReagendar} cor={getProtColor(item.protocoloId, protocolos) || cor} />
       ))}
     </div>
   );
 }
 
-function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, cor }) {
+function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, onReagendar, cor }) {
   const [confirmando, setConfirmando] = useState(false);
+  const [reagendando, setReagendando] = useState(false);
   const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
+  const [novaData, setNovaData] = useState(item.dataPrevista > todayStr() ? item.dataPrevista : todayStr());
   const hoje = todayStr();
   const insumo = insumos.find(i => i.id === item.insumoId);
   const dr = item.diasRestantes;
   const labelDias = dr === 0 ? 'Hoje' : dr < 0 ? `${Math.abs(dr)} dia${Math.abs(dr)>1?'s':''} atrás` : `em ${dr} dia${dr>1?'s':''}`;
 
   return (
-    <div style={{ background:'var(--card)', border:`1px solid ${confirmando?cor:cor+'40'}`, borderRadius:13, padding:'12px 14px', marginBottom:8 }}>
+    <div style={{ background:'var(--card)', border:`1px solid ${(confirmando||reagendando)?cor:cor+'40'}`, borderRadius:13, padding:'12px 14px', marginBottom:8 }}>
       <div style={{ display:'flex', alignItems:'center', gap:12 }}>
         <div style={{ width:10, height:10, borderRadius:5, flexShrink:0, background:cor }} />
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'var(--ink)' }}>{item.cavaloNome}</div>
-          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>{insumo?.nome||'—'} · {item.etapaLabel || item.protocoloNome}</div>
+          <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
+            {insumo?.nome||'—'} · {item.etapaLabel || item.protocoloNome}
+            {item.reagendadoDe && <span style={{ marginLeft: 6, fontSize: 10, background: '#e5e7eb', color: '#4b5563', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>REAGENDADA</span>}
+          </div>
           {item.ultimaRealizacao && (
             <div style={{ fontSize:11, color:'var(--ink-3)', marginTop:1 }}>Última: {fmtDate(item.ultimaRealizacao)}</div>
           )}
           {!item.ultimaRealizacao && !item.etapaLabel && (
             <div style={{ fontSize:11, color:'#b45309', marginTop:1 }}>Nunca realizada</div>
           )}
+          {item.reagendadoDe && (
+            <div style={{ fontSize:10, color:'var(--ink-3)', marginTop:1 }}>Era prevista {fmtDate(item.reagendadoDe)}</div>
+          )}
         </div>
         <div style={{ flexShrink:0, textAlign:'right' }}>
-          {!confirmando && (
+          {!confirmando && !reagendando && (
             <>
               <div style={{ fontSize:11, fontWeight:600, color:cor, marginBottom:6 }}>{labelDias}</div>
-              <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
+              <div style={{ display:'flex', gap:6, justifyContent:'flex-end', flexWrap:'wrap' }}>
                 <button onClick={()=>setConfirmando(true)} style={{ background:cor, color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>Aplicar ✓</button>
+                {onReagendar && (
+                  <button onClick={()=>setReagendando(true)} title="Reagendar dose" style={{ background:'transparent', color:'var(--ink-2)', border:'1px solid var(--line)', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)' }}>🗓</button>
+                )}
                 {onCancelar && (
                   <button onClick={()=>onCancelar(item)} title="Cancelar esta dose" style={{ background:'transparent', color:'var(--ink-3)', border:'1px solid var(--line)', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)' }}>⊘</button>
                 )}
@@ -1611,6 +1698,17 @@ function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, cor }) {
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={()=>setConfirmando(false)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:13, fontFamily:'var(--sans)' }}>Cancelar</button>
             <button onClick={()=>{ onVermifugar?.(item,dataReal); setConfirmando(false); }} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:cor, color:'#fff', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Confirmar</button>
+          </div>
+        </div>
+      )}
+      {reagendando && (
+        <div style={{ marginTop:12, padding:'12px 14px', background:'var(--soft)', borderRadius:10 }}>
+          <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:8 }}>🗓 Reagendar para qual data?</div>
+          <input type="date" value={novaData} min={hoje} onChange={e=>setNovaData(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+          <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:8 }}>A dose será movida para essa data e continuará na agenda.</div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>setReagendando(false)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:13, fontFamily:'var(--sans)' }}>Cancelar</button>
+            <button onClick={()=>{ onReagendar?.(item,novaData); setReagendando(false); }} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:'#6b7280', color:'#fff', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Reagendar</button>
           </div>
         </div>
       )}

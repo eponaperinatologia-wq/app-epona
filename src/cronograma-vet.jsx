@@ -185,7 +185,9 @@ export function CronogramaVetScreen({
 }) {
   const [itemAbertoId, setItemAbertoId] = useState(null);
   const [confirmandoId, setConfirmandoId] = useState(null);
+  const [reagendandoId, setReagendandoId] = useState(null);
   const [dataAplic, setDataAplic] = useState(todayISO());
+  const [novaData, setNovaData] = useState(todayISO());
   const [filtroTipo, setFiltroTipo] = useState('todos');
 
   const itens = useMemo(() => coletarTarefas({
@@ -335,6 +337,50 @@ export function CronogramaVetScreen({
     setConfirmandoId(null);
   };
 
+  const iniciarReagendamento = (it) => {
+    if (it.tipoItem === 'parto-previsto') return;
+    const hoje = todayISO();
+    const dataPrev = (it.dataHora || '').slice(0, 10);
+    setNovaData(dataPrev && dataPrev > hoje ? dataPrev : hoje);
+    setReagendandoId(it.id);
+    setConfirmandoId(null);
+  };
+
+  const cancelarReagendamento = () => setReagendandoId(null);
+
+  const confirmarReagendamento = async (it) => {
+    const nova = novaData;
+    if (!nova) return;
+    if (it.tipoItem === 'vacinacao') {
+      const v = it._raw.agendaItem;
+      const vacId = `vac_${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`;
+      upsertVacinacaoAnimal({
+        id: vacId, protocoloId: v.protocoloId, doseIdx: v.doseIdx,
+        cavaloId: v.cavaloId, dataPrevista: v.dataPrevista,
+        feito: false, cancelado: false,
+        reagendadoPara: nova,
+      });
+    } else if (it.tipoItem === 'vermifugacao') {
+      const v = it._raw.agendaItem;
+      addVermifugacaoAnimal && addVermifugacaoAnimal({
+        id: 'verm_reag_' + Date.now() + '_' + v.cavaloId,
+        protocoloId: v.protocoloId, cavaloId: v.cavaloId,
+        dataRealizacao: todayISO(),
+        produto: '(reagendada)',
+        registradoPor: currentUser?.nome || '',
+        etapaIdx: v.etapaIdx ?? null,
+        reagendadoPara: nova,
+      });
+    } else if (it.tipoItem === 'progesterona') {
+      const { aplicacao } = it._raw;
+      updateProgesteronaAplicacao && updateProgesteronaAplicacao(aplicacao.id, { data: nova });
+    } else if (it.tipoItem === 'emerg-medicacao') {
+      const { medicacao } = it._raw;
+      updateEmergMedicacao && updateEmergMedicacao(medicacao.id, { data: nova, hora: medicacao.hora || '09:00' });
+    }
+    setReagendandoId(null);
+  };
+
   const TIPOS = [
     ['todos', 'Todos', 'var(--accent)'],
     ['emergencia', 'Emergências', '#dc2626'],
@@ -379,11 +425,13 @@ export function CronogramaVetScreen({
         <NavegacaoDias
           itens={itensFiltrados}
           destacaAtrasado
+          agruparAtrasados
           emptyText="Nada pendente para essa faixa."
           renderItem={(it) => {
             const isParam = it.tipoItem === 'emerg-parametro';
             const abertoInline = itemAbertoId === it.id;
             const confirmando = confirmandoId === it.id;
+            const reagendando = reagendandoId === it.id;
             const readOnly = it.tipoItem === 'parto-previsto';
             const hoje = todayISO();
             return (
@@ -392,9 +440,10 @@ export function CronogramaVetScreen({
                   it={it}
                   atrasado={new Date(it.dataHora) < new Date()}
                   mostraAnimal
-                  ativa={abertoInline || confirmando}
+                  ativa={abertoInline || confirmando || reagendando}
                   onBoxClick={isParam ? () => setItemAbertoId(abertoInline ? null : it.id) : undefined}
                   onAcao={!isParam && !readOnly ? () => iniciarConfirmacao(it) : undefined}
+                  onReagendar={!isParam && !readOnly ? () => iniciarReagendamento(it) : undefined}
                   onAbrirFicha={it.tipoItem.startsWith('emerg') && onAbrirEmergencia
                     ? () => onAbrirEmergencia(it._raw.emergencia.id)
                     : undefined}
@@ -432,6 +481,25 @@ export function CronogramaVetScreen({
                       <div style={{ display: 'flex', gap: 8 }}>
                         <button onClick={cancelarConfirmacao} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
                         <button onClick={() => confirmar(it)} style={{ flex: 2, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Confirmar</button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {reagendando && (
+                  <div style={{ marginBottom: 10, marginLeft: 12, borderLeft: '2px solid #6b7280', paddingLeft: 10 }}>
+                    <div style={{ background: 'var(--soft)', borderRadius: 10, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>🗓 Reagendar para qual data?</div>
+                      <input
+                        type="date"
+                        value={novaData}
+                        min={hoje}
+                        onChange={e => setNovaData(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }}
+                      />
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8 }}>A dose será movida para essa data e continuará aparecendo na agenda.</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={cancelarReagendamento} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+                        <button onClick={() => confirmarReagendamento(it)} style={{ flex: 2, padding: '8px 0', borderRadius: 8, border: 'none', background: '#6b7280', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Reagendar</button>
                       </div>
                     </div>
                   </div>
