@@ -184,6 +184,8 @@ export function CronogramaVetScreen({
   onBack, onAbrirEmergencia,
 }) {
   const [itemAbertoId, setItemAbertoId] = useState(null);
+  const [confirmandoId, setConfirmandoId] = useState(null);
+  const [dataAplic, setDataAplic] = useState(todayISO());
   const [filtroTipo, setFiltroTipo] = useState('todos');
 
   const itens = useMemo(() => coletarTarefas({
@@ -206,7 +208,22 @@ export function CronogramaVetScreen({
     return itens.filter(i => i.tipoItem === filtroTipo);
   }, [itens, filtroTipo]);
 
-  const marcarFeito = async (it) => {
+  const iniciarConfirmacao = (it) => {
+    // Emergência marca direto (fluxo original) — os demais pedem confirmação com data
+    if (it.tipoItem === 'emerg-medicacao') {
+      marcarFeito(it);
+      return;
+    }
+    const hoje = todayISO();
+    const dataPrev = (it.dataHora || '').slice(0, 10);
+    setDataAplic(dataPrev && dataPrev < hoje ? dataPrev : hoje);
+    setConfirmandoId(it.id);
+  };
+
+  const cancelarConfirmacao = () => setConfirmandoId(null);
+
+  const marcarFeito = async (it, dataEscolhida) => {
+    const data = dataEscolhida || todayISO();
     if (it.tipoItem === 'emerg-medicacao') {
       const { medicacao, emergencia } = it._raw;
       await marcarMedicacaoFeita({
@@ -219,28 +236,28 @@ export function CronogramaVetScreen({
     }
     if (it.tipoItem === 'vacinacao') {
       const v = it._raw.agendaItem;
-      const today = todayISO();
+      const hoje = todayISO();
       const cavalo = cavalos.find(c => c.id === v.cavaloId);
       const vacinaId = v.dose?.insumoId || v.insumoId;
       const vacina = insumos.find(i => i.id === vacinaId);
       const vacId = `vac_${v.protocoloId}_${v.doseIdx}_${v.cavaloId}`;
-      const ehMesAtual = today.slice(0,7) === today.slice(0,7);
+      const ehMesAtual = data.slice(0,7) === hoje.slice(0,7);
       upsertVacinacaoAnimal({
         id: vacId, protocoloId: v.protocoloId, doseIdx: v.doseIdx,
         cavaloId: v.cavaloId, dataPrevista: v.dataPrevista,
-        feito: true, feitoPor: currentUser?.nome || '', feitoEm: today + 'T12:00:00',
+        feito: true, feitoPor: currentUser?.nome || '', feitoEm: data + 'T12:00:00',
       });
       if (vacina && cavalo && ehMesAtual) {
         addRegistro && addRegistro({
           id: 'reg_vac_' + Date.now() + '_' + cavalo.id,
           cavaloId: cavalo.id, insumoId: vacina.id, qtd: 1,
-          hora: nowHHMM(), usuario: currentUser?.nome || '', isAuto: false, data: today,
+          hora: nowHHMM(), usuario: currentUser?.nome || '', isAuto: false, data,
         });
         (vacina.descartaveis || []).forEach(d => {
           addRegistro && addRegistro({
             id: 'reg_vac_desc_' + d.insumoId + '_' + Date.now() + '_' + cavalo.id,
             cavaloId: cavalo.id, insumoId: d.insumoId, qtd: d.qtd || 1,
-            hora: nowHHMM(), usuario: currentUser?.nome || '', isAuto: true, data: today,
+            hora: nowHHMM(), usuario: currentUser?.nome || '', isAuto: true, data,
           });
         });
       }
@@ -250,20 +267,19 @@ export function CronogramaVetScreen({
           tipo: 'vacinacao', cavaloId: cavalo.id, insumoId: vacina.id, qtd: 1,
           motivo: `${v.protocoloNome || ''} · ${v.dose?.label || 'Dose ' + (v.doseIdx+1)}`,
           usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
-          mes: today.slice(0,7), data: today, hora: nowHHMM(), texto: '',
+          mes: data.slice(0,7), data, hora: nowHHMM(), texto: '',
         });
       }
       return;
     }
     if (it.tipoItem === 'vermifugacao') {
       const v = it._raw.agendaItem;
-      const today = todayISO();
       const cavalo = cavalos.find(c => c.id === v.cavaloId);
       const insumo = insumos.find(i => i.id === v.insumoId);
       addVermifugacaoAnimal && addVermifugacaoAnimal({
         id: 'verm_' + Date.now() + '_' + v.cavaloId,
         protocoloId: v.protocoloId, cavaloId: v.cavaloId,
-        dataRealizacao: today, produto: insumo?.nome || '',
+        dataRealizacao: data, produto: insumo?.nome || '',
         registradoPor: currentUser?.nome || '',
         etapaIdx: v.etapaIdx ?? null,
       });
@@ -273,7 +289,7 @@ export function CronogramaVetScreen({
           tipo: 'vermifugacao', cavaloId: cavalo.id, insumoId: insumo.id, qtd: 1,
           motivo: v.protocoloNome || '',
           usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
-          mes: today.slice(0,7), data: today, hora: nowHHMM(), texto: '',
+          mes: data.slice(0,7), data, hora: nowHHMM(), texto: '',
         });
       }
       return;
@@ -281,7 +297,6 @@ export function CronogramaVetScreen({
     if (it.tipoItem === 'progesterona') {
       const { aplicacao, programa } = it._raw;
       const insumo = insumos.find(i => i.id === programa.insumoId);
-      const today = todayISO();
       const hora = nowHHMM();
       const usuario = currentUser?.nome || '';
       const rid = 'reg_prog_' + Date.now() + '_' + Math.random().toString(36).slice(2,5);
@@ -290,19 +305,19 @@ export function CronogramaVetScreen({
         addRegistro && addRegistro({
           id: rid, cavaloId: programa.cavaloId, insumoId: insumo.id,
           qtd: Number(programa.doseQtd) || 1,
-          hora, usuario, isAuto: false, data: today,
+          hora, usuario, isAuto: false, data,
         });
         addAtividade && addAtividade({
           id: 'at_' + rid, tipo: 'insumo', cavaloId: programa.cavaloId,
           insumoId: insumo.id, qtd: Number(programa.doseQtd) || 1,
           motivo: `Progesterona · ${insumo.nome}`,
-          usuario, autor: usuario, mes: today.slice(0,7),
-          data: today, hora, texto: '',
+          usuario, autor: usuario, mes: data.slice(0,7),
+          data, hora, texto: '',
         });
         if (insumo.injetavel && insumo.descartaveis?.length) {
           descartaveisRegistros = addDescartaveis(
             addRegistro, insumo.id, programa.cavaloId, 1,
-            insumos, hora, usuario, today
+            insumos, hora, usuario, data
           );
         }
       }
@@ -313,6 +328,11 @@ export function CronogramaVetScreen({
       });
       return;
     }
+  };
+
+  const confirmar = async (it) => {
+    await marcarFeito(it, dataAplic);
+    setConfirmandoId(null);
   };
 
   const TIPOS = [
@@ -363,16 +383,18 @@ export function CronogramaVetScreen({
           renderItem={(it) => {
             const isParam = it.tipoItem === 'emerg-parametro';
             const abertoInline = itemAbertoId === it.id;
+            const confirmando = confirmandoId === it.id;
             const readOnly = it.tipoItem === 'parto-previsto';
+            const hoje = todayISO();
             return (
               <React.Fragment key={it.id}>
                 <ItemCronograma
                   it={it}
                   atrasado={new Date(it.dataHora) < new Date()}
                   mostraAnimal
-                  ativa={abertoInline}
+                  ativa={abertoInline || confirmando}
                   onBoxClick={isParam ? () => setItemAbertoId(abertoInline ? null : it.id) : undefined}
-                  onAcao={!isParam && !readOnly ? () => marcarFeito(it) : undefined}
+                  onAcao={!isParam && !readOnly ? () => iniciarConfirmacao(it) : undefined}
                   onAbrirFicha={it.tipoItem.startsWith('emerg') && onAbrirEmergencia
                     ? () => onAbrirEmergencia(it._raw.emergencia.id)
                     : undefined}
@@ -391,6 +413,27 @@ export function CronogramaVetScreen({
                         setItemAbertoId(null);
                       }}
                     />
+                  </div>
+                )}
+                {confirmando && (
+                  <div style={{ marginBottom: 10, marginLeft: 12, borderLeft: '2px solid var(--accent)', paddingLeft: 10 }}>
+                    <div style={{ background: 'var(--soft)', borderRadius: 10, padding: '12px 14px' }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', marginBottom: 8 }}>Quando foi aplicada?</div>
+                      <input
+                        type="date"
+                        value={dataAplic}
+                        max={hoje}
+                        onChange={e => setDataAplic(e.target.value)}
+                        style={{ width: '100%', padding: '9px 12px', borderRadius: 9, border: '1px solid var(--line)', background: 'var(--card)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box', marginBottom: 8 }}
+                      />
+                      {dataAplic.slice(0,7) === hoje.slice(0,7)
+                        ? <div style={{ fontSize: 11, color: '#15803d', background: '#f0fdf4', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>Mês atual — será lançado na fatura.</div>
+                        : <div style={{ fontSize: 11, color: '#b45309', background: '#fef3c7', borderRadius: 8, padding: '6px 10px', marginBottom: 8 }}>Data em mês anterior — sem lançamento na fatura.</div>}
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button onClick={cancelarConfirmacao} style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink)', fontSize: 13, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Cancelar</button>
+                        <button onClick={() => confirmar(it)} style={{ flex: 2, padding: '8px 0', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 700, fontFamily: 'var(--sans)', cursor: 'pointer' }}>Confirmar</button>
+                      </div>
+                    </div>
                   </div>
                 )}
               </React.Fragment>
