@@ -243,6 +243,13 @@ function SecaoAccordion({ titulo, icone, cor, contador, defaultOpen = false, chi
 // ─────────────────────────────────────────────────────────────
 export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false, agruparAtrasados = false }) {
   const hoje = _fmtDataLocal(new Date());
+  const tabAtivaRef = React.useRef(null);
+  React.useEffect(() => {
+    if (tabAtivaRef.current && tabAtivaRef.current.scrollIntoView) {
+      tabAtivaRef.current.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const dias = itemsPorDia || useMemo(() => {
     const map = new Map();
     (itens || []).forEach(it => {
@@ -289,6 +296,7 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
             return (
               <button
                 key="atrasados"
+                ref={ativa ? tabAtivaRef : null}
                 onClick={() => setDiaIdx(i)}
                 style={{
                   flexShrink: 0, minWidth: 74,
@@ -314,6 +322,7 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
           return (
             <button
               key={d}
+              ref={ativa ? tabAtivaRef : null}
               onClick={() => setDiaIdx(i)}
               style={{
                 flexShrink: 0, minWidth: 54,
