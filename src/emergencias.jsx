@@ -92,24 +92,35 @@ async function marcarMedicacaoFeita({
   if (m.servicoId) {
     const sv = servicos.find(s => s.id === m.servicoId);
     const pid = 'proc_emg_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    // Insumos adicionais que o usuário incluiu no form (ex.: soros, vitaminas)
+    const insAdics = (m.insumosAdicionais || [])
+      .filter(a => a.insumoId && Number(a.qtd) > 0)
+      .map(a => ({ insumoId: a.insumoId, qtd: Number(a.qtd) }));
     let total = sv?.valor || 0;
     (sv?.descartaveisObrigatorios || []).forEach(d => {
       const ins = insumos.find(i => i.id === d.insumoId);
       total += (ins?.valorVenda || 0) * d.qtd;
     });
+    insAdics.forEach(a => {
+      const ins = insumos.find(i => i.id === a.insumoId);
+      total += (ins?.valorVenda || 0) * a.qtd;
+    });
     addProcedimento({
       id: pid, cavaloId: emergencia.cavaloId, servicoId: m.servicoId,
       valorServico: sv?.valor || 0, total,
       descartaveisObrigatorios: sv?.descartaveisObrigatorios || [],
-      insumosAdicionais: [],
+      insumosAdicionais: insAdics,
       motoboy: { ativo: false, valor: 0, nome: '' },
       laboratorio: '', tubosSelecionados: [], examesSelecionados: [],
       hora, nota: `Emergência: ${emergencia.titulo}`, data: m.data,
     });
+    const detalheInsAdics = insAdics.length > 0
+      ? ` (+ ${insAdics.length} insumo${insAdics.length > 1 ? 's' : ''})`
+      : '';
     addAtividade && addAtividade({
       id: 'at_' + pid, tipo: 'procedimento', cavaloId: emergencia.cavaloId,
       insumoId: null, qtd: null,
-      motivo: `Emergência: ${emergencia.titulo} — ${sv?.nome || ''}`,
+      motivo: `Emergência: ${emergencia.titulo} — ${sv?.nome || ''}${detalheInsAdics}`,
       usuario, autor: usuario, mes: m.data.slice(0, 7),
       data: m.data, hora, texto: '',
     });
@@ -1115,6 +1126,7 @@ function SecaoMedicacoes({
                     key={m.id}
                     m={m} item={item} emergAtiva={emergAtiva}
                     isAdmin={currentUser?.role === 'admin'}
+                    insumos={insumos}
                     onFeito={() => handleMarcarFeito(m)}
                     onDesmarcar={() => handleDesmarcar(m)}
                     onCancelar={() => handleCancelar(m)}
@@ -1133,7 +1145,7 @@ function SecaoMedicacoes({
 }
 
 // Uma linha de medicação — estilo compacto, ações contextuais
-function LinhaMedicacao({ m, item, emergAtiva, isAdmin, onFeito, onDesmarcar, onCancelar, onReativar, onEditar, onExcluir }) {
+function LinhaMedicacao({ m, item, emergAtiva, isAdmin, insumos = [], onFeito, onDesmarcar, onCancelar, onReativar, onEditar, onExcluir }) {
   const CFG = {
     programado: { cor: '#1d4ed8', bg: '#1d4ed810', ico: '●', label: 'Prog.' },
     feito:      { cor: '#15803d', bg: '#15803d10', ico: '✓', label: 'Feito' },
@@ -1155,6 +1167,14 @@ function LinhaMedicacao({ m, item, emergAtiva, isAdmin, onFeito, onDesmarcar, on
         <div style={{ fontSize: 13, color: 'var(--ink)', textDecoration: m.status === 'cancelado' ? 'line-through' : 'none' }}>
           <b>{m.doseQtd || ''} {item.unidade}</b> {item.nome}
         </div>
+        {(m.insumosAdicionais || []).length > 0 && (
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1, lineHeight: 1.4 }}>
+            + {m.insumosAdicionais.map((a) => {
+              const ins = insumos.find(i => i.id === a.insumoId);
+              return `${a.qtd} ${ins?.unidade || 'un'} ${ins?.nome || a.insumoId}`;
+            }).join(' · ')}
+          </div>
+        )}
         {m.recorrencia?.tipo && m.recorrencia.tipo !== 'unica' && (
           <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
             ↻ {descreveRecorrencia(m.recorrencia)}
@@ -1210,6 +1230,13 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
   const [recType, setRecType] = useState(initial?.recorrencia?.tipo || 'unica');
   const [recValor, setRecValor] = useState(initial?.recorrencia?.valor != null ? String(initial.recorrencia.valor) : '8');
   const [recAte, setRecAte] = useState(initial?.recorrencia?.ate || '');
+  // Insumos adicionais só valem quando tipo === 'servico' (ex: soroterapia +
+  // soros + vitaminas). Estrutura: [{ insumoId, qtd }]
+  const [insAdics, setInsAdics] = useState(
+    (initial?.insumosAdicionais || []).map(a => ({ insumoId: a.insumoId, qtd: a.qtd || 1 }))
+  );
+  const [insAdicBusca, setInsAdicBusca] = useState('');
+  const [insAdicShow, setInsAdicShow] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const opcoes = useMemo(() => {
@@ -1231,6 +1258,9 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
     if (!canSave) return;
     setSaving(true);
     try {
+      const insAdicsClean = tipo === 'servico'
+        ? insAdics.filter(a => a.insumoId && Number(a.qtd) > 0).map(a => ({ insumoId: a.insumoId, qtd: Number(a.qtd) }))
+        : [];
       const payload = {
         insumoId: tipo === 'insumo' ? itemId : null,
         servicoId: tipo === 'servico' ? itemId : null,
@@ -1240,6 +1270,7 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
         recorrencia: recType === 'unica'
           ? { tipo: 'unica' }
           : { tipo: recType, valor: Number(recValor) || 0, ate: recAte || null },
+        insumosAdicionais: insAdicsClean,
       };
       await onSave(payload);
     } finally {
@@ -1320,6 +1351,77 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
             placeholder="Ex: 10"
             style={inputSt}
           />
+        </div>
+      )}
+
+      {/* Insumos adicionais ao serviço (ex.: soroterapia + soros + vitaminas) */}
+      {tipo === 'servico' && itemId && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 8, padding: 8, marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+              Insumos adicionais {insAdics.length > 0 && `(${insAdics.length})`}
+            </div>
+            <button
+              onClick={() => setInsAdicShow(v => !v)}
+              style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 6, padding: '3px 8px', fontSize: 11, fontWeight: 700, color: 'var(--ink)', cursor: 'pointer', fontFamily: 'var(--sans)' }}
+            >{insAdicShow ? '× fechar' : '+ Adicionar'}</button>
+          </div>
+
+          {insAdicShow && (
+            <div style={{ marginBottom: 6 }}>
+              <input
+                value={insAdicBusca} onChange={e => setInsAdicBusca(e.target.value)}
+                placeholder="Buscar insumo…"
+                style={{ ...inputSt, marginBottom: 4 }}
+              />
+              <div style={{ maxHeight: 130, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 6, background: 'var(--card)' }}>
+                {insumos
+                  .filter(i => i.categoria !== 'descartavel')
+                  .filter(i => !insAdics.some(a => a.insumoId === i.id))
+                  .filter(i => !insAdicBusca.trim() || i.nome.toLowerCase().includes(insAdicBusca.toLowerCase()))
+                  .slice(0, 20)
+                  .map(i => (
+                    <button
+                      key={i.id}
+                      onClick={() => {
+                        setInsAdics(prev => [...prev, { insumoId: i.id, qtd: 1 }]);
+                        setInsAdicBusca('');
+                      }}
+                      style={{ width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--line)', padding: '6px 9px', textAlign: 'left', cursor: 'pointer', fontSize: 12, color: 'var(--ink)', fontFamily: 'var(--sans)' }}
+                    >
+                      {i.nome} <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>· {i.unidade}</span>
+                    </button>
+                  ))}
+              </div>
+            </div>
+          )}
+
+          {insAdics.map((a, idx) => {
+            const ins = insumos.find(i => i.id === a.insumoId);
+            return (
+              <div key={idx} style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 6, padding: '5px 8px', marginBottom: 4 }}>
+                <span style={{ flex: 1, fontSize: 12, color: 'var(--ink)', fontWeight: 500 }}>
+                  {ins?.nome || a.insumoId}
+                </span>
+                <input
+                  type="number" min="0" step="0.01" value={a.qtd}
+                  onChange={e => setInsAdics(prev => prev.map((x, j) => j === idx ? { ...x, qtd: e.target.value } : x))}
+                  style={{ width: 60, padding: '4px 6px', border: '1px solid var(--line)', borderRadius: 5, fontSize: 12, background: 'var(--card)', fontFamily: 'var(--sans)', textAlign: 'right' }}
+                />
+                <span style={{ fontSize: 10, color: 'var(--ink-3)', minWidth: 22 }}>{ins?.unidade || 'un'}</span>
+                <button
+                  onClick={() => setInsAdics(prev => prev.filter((_, j) => j !== idx))}
+                  style={{ background: 'none', border: 'none', color: '#dc2626', fontSize: 14, cursor: 'pointer', padding: 0, width: 20 }}
+                >×</button>
+              </div>
+            );
+          })}
+
+          {insAdics.length === 0 && !insAdicShow && (
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', padding: '4px 0', fontStyle: 'italic' }}>
+              Nenhum insumo adicional. Clique em "+ Adicionar" pra incluir soros, vitaminas, etc.
+            </div>
+          )}
         </div>
       )}
 

@@ -490,6 +490,7 @@ export const fromDbEmergenciaMedicacao = r => ({
   procedimentoId: r.procedimento_id || null,
   frascoId: r.frasco_id || null,
   descartaveisRegistros: r.descartaveis_registros || [],
+  insumosAdicionais: r.insumos_adicionais || [],
   nota: r.nota || '',
 });
 export const toDbEmergenciaMedicacao = m => ({
@@ -505,6 +506,7 @@ export const toDbEmergenciaMedicacao = m => ({
   procedimento_id: m.procedimentoId || null,
   frasco_id: m.frascoId || null,
   descartaveis_registros: m.descartaveisRegistros || [],
+  insumos_adicionais: m.insumosAdicionais || [],
   nota: m.nota || '',
 });
 
@@ -592,7 +594,7 @@ const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo
 const FUNCIONARIO_MAP = { salarioBase: 'salario_base', regimePagamento: 'regime_pagamento', encargosPct: 'encargos_pct' };
 const CUSTO_FIXO_MAP = { dataVencimento: 'data_vencimento', pagoEm: 'pago_em', funcionarioId: 'funcionario_id', encargosPct: 'encargos_pct' };
 const EMERGENCIA_MAP = { cavaloId: 'cavalo_id', observacaoUrgente: 'observacao_urgente', abertaEm: 'aberta_em', encerradaEm: 'encerrada_em', autorAbertura: 'autor_abertura' };
-const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', servicoId: 'servico_id', doseQtd: 'dose_qtd', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', procedimentoId: 'procedimento_id', frascoId: 'frasco_id', descartaveisRegistros: 'descartaveis_registros' };
+const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', servicoId: 'servico_id', doseQtd: 'dose_qtd', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', procedimentoId: 'procedimento_id', frascoId: 'frasco_id', descartaveisRegistros: 'descartaveis_registros', insumosAdicionais: 'insumos_adicionais' };
 const EMERG_AGE_MAP  = { emergenciaId: 'emergencia_id', intervaloHoras: 'intervalo_horas' };
 const FRASCO_MAP     = { insumoId: 'insumo_id', cavaloId: 'cavalo_id', emergenciaId: 'emergencia_id', abertoEm: 'aberto_em', validoAte: 'valido_ate', valorCobrado: 'valor_cobrado', registroId: 'registro_id' };
 
