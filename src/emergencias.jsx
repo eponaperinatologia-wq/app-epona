@@ -2040,69 +2040,80 @@ function SecaoCronogramaIndividual({ emergencia, insumos, servicos, medicacoes, 
     emergencias: [emergencia], medicacoes, agendas, insumos, servicos, parametros,
   }), [emergencia, medicacoes, agendas, insumos, servicos, parametros]);
 
-  const [showParamForm, setShowParamForm] = useState(false);
-  const [paramInicialData, setParamInicialData] = useState(null);
+  // Id do item de parâmetro cujo form está expandido inline
+  const [itemAbertoId, setItemAbertoId] = useState(null);
 
-  const marcarFeito = async (it) => {
-    if (it.tipoItem === 'parametro') {
-      setParamInicialData({ agendaId: it.agendaId, dataHora: it.dataHora });
-      setShowParamForm(true);
-      return;
-    }
-    if (it.tipoItem === 'medicacao') {
-      // Recupera a medicação real e chama o helper de cobrança
-      const m = medicacoes.find(x => x.id === it.medicacaoId);
-      if (!m) return;
-      await marcarMedicacaoFeita({
-        m, emergencia, insumos, servicos, frascosAbertos,
-        addRegistro, addProcedimento, addAtividade,
-        updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
-        currentUser,
-      });
-    }
+  const marcarMedicacao = async (it) => {
+    const m = medicacoes.find(x => x.id === it.medicacaoId);
+    if (!m) return;
+    await marcarMedicacaoFeita({
+      m, emergencia, insumos, servicos, frascosAbertos,
+      addRegistro, addProcedimento, addAtividade,
+      updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+      currentUser,
+    });
   };
 
   return (
     <div>
-      {showParamForm && (
-        <ParametroForm
-          initial={paramInicialData}
-          onCancel={() => { setShowParamForm(false); setParamInicialData(null); }}
-          onSave={async (data) => {
-            await addEmergParametro({ ...data, emergenciaId: emergencia.id, agendaId: paramInicialData?.agendaId });
-            setShowParamForm(false); setParamInicialData(null);
-          }}
-        />
-      )}
-
       <NavegacaoDias
         itens={itens}
         destacaAtrasado
         emptyText="Nada pendente. Programe medicações ou solicite parâmetros abaixo."
-        renderItem={(it) => (
-          <ItemCronograma
-            key={it.id}
-            it={it}
-            atrasado={new Date(it.dataHora) < new Date()}
-            onAcao={() => marcarFeito(it)}
-          />
-        )}
+        renderItem={(it) => {
+          const isParam = it.tipoItem === 'parametro';
+          const aberto = itemAbertoId === it.id;
+          return (
+            <React.Fragment key={it.id}>
+              <ItemCronograma
+                it={it}
+                atrasado={new Date(it.dataHora) < new Date()}
+                ativa={aberto}
+                onBoxClick={isParam ? () => setItemAbertoId(aberto ? null : it.id) : undefined}
+                onAcao={!isParam ? () => marcarMedicacao(it) : undefined}
+              />
+              {isParam && aberto && (
+                <div style={{ marginBottom: 8, marginLeft: 12, borderLeft: '2px solid #b45309', paddingLeft: 10 }}>
+                  <ParametroForm
+                    initial={{ agendaId: it.agendaId, dataHora: it.dataHora }}
+                    onCancel={() => setItemAbertoId(null)}
+                    onSave={async (data) => {
+                      await addEmergParametro({
+                        ...data, emergenciaId: emergencia.id, agendaId: it.agendaId,
+                      });
+                      setItemAbertoId(null);
+                    }}
+                  />
+                </div>
+              )}
+            </React.Fragment>
+          );
+        }}
       />
     </div>
   );
 }
 
-function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha }) {
+function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha, onBoxClick, ativa }) {
   const cor = it.tipoItem === 'medicacao' ? '#1d4ed8' : '#b45309';
   const [, hora] = it.dataHora.split('T');
   const horaFmt = hora ? hora.slice(0, 5) : '';
+  // Se onBoxClick foi passado, o BOX INTEIRO fica clicável (usado pra
+  // parâmetros — abrir form inline). Caso contrário, só o botão ✓.
+  const clicavel = !!onBoxClick;
   return (
-    <div style={{
-      background: 'var(--card)', border: '1px solid var(--line)',
-      borderLeft: `3px solid ${atrasado ? '#dc2626' : cor}`,
-      borderRadius: 8, padding: '8px 10px', marginBottom: 5,
-      display: 'flex', alignItems: 'center', gap: 10,
-    }}>
+    <div
+      onClick={clicavel ? onBoxClick : undefined}
+      style={{
+        background: ativa ? '#fef3c7' : 'var(--card)',
+        border: `1px solid ${ativa ? '#f59e0b' : 'var(--line)'}`,
+        borderLeft: `3px solid ${atrasado ? '#dc2626' : cor}`,
+        borderRadius: 8, padding: '8px 10px', marginBottom: 5,
+        display: 'flex', alignItems: 'center', gap: 10,
+        cursor: clicavel ? 'pointer' : 'default',
+        transition: 'background 0.15s, border-color 0.15s',
+      }}
+    >
       <span style={{ fontFamily: 'var(--mono, monospace)', fontSize: 12, color: atrasado ? '#dc2626' : 'var(--ink-2)', fontWeight: 700, minWidth: 42 }}>
         {horaFmt}
       </span>
@@ -2113,7 +2124,10 @@ function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha }) {
         </div>
         {mostraAnimal && it.animalNome && (
           onAbrirFicha ? (
-            <button onClick={onAbrirFicha} style={{ background: 'none', border: 'none', color: 'var(--accent)', padding: 0, marginTop: 2, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', textDecorationStyle: 'dotted' }}>
+            <button
+              onClick={(e) => { e.stopPropagation(); onAbrirFicha(); }}
+              style={{ background: 'none', border: 'none', color: 'var(--accent)', padding: 0, marginTop: 2, fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)', textDecoration: 'underline', textDecorationStyle: 'dotted' }}
+            >
               🐴 {it.animalNome}
             </button>
           ) : (
@@ -2124,8 +2138,14 @@ function ItemCronograma({ it, atrasado, onAcao, mostraAnimal, onAbrirFicha }) {
           <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{it.sub}</div>
         )}
       </div>
-      {onAcao && (
-        <button onClick={onAcao} title={it.tipoItem === 'parametro' ? 'Registrar aferição' : 'Marcar feito'} style={btnIco(atrasado ? '#dc2626' : '#15803d')}>
+      {clicavel ? (
+        <span style={{ fontSize: 14, color: ativa ? '#b45309' : 'var(--ink-3)', transform: ativa ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }}>▸</span>
+      ) : onAcao && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onAcao(); }}
+          title="Marcar feito"
+          style={btnIco(atrasado ? '#dc2626' : '#15803d')}
+        >
           ✓
         </button>
       )}
@@ -2148,33 +2168,23 @@ function CronogramaCentral({
   }), [emergencias, emergMedicacoes, emergAgendas, insumos, servicos, emergParametros, cavalos]);
 
   const [aberto, setAberto] = useState(true);
-  const [showParamForm, setShowParamForm] = useState(false);
-  const [paramInicialData, setParamInicialData] = useState(null);
+  const [itemAbertoId, setItemAbertoId] = useState(null);
 
   if (itens.length === 0) return null;
 
   const atrasados = itens.filter(i => new Date(i.dataHora) < new Date());
 
-  const marcarFeito = async (it) => {
+  const marcarMedicacao = async (it) => {
     const emerg = emergencias.find(e => e.id === it.emergenciaId);
     if (!emerg) return;
-    if (it.tipoItem === 'parametro') {
-      setParamInicialData({
-        emergenciaId: emerg.id, agendaId: it.agendaId, dataHora: it.dataHora,
-      });
-      setShowParamForm(true);
-      return;
-    }
-    if (it.tipoItem === 'medicacao') {
-      const m = emergMedicacoes.find(x => x.id === it.medicacaoId);
-      if (!m) return;
-      await marcarMedicacaoFeita({
-        m, emergencia: emerg, insumos, servicos, frascosAbertos,
-        addRegistro, addProcedimento, addAtividade,
-        updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
-        currentUser,
-      });
-    }
+    const m = emergMedicacoes.find(x => x.id === it.medicacaoId);
+    if (!m) return;
+    await marcarMedicacaoFeita({
+      m, emergencia: emerg, insumos, servicos, frascosAbertos,
+      addRegistro, addProcedimento, addAtividade,
+      updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
+      currentUser,
+    });
   };
 
   return (
@@ -2204,39 +2214,46 @@ function CronogramaCentral({
       </button>
 
       {aberto && (
-        <>
-          {showParamForm && (
-            <ParametroForm
-              initial={paramInicialData}
-              onCancel={() => { setShowParamForm(false); setParamInicialData(null); }}
-              onSave={async (data) => {
-                if (addEmergParametro && paramInicialData?.emergenciaId) {
-                  await addEmergParametro({
-                    ...data,
-                    emergenciaId: paramInicialData.emergenciaId,
-                    agendaId: paramInicialData.agendaId,
-                  });
-                }
-                setShowParamForm(false); setParamInicialData(null);
-              }}
-            />
-          )}
-          <NavegacaoDias
-            itens={itens}
-            destacaAtrasado
-            emptyText="Nada pendente no plantão."
-            renderItem={(it) => (
-              <ItemCronograma
-                key={it.id}
-                it={it}
-                atrasado={new Date(it.dataHora) < new Date()}
-                mostraAnimal
-                onAcao={() => marcarFeito(it)}
-                onAbrirFicha={() => onOpenFicha && onOpenFicha(it.emergenciaId)}
-              />
-            )}
-          />
-        </>
+        <NavegacaoDias
+          itens={itens}
+          destacaAtrasado
+          emptyText="Nada pendente no plantão."
+          renderItem={(it) => {
+            const isParam = it.tipoItem === 'parametro';
+            const abertoInline = itemAbertoId === it.id;
+            return (
+              <React.Fragment key={it.id}>
+                <ItemCronograma
+                  it={it}
+                  atrasado={new Date(it.dataHora) < new Date()}
+                  mostraAnimal
+                  ativa={abertoInline}
+                  onBoxClick={isParam ? () => setItemAbertoId(abertoInline ? null : it.id) : undefined}
+                  onAcao={!isParam ? () => marcarMedicacao(it) : undefined}
+                  onAbrirFicha={() => onOpenFicha && onOpenFicha(it.emergenciaId)}
+                />
+                {isParam && abertoInline && (
+                  <div style={{ marginBottom: 8, marginLeft: 12, borderLeft: '2px solid #b45309', paddingLeft: 10 }}>
+                    <ParametroForm
+                      initial={{ agendaId: it.agendaId, dataHora: it.dataHora }}
+                      onCancel={() => setItemAbertoId(null)}
+                      onSave={async (data) => {
+                        if (addEmergParametro) {
+                          await addEmergParametro({
+                            ...data,
+                            emergenciaId: it.emergenciaId,
+                            agendaId: it.agendaId,
+                          });
+                        }
+                        setItemAbertoId(null);
+                      }}
+                    />
+                  </div>
+                )}
+              </React.Fragment>
+            );
+          }}
+        />
       )}
     </div>
   );
