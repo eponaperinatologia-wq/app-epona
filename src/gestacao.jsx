@@ -1309,6 +1309,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   const ofClasse = _classificarOf(mes, form);
   const aortaStatus = _classificarAorta(mes, form.aorta);
   const bpStatus = _classificarBiparietal(mes, form.biparietal);
+  const jupStatus = _classificarJup(mes, form.jup);
 
   // Auto-preenche o volume ao editar altura/largura. Se o usuário digitar
   // volume manualmente, ele vai ser sobrescrito no próximo edit de a/l —
@@ -1347,6 +1348,8 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           {bpStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef3c7', color:'#b45309', border:'1px solid #fcd34d' }}>BP ↑</span>}
           {bpStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef3c7', color:'#b45309', border:'1px solid #fcd34d' }}>BP ↓</span>}
           {bpStatus === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ BP ↓↓</span>}
+          {jupStatus === 'placentite' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#e0f2fe', color:'#0369a1', border:'1px solid #7dd3fc' }}>JUP ↑</span>}
+          {jupStatus === 'insuficiencia' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#e0f2fe', color:'#0369a1', border:'1px solid #7dd3fc' }}>JUP ↓</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
