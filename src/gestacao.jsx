@@ -87,6 +87,49 @@ export function temApresentacaoPosterior(cavalo) {
   return false;
 }
 
+// ── JUP: análise de placenta ────────────────────────────────
+// Referência clínica por idade gestacional (dias). Abaixo do min
+// sugere Placenta Insuficiente, acima do max sugere Placentite.
+const JUP_REFS = [
+  { minDias:  90, maxDias: 270, insufMax: 3.0, placMin: 7.0 },
+  { minDias: 271, maxDias: 300, insufMax: 5.0, placMin: 8.0 },
+  { minDias: 301, maxDias: 330, insufMax: 7.0, placMin: 10.0 },
+  { minDias: 331, maxDias: 9999, insufMax: 8.0, placMin: 12.0 },
+];
+// Aproximação: cada mês do acompanhamento ≈ 30 dias de gestação.
+function _diasEstimadosPorMes(mes) { return mes * 30; }
+
+function _refJupPorMes(mes) {
+  const dias = _diasEstimadosPorMes(mes);
+  return JUP_REFS.find(r => dias >= r.minDias && dias <= r.maxDias) || null;
+}
+
+function _classificarJup(mes, valorMm) {
+  if (valorMm === '' || valorMm == null) return null;
+  const v = parseFloat(valorMm);
+  if (isNaN(v)) return null;
+  const ref = _refJupPorMes(mes);
+  if (!ref) return null;
+  if (v < ref.insufMax) return 'insuficiencia';
+  if (v > ref.placMin) return 'placentite';
+  return 'normal';
+}
+
+// Retorna { mes, valor, status } da MEDIÇÃO MAIS RECENTE de JUP, ou null
+// se ainda não há medição. Se o último valor voltou à normalidade, o
+// status é 'normal' — alerta somem sozinhos.
+export function analisarJupCavalo(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = 11; mes >= 4; mes--) {
+    const dados = acomp[mes];
+    if (!dados) continue;
+    if (dados.jup === '' || dados.jup == null) continue;
+    const status = _classificarJup(mes, dados.jup);
+    return { mes, valor: parseFloat(dados.jup), status };
+  }
+  return null;
+}
+
 // ── Desenvolvimento fetal ──────────────────────────────────────
 // SVGs sketch progressivos: silhueta do feto em posição curva, com
 // detalhes aumentando por fase. Todos os traços são livres (stroke) —
@@ -554,15 +597,21 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const pct = Math.round((mes / 11) * 100);
     const sexagem = c.gestacao?.sexagem;
     const posterior = !isGray && temApresentacaoPosterior(c);
+    const jup = !isGray ? analisarJupCavalo(c) : null;
+    const suspInsuf = jup && jup.status === 'insuficiencia';
+    const suspPlac = jup && jup.status === 'placentite';
+    const temAlertaJup = suspInsuf || suspPlac;
+
+    const cardVermelho = posterior || temAlertaJup;
 
     return (
       <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
         style={{
-          background: isGray ? '#f3f4f6' : (posterior ? '#fef2f2' : 'var(--card)'),
-          border: `1px solid ${isGray ? '#d1d5db' : (posterior ? '#dc2626' : (alerta || atrasada ? '#fca5a5' : 'var(--line)'))}`,
+          background: isGray ? '#f3f4f6' : (cardVermelho ? '#fef2f2' : 'var(--card)'),
+          border: `1px solid ${isGray ? '#d1d5db' : (cardVermelho ? '#dc2626' : (alerta || atrasada ? '#fca5a5' : 'var(--line)'))}`,
           borderRadius:14, marginBottom:10, overflow:'hidden', cursor:'pointer',
           opacity: isGray ? 0.8 : 1,
-          boxShadow: posterior ? '0 0 0 1px #fecaca' : 'none',
+          boxShadow: cardVermelho ? '0 0 0 1px #fecaca' : 'none',
         }}>
 
         {isGray && (
@@ -573,6 +622,16 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
         {posterior && (
           <div style={{ background:'#dc2626', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
             ⚠️ Feto em apresentação posterior — acompanhar
+          </div>
+        )}
+        {suspInsuf && (
+          <div style={{ background:'#b45309', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Suspeita de Placenta Insuficiente — acompanhar
+          </div>
+        )}
+        {suspPlac && (
+          <div style={{ background:'#be123c', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Suspeita de Placentite — acompanhar
           </div>
         )}
         {!isGray && atrasada && (
@@ -752,6 +811,25 @@ export function EguaGestanteDetalheScreen({
             ⚠️ Feto em apresentação posterior — acompanhar
           </div>
         )}
+        {(() => {
+          const jup = analisarJupCavalo(c);
+          if (!jup) return null;
+          if (jup.status === 'insuficiencia') {
+            return (
+              <div style={{ background:'#b45309', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+                ⚠️ Suspeita de Placenta Insuficiente — acompanhar (JUP {jup.valor} mm)
+              </div>
+            );
+          }
+          if (jup.status === 'placentite') {
+            return (
+              <div style={{ background:'#be123c', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+                ⚠️ Suspeita de Placentite — acompanhar (JUP {jup.valor} mm)
+              </div>
+            );
+          }
+          return null;
+        })()}
         {atrasada && (
           <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
             ⚠️ Gestação além da previsão · +{Math.abs(dias)} dias
@@ -1163,26 +1241,48 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           )}
 
           {/* Campos clínicos */}
-          {camposDoMes.map(campo => (
-            <div key={campo.key} style={{ marginBottom:10 }}>
-              <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
-              {campo.tipo === 'textarea' ? (
-                <textarea
-                  value={form[campo.key] || ''}
-                  onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                  placeholder="Observações…"
-                  style={{ ...inputStyle, minHeight:55, resize:'vertical', lineHeight:1.5 }}
-                />
-              ) : (
-                <input
-                  type={campo.tipo}
-                  value={form[campo.key] || ''}
-                  onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                  style={inputStyle}
-                />
-              )}
-            </div>
-          ))}
+          {camposDoMes.map(campo => {
+            const ehJup = campo.key === 'jup';
+            const refJup = ehJup ? _refJupPorMes(mes) : null;
+            const classe = ehJup && form.jup !== '' && form.jup != null
+              ? _classificarJup(mes, form.jup) : null;
+            const corClasse = classe === 'insuficiencia' ? '#b45309'
+              : classe === 'placentite' ? '#be123c'
+              : classe === 'normal' ? '#15803d' : null;
+            const labelClasse = classe === 'insuficiencia' ? 'Insuficiente (< ' + refJup.insufMax.toFixed(1) + ')'
+              : classe === 'placentite' ? 'Placentite (> ' + refJup.placMin.toFixed(1) + ')'
+              : classe === 'normal' ? 'Dentro do esperado' : null;
+            return (
+              <div key={campo.key} style={{ marginBottom:10 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
+                {campo.tipo === 'textarea' ? (
+                  <textarea
+                    value={form[campo.key] || ''}
+                    onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
+                    placeholder="Observações…"
+                    style={{ ...inputStyle, minHeight:55, resize:'vertical', lineHeight:1.5 }}
+                  />
+                ) : (
+                  <input
+                    type={campo.tipo}
+                    value={form[campo.key] || ''}
+                    onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
+                    style={inputStyle}
+                  />
+                )}
+                {ehJup && refJup && (
+                  <div style={{ marginTop:4, fontSize:10, color:'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    <span>Referência ({refJup.minDias}-{refJup.maxDias === 9999 ? '≥331' : refJup.maxDias}d): {refJup.insufMax.toFixed(1)} – {refJup.placMin.toFixed(1)} mm</span>
+                    {classe && corClasse && (
+                      <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, color:'#fff', background:corClasse }}>
+                        {labelClasse}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
 
           <button onClick={handleSalvar} style={{
             width:'100%', padding:'10px', borderRadius:10, border:'none',
