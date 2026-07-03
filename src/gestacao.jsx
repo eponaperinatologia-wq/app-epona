@@ -929,7 +929,6 @@ function MesPalpacoes({ mes, mesAtual, dados, expandido, temDados, onToggle, onS
             {mes}º Mês
           </span>
           {isAtual && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'var(--accent)', color:'#fff' }}>Atual</span>}
-          <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background:'#eff6ff', color:'#1d4ed8', border:'1px solid #bfdbfe' }}>Palpações</span>
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ {(dados?.palpacoes || []).length} registro(s)</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
