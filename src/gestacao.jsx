@@ -280,6 +280,44 @@ export function analisarOfCritico(cavalo) {
   return null;
 }
 
+// ── Aorta fetal ──────────────────────────────────────────
+// Referência (valor único por mês, mm). Faixas:
+// - > +15% da referência → 'alta' (chip sutil)
+// - até -15% da referência → 'baixa' (chip sutil)
+// - -20% ou mais → 'critico' (banner grande 'Restrição de Crescimento
+//   Intrauterino' — mesma msg que a OF crítica).
+const AORTA_REF_POR_MES_MM = {
+  3: 3.2, 4: 5.5, 5: 7.8, 6: 10.1, 7: 12.4,
+  8: 14.7, 9: 17.1, 10: 19.4, 11: 21.7,
+};
+
+function _refAortaPorMes(mes) { return AORTA_REF_POR_MES_MM[mes] || null; }
+
+function _classificarAorta(mes, valorMm) {
+  if (valorMm === '' || valorMm == null) return null;
+  const v = parseFloat(valorMm);
+  if (isNaN(v)) return null;
+  const ref = _refAortaPorMes(mes);
+  if (!ref) return null;
+  if (v <= ref * 0.80) return 'critico'; // ≥ 20% abaixo
+  if (v <  ref * 0.85) return 'baixa';    // até 15% abaixo (aceita a faixa 15-20% como sutil)
+  if (v >  ref * 1.15) return 'alta';     // > 15% acima
+  return 'normal';
+}
+
+// Última medição de aorta. Retorna { mes, valor, status } ou null.
+export function analisarAortaCritica(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = 11; mes >= 3; mes--) {
+    const dados = acomp[mes];
+    if (!dados) continue;
+    if (dados.aorta === '' || dados.aorta == null) continue;
+    const status = _classificarAorta(mes, dados.aorta);
+    return { mes, valor: parseFloat(dados.aorta), status };
+  }
+  return null;
+}
+
 // ── Desenvolvimento fetal ──────────────────────────────────────
 // SVGs sketch progressivos: silhueta do feto em posição curva, com
 // detalhes aumentando por fase. Todos os traços são livres (stroke) —
@@ -756,7 +794,8 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const taqui = fcCrit && fcCrit.critico === 'taquicardia';
     const temAlertaFc = brady || taqui;
     const ofCrit = !isGray ? analisarOfCritico(c) : null;
-    const rciu = ofCrit && ofCrit.classe === 'critico';
+    const aortaCrit = !isGray ? analisarAortaCritica(c) : null;
+    const rciu = (ofCrit && ofCrit.classe === 'critico') || (aortaCrit && aortaCrit.status === 'critico');
     const temAlertaOf = rciu;
 
     const cardVermelho = posterior || temAlertaJup || temAlertaFc || temAlertaOf;
@@ -1023,10 +1062,16 @@ export function EguaGestanteDetalheScreen({
         })()}
         {(() => {
           const of = analisarOfCritico(c);
-          if (!of || of.classe !== 'critico') return null;
+          const aorta = analisarAortaCritica(c);
+          const ofCrit = of && of.classe === 'critico';
+          const aortaCritico = aorta && aorta.status === 'critico';
+          if (!ofCrit && !aortaCritico) return null;
+          const detalhes = [];
+          if (ofCrit) detalhes.push(`OF ${of.valor} ${of.unidade}`);
+          if (aortaCritico) detalhes.push(`Aorta ${aorta.valor} mm`);
           return (
             <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-              ⚠️ Restrição de Crescimento Intrauterino! (OF {of.valor} {of.unidade})
+              ⚠️ Restrição de Crescimento Intrauterino! ({detalhes.join(' · ')})
             </div>
           );
         })()}
@@ -1380,6 +1425,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   const isPosterior = estaticaFetal === 'posterior';
   const fcStatus = _classificarFc(mes, form.freqCardiaca);
   const ofClasse = _classificarOf(mes, form);
+  const aortaStatus = _classificarAorta(mes, form.aorta);
 
   // Auto-preenche o volume ao editar altura/largura. Se o usuário digitar
   // volume manualmente, ele vai ser sobrescrito no próximo edit de a/l —
@@ -1406,11 +1452,15 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           {isAtual && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'var(--accent)', color:'#fff' }}>Atual</span>}
           {is4 && <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0' }}>Sexagem</span>}
           {isPosterior && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#b91c1c', border:'1px solid #fca5a5' }}>⚠ POSTERIOR</span>}
-          {fcStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↑</span>}
-          {fcStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↓</span>}
-          {ofClasse?.classe === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>OF ↑</span>}
-          {ofClasse?.classe === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>OF ↓</span>}
+          {/* Chips por parâmetro — uma cor pra cada. Críticos ficam sempre vermelhos. */}
+          {fcStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fce7f3', color:'#be185d', border:'1px solid #f9a8d4' }}>FC ↑</span>}
+          {fcStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fce7f3', color:'#be185d', border:'1px solid #f9a8d4' }}>FC ↓</span>}
+          {ofClasse?.classe === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ede9fe', color:'#6d28d9', border:'1px solid #c4b5fd' }}>OF ↑</span>}
+          {ofClasse?.classe === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ede9fe', color:'#6d28d9', border:'1px solid #c4b5fd' }}>OF ↓</span>}
           {ofClasse?.classe === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ OF ↓↓</span>}
+          {aortaStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ccfbf1', color:'#0f766e', border:'1px solid #5eead4' }}>AF ↑</span>}
+          {aortaStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ccfbf1', color:'#0f766e', border:'1px solid #5eead4' }}>AF ↓</span>}
+          {aortaStatus === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ AF ↓↓</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
@@ -1490,6 +1540,14 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
               ? { ...inputStyle, background:'#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
               : inputStyle;
 
+            const ehAorta = campo.key === 'aorta';
+            const refAorta = ehAorta ? _refAortaPorMes(mes) : null;
+            const aortaClasse = ehAorta ? _classificarAorta(mes, form.aorta) : null;
+            const aortaAlterada = aortaClasse && aortaClasse !== 'normal';
+            const aortaInputStyle = aortaAlterada
+              ? { ...inputStyle, background: aortaClasse === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
+              : inputStyle;
+
             // Campos da órbita — Volume tem prioridade. Destaca sutil no
             // input que a classificação está aplicando (usually o volume
             // se estiver preenchido, senão a largura).
@@ -1558,7 +1616,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     type={campo.tipo}
                     value={form[campo.key] || ''}
                     onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                    style={ehFc ? fcInputStyle : inputStyle}
+                    style={ehFc ? fcInputStyle : (ehAorta ? aortaInputStyle : inputStyle)}
                   />
                 )}
                 {ehJup && refJup && (
@@ -1576,6 +1634,14 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     {fcClasse === 'alta' && <span>Frequência cardíaca acima do esperado ({refFc.min}–{refFc.max} bpm)</span>}
                     {fcClasse === 'baixa' && <span>Frequência cardíaca abaixo do esperado ({refFc.min}–{refFc.max} bpm)</span>}
                     {(!fcClasse || fcClasse === 'normal') && <span>Referência ({mes}º mês): {refFc.min}–{refFc.max} bpm</span>}
+                  </div>
+                )}
+                {ehAorta && refAorta && (
+                  <div style={{ marginTop:4, fontSize:10, color: aortaAlterada ? (aortaClasse === 'critico' ? '#7f1d1d' : '#b91c1c') : 'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    {aortaClasse === 'alta' && <span>Aorta fetal acima do esperado (ref. {refAorta} mm)</span>}
+                    {aortaClasse === 'baixa' && <span>Aorta fetal abaixo do esperado (ref. {refAorta} mm)</span>}
+                    {aortaClasse === 'critico' && <span>⚠ Aorta fetal muito abaixo do esperado — restrição de crescimento intrauterino</span>}
+                    {(!aortaClasse || aortaClasse === 'normal') && <span>Referência ({mes}º mês): {refAorta} mm</span>}
                   </div>
                 )}
                 {/* Hint sob o campo Volume — mostra sempre ali quando OF tem
