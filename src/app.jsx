@@ -224,11 +224,15 @@ const loadAllData = async () => {
     setProgProgramas(progProgramasData || []);
     setProgAplicacoes(progAplicacoesData || []);
 
-    // Migração: cria saídas para compras de estoque cujo lancamento não chegou ao banco
+    // Migração: cria saídas para compras de estoque cujo lancamento não chegou
+    // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
+    // usuário optou por não gerar saída (boletos parcelados são lançados à
+    // parte, evita duplicar o valor).
     const today = new Date().toISOString().slice(0, 10);
     const lancamentosIds = new Set((lancamentosData || []).map(l => l.id));
     const comprasSemLan = (estoqueComprasData || []).filter(c =>
       c.tipo !== 'ajuste' && (c.valorTotal || 0) > 0 &&
+      !c.semLancamento &&
       (!c.lancamentoId || !lancamentosIds.has(c.lancamentoId))
     );
     console.log('[EPONA] loadAllData estoque_compras:', estoqueComprasData?.length, '| lancamentos no DB:', lancamentosData?.length, '| comprasSemLan:', comprasSemLan.length, comprasSemLan.map(c => ({ id: c.id, tipo: c.tipo, valor: c.valorTotal, lancId: c.lancamentoId })));
@@ -908,6 +912,9 @@ const loadAllData = async () => {
     const ecId = 'ec_' + Date.now();
     const ins = insumos.find(i => i.id === data.insumoId);
     let lancamentoId = null;
+    // Flag persistida na tabela — a migração no loadAllData vai consultá-la
+    // pra NÃO recriar saída em compras que o usuário optou por não lançar.
+    const semLancamento = data.tipo !== 'ajuste' && data.criarLancamento === false;
 
     // Cria lançamento em Saídas apenas se o usuário optou por isso.
     // Quando desmarcado (ex.: boletos parcelados serão lançados à parte),
@@ -939,7 +946,7 @@ const loadAllData = async () => {
       updateInsumo(ins.id, { valorCompra: novoValorCompra, valorVenda: novoValorVenda });
     }
 
-    const novaCompra = { ...data, id: ecId, lancamentoId };
+    const novaCompra = { ...data, id: ecId, lancamentoId, semLancamento };
     setEstoqueCompras(prev => [...prev, novaCompra]);
     dbInsert('estoque_compras', toDbEstoqueCompra(novaCompra));
   };

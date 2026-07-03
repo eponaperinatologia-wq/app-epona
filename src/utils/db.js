@@ -310,6 +310,7 @@ export const fromDbEstoqueCompra = r => ({
   pago: r.pago || false,
   dataVencimento: r.data_vencimento || null,
   tipo: r.tipo || 'compra',
+  semLancamento: !!r.sem_lancamento,
 });
 
 export const toDbEstoqueCompra = c => ({
@@ -321,6 +322,7 @@ export const toDbEstoqueCompra = c => ({
   pago: c.pago || false,
   data_vencimento: c.dataVencimento || null,
   tipo: c.tipo || 'compra',
+  sem_lancamento: !!c.semLancamento,
 });
 
 export const fromDbProtocoloVacinacao = r => ({
