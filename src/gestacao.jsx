@@ -132,6 +132,69 @@ export function analisarJupCavalo(cavalo) {
   return null;
 }
 
+// ── Frequência Cardíaca fetal ──────────────────────────────
+// Faixa esperada por mês. Fora da faixa = alteração leve
+// (destaca a caixa + texto sutil + chip no acordeão).
+const FC_REFS_POR_MES = {
+  3:  { min: 120, max: 145 },
+  4:  { min: 120, max: 145 },
+  5:  { min: 104, max: 122 },
+  6:  { min: 100, max: 122 },
+  7:  { min: 100, max: 112 },
+  8:  { min: 85,  max: 98 },
+  9:  { min: 79,  max: 94 },
+  10: { min: 64,  max: 80 },
+  11: { min: 60,  max: 72 },
+};
+
+function _refFcPorMes(mes) { return FC_REFS_POR_MES[mes] || null; }
+
+function _classificarFc(mes, valorBpm) {
+  if (valorBpm === '' || valorBpm == null) return null;
+  const v = parseFloat(valorBpm);
+  if (isNaN(v)) return null;
+  const ref = _refFcPorMes(mes);
+  if (!ref) return null;
+  if (v < ref.min) return 'baixa';
+  if (v > ref.max) return 'alta';
+  return 'normal';
+}
+
+// Alerta crítico (banner grande, tipo placentite):
+// - Meses 3-10: FC < 57 → Bradicardia muito acentuada
+// - Mês 11: FC < 50 → Bradicardia muito acentuada
+// - Mês 11: FC > 100 → Taquicardia muito acentuada
+function _classificarFcCritico(mes, valorBpm) {
+  const v = parseFloat(valorBpm);
+  if (isNaN(v)) return null;
+  if (mes === 11) {
+    if (v < 50) return 'bradicardia';
+    if (v > 100) return 'taquicardia';
+    return null;
+  }
+  if (mes >= 3 && mes <= 10) {
+    if (v < 57) return 'bradicardia';
+  }
+  return null;
+}
+
+// Retorna { mes, valor, critico } da medição mais recente com FC crítica,
+// ou null. Segue a mesma lógica do JUP — só a última medição conta, se
+// normalizou não alerta.
+export function analisarFcCritico(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = 11; mes >= 3; mes--) {
+    const dados = acomp[mes];
+    if (!dados) continue;
+    if (dados.freqCardiaca === '' || dados.freqCardiaca == null) continue;
+    const crit = _classificarFcCritico(mes, dados.freqCardiaca);
+    // Retorna sempre o último mês com FC preenchida (com ou sem crítico)
+    // — se o último não é crítico, alerta some.
+    return { mes, valor: parseFloat(dados.freqCardiaca), critico: crit };
+  }
+  return null;
+}
+
 // ── Desenvolvimento fetal ──────────────────────────────────────
 // SVGs sketch progressivos: silhueta do feto em posição curva, com
 // detalhes aumentando por fase. Todos os traços são livres (stroke) —
@@ -603,8 +666,12 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const suspInsuf = jup && jup.status === 'insuficiencia';
     const suspPlac = jup && jup.status === 'placentite';
     const temAlertaJup = suspInsuf || suspPlac;
+    const fcCrit = !isGray ? analisarFcCritico(c) : null;
+    const brady = fcCrit && fcCrit.critico === 'bradicardia';
+    const taqui = fcCrit && fcCrit.critico === 'taquicardia';
+    const temAlertaFc = brady || taqui;
 
-    const cardVermelho = posterior || temAlertaJup;
+    const cardVermelho = posterior || temAlertaJup || temAlertaFc;
 
     return (
       <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
@@ -634,6 +701,16 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
         {suspPlac && (
           <div style={{ background:'#be123c', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
             ⚠️ Suspeita de Placentite — acompanhar
+          </div>
+        )}
+        {brady && (
+          <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Bradicardia muito acentuada! Checar urgente
+          </div>
+        )}
+        {taqui && (
+          <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Taquicardia muito acentuada! Checar urgente
           </div>
         )}
         {!isGray && atrasada && (
@@ -827,6 +904,25 @@ export function EguaGestanteDetalheScreen({
             return (
               <div style={{ background:'#be123c', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
                 ⚠️ Suspeita de Placentite — acompanhar (JUP {jup.valor} mm)
+              </div>
+            );
+          }
+          return null;
+        })()}
+        {(() => {
+          const fc = analisarFcCritico(c);
+          if (!fc || !fc.critico) return null;
+          if (fc.critico === 'bradicardia') {
+            return (
+              <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+                ⚠️ Bradicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
+              </div>
+            );
+          }
+          if (fc.critico === 'taquicardia') {
+            return (
+              <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+                ⚠️ Taquicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
               </div>
             );
           }
@@ -1171,6 +1267,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   };
 
   const isPosterior = estaticaFetal === 'posterior';
+  const fcStatus = _classificarFc(mes, form.freqCardiaca);
 
   return (
     <div style={{ marginBottom:8, background:'var(--card)', border:`1px solid ${isAtual ? 'var(--accent)' : 'var(--line)'}`, borderRadius:12, overflow:'hidden' }}>
@@ -1178,13 +1275,15 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
         width:'100%', padding:'12px 14px', border:'none', background: isAtual ? 'var(--accent-soft)' : 'transparent',
         cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontFamily:'var(--sans)',
       }}>
-        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10, flexWrap:'wrap' }}>
           <span style={{ fontSize:14, fontWeight:700, color: isAtual ? 'var(--accent)' : 'var(--ink)' }}>
             {mes}º Mês
           </span>
           {isAtual && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'var(--accent)', color:'#fff' }}>Atual</span>}
           {is4 && <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0' }}>Sexagem</span>}
           {isPosterior && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#b91c1c', border:'1px solid #fca5a5' }}>⚠ POSTERIOR</span>}
+          {fcStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↑</span>}
+          {fcStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↓</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
@@ -1254,6 +1353,15 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
             const labelClasse = classe === 'insuficiencia' ? 'Insuficiente (< ' + refJup.min.toFixed(1) + ')'
               : classe === 'placentite' ? 'Placentite (> ' + refJup.max.toFixed(1) + ')'
               : classe === 'normal' ? 'Dentro do esperado' : null;
+
+            const ehFc = campo.key === 'freqCardiaca';
+            const refFc = ehFc ? _refFcPorMes(mes) : null;
+            const fcClasse = ehFc ? _classificarFc(mes, form.freqCardiaca) : null;
+            const fcAlterada = fcClasse === 'alta' || fcClasse === 'baixa';
+            const fcInputStyle = fcAlterada
+              ? { ...inputStyle, background:'#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
+              : inputStyle;
+
             return (
               <div key={campo.key} style={{ marginBottom:10 }}>
                 <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
@@ -1269,7 +1377,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     type={campo.tipo}
                     value={form[campo.key] || ''}
                     onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                    style={inputStyle}
+                    style={ehFc ? fcInputStyle : inputStyle}
                   />
                 )}
                 {ehJup && refJup && (
@@ -1280,6 +1388,13 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                         {labelClasse}
                       </span>
                     )}
+                  </div>
+                )}
+                {ehFc && refFc && (
+                  <div style={{ marginTop:4, fontSize:10, color: fcAlterada ? '#b91c1c' : 'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    {fcClasse === 'alta' && <span>Frequência cardíaca acima do esperado ({refFc.min}–{refFc.max} bpm)</span>}
+                    {fcClasse === 'baixa' && <span>Frequência cardíaca abaixo do esperado ({refFc.min}–{refFc.max} bpm)</span>}
+                    {(!fcClasse || fcClasse === 'normal') && <span>Referência ({mes}º mês): {refFc.min}–{refFc.max} bpm</span>}
                   </div>
                 )}
               </div>
