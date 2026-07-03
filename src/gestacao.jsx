@@ -315,28 +315,28 @@ const SvgFase8 = () => (
 
 // Definição das fases. min/max em DIAS de gestação.
 const FASES_FETO = [
-  { min: 45,  max: 52,  tamanho: 'Azeitona',       medidas: 'Cerca de 2 cm',
+  { min: 45,  max: 52,  frase: 'O feto está do tamanho de uma azeitona!',   medidas: 'Cerca de 2 cm',
     descricao: 'A vesícula agora tem 6,3 cm de diâmetro. O embrião de 2 cm é reconhecível como uma criatura de quatro patas. Possui cabeça, pálpebras, orelhas rudimentares, cotovelos funcionais e articulações do joelho.',
     Svg: SvgFase1 },
-  { min: 53,  max: 55,  tamanho: 'Noz Pecan',      medidas: 'Cerca de 2,5 cm',
+  { min: 53,  max: 55,  frase: 'O feto está do tamanho de uma noz pecan!',  medidas: 'Cerca de 2,5 cm',
     descricao: 'O embrião tem pouco mais de 2,5 cm. Pequenas costelas são visíveis sob a pele, a cabeça desenvolveu um crânio distinto. Pequenos triângulos representam as orelhas; articulações do jarrete e boleto se desenvolveram.',
     Svg: SvgFase2 },
-  { min: 56,  max: 79,  tamanho: 'Hamster',        medidas: 'Cerca de 6 cm e 20 g',
+  { min: 56,  max: 79,  frase: 'O feto está do tamanho de um hamster!',     medidas: 'Cerca de 6 cm e 20 g',
     descricao: 'O feto tem cerca de 6,3 cm. Assemelha-se claramente a um cavalo, com cascos minúsculos, solas e ranilhas. Não tem pelos.',
     Svg: SvgFase3 },
-  { min: 80,  max: 99,  tamanho: 'Esquilo',        medidas: 'Cerca de 10 cm e 50 g',
+  { min: 80,  max: 99,  frase: 'O feto está do tamanho de um esquilo!',     medidas: 'Cerca de 10 cm e 50 g',
     descricao: 'A cabeça e o pescoço se separam e estão nivelados com a coluna. O sexo está definido (pequenos caroços para escroto ou úbere).',
     Svg: SvgFase4 },
-  { min: 100, max: 149, tamanho: 'Gatinho',        medidas: 'Quase 18 cm e 0,5 kg',
+  { min: 100, max: 149, frase: 'O feto está do tamanho de um gatinho!',     medidas: 'Quase 18 cm e 0,5 kg',
     descricao: 'O feto tem cerca de 18 cm. Um pouco de pelo surge nos lábios, as orelhas estão desamassando da cabeça, com quase 1,5 cm de comprimento e enroladas para a frente.',
     Svg: SvgFase5 },
-  { min: 150, max: 179, tamanho: 'Coelho',         medidas: 'Cerca de 30 cm e 2,7 kg',
+  { min: 150, max: 179, frase: 'O feto está do tamanho de um coelho!',      medidas: 'Cerca de 30 cm e 2,7 kg',
     descricao: 'Ganhando mais de meio quilo a cada 10 dias. Pelos enfeitam o queixo, focinho e pálpebras. Cílios já surgiram.',
     Svg: SvgFase6 },
-  { min: 180, max: 239, tamanho: 'Beagle',         medidas: 'Quase 50 cm e mais de 11 kg',
+  { min: 180, max: 239, frase: 'O feto está do tamanho de um beagle!',      medidas: 'Quase 50 cm e mais de 11 kg',
     descricao: 'O feto quadruplicou seu peso em apenas 30 dias. Os pelos da crina e da cauda apareceram.',
     Svg: SvgFase7 },
-  { min: 240, max: 363, tamanho: 'Cordeirinho',    medidas: 'Cerca de 60 cm e 20 kg',
+  { min: 240, max: 363, frase: 'O feto está do tamanho de um cordeirinho!', medidas: 'Cerca de 60 cm e 20 kg',
     descricao: 'Está quase lá, já parecendo com um potro completo e se desenvolvendo para o nascimento.',
     Svg: SvgFase8 },
 ];
@@ -391,8 +391,8 @@ function BoxDesenvolvimentoFetal({ dataCobricao }) {
               textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:3 }}>
               {fase.min}–{fase.max} dias · dia {dias}
             </div>
-            <div style={{ fontSize:16, fontWeight:700, color:'var(--ink)', fontFamily:'var(--serif)', marginBottom:2 }}>
-              Tamanho: {fase.tamanho}
+            <div style={{ fontSize:16, fontWeight:700, color:'var(--ink)', fontFamily:'var(--serif)', marginBottom:2, lineHeight:1.25 }}>
+              {fase.frase}
             </div>
             <div style={{ fontSize:12, color:'var(--ink-2)', marginBottom:8 }}>
               {fase.medidas}
