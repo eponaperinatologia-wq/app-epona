@@ -1173,6 +1173,16 @@ const loadAllData = async () => {
   const deleteLancamento = (id) => {
     setLancamentos(prev => prev.filter(l => l.id !== id));
     dbDelete('financeiro_lancamentos', id);
+    // Se o lançamento estava vinculado a uma compra de estoque, marca a
+    // compra como semLancamento pra evitar que a migração no loadAllData
+    // recrie a saída no próximo refresh.
+    const compraVinculada = estoqueCompras.find(c => c.lancamentoId === id);
+    if (compraVinculada) {
+      setEstoqueCompras(prev => prev.map(c =>
+        c.id === compraVinculada.id ? { ...c, lancamentoId: null, semLancamento: true } : c
+      ));
+      dbUpdate('estoque_compras', compraVinculada.id, { lancamento_id: null, sem_lancamento: true });
+    }
   };
 
   // ── Avisos ────────────────────────────────────────────────────
