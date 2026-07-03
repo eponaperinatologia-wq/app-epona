@@ -96,19 +96,13 @@ const _skB = { stroke:'#3f3f46', strokeWidth:1.8, strokeLinecap:'round', strokeL
 const _skHint = { stroke:'#a1a1aa', strokeWidth:1, strokeLinecap:'round', strokeLinejoin:'round', fill:'none' };
 const svgWrapProps = { viewBox: '0 0 200 200', style: { width: '100%', height: '100%', maxWidth: 160, maxHeight: 160 } };
 
-// Fase 1 — 45-52 dias · Azeitona · ~2 cm
+// Fase 1 — 45-52 dias · Azeitona · ~2 cm (imagem real)
 const SvgFase1 = () => (
-  <svg {...svgWrapProps}>
-    <ellipse cx="90" cy="110" rx="42" ry="34" {..._skC} />
-    <circle cx="60" cy="95" r="12" {..._skC} />
-    <circle cx="55" cy="92" r="1.8" fill="#3f3f46" />
-    <path d="M55 82 q3 -5 8 -3" {..._skHint} />
-    <path d="M95 138 q0 12 6 20" {..._skC} />
-    <path d="M108 140 q2 12 8 20" {..._skC} />
-    <path d="M118 122 q10 4 12 14" {..._skC} />
-    <path d="M115 108 q10 -2 15 6" {..._skC} />
-    <path d="M126 96 q10 -8 4 -18" {..._skC} />
-  </svg>
+  <img
+    src="/assets/feto/fase1.png"
+    alt="Feto de 45 a 52 dias — tamanho de azeitona"
+    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+  />
 );
 
 // Fase 2 — 53-55 dias · Noz Pecan · ~2,5 cm
