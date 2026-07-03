@@ -4465,6 +4465,35 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
     }).filter(Boolean);
   }, [insumos, estoqueCompras, presentes]);
 
+  // Ordenação: rações/insumos-chave primeiro (ordem fixa), depois com
+  // consumo por qtdDiaTotal desc, depois sem consumo por nome.
+  const PRIORIDADE = [
+    { match: n => /prohorse\s*15/i.test(n),        rank: 1 },
+    { match: n => /potros?\s*prime/i.test(n),      rank: 2 },
+    { match: n => /^feno\b|\bfeno\b/i.test(n),      rank: 3 },
+    { match: n => /sal.*kromium|kromium.*sal/i.test(n), rank: 4 },
+    { match: n => /(óleo|oleo).*(soja)/i.test(n),   rank: 5 },
+  ];
+  const rankPrioritario = (nome) => {
+    for (const p of PRIORIDADE) if (p.match(nome || '')) return p.rank;
+    return 999;
+  };
+  const estoquePorInsumoOrdenado = useMemo(() => {
+    return estoquePorInsumo.slice().sort((a, b) => {
+      const rankA = rankPrioritario(a.ins.nome);
+      const rankB = rankPrioritario(b.ins.nome);
+      if (rankA !== rankB) return rankA - rankB;
+      // Itens com consumo antes de itens sem consumo
+      const temA = a.qtdDiaTotal > 0 ? 0 : 1;
+      const temB = b.qtdDiaTotal > 0 ? 0 : 1;
+      if (temA !== temB) return temA - temB;
+      // Dentro do mesmo grupo: maior consumo diário no topo
+      if (a.qtdDiaTotal !== b.qtdDiaTotal) return b.qtdDiaTotal - a.qtdDiaTotal;
+      return (a.ins.nome || '').localeCompare(b.ins.nome || '', 'pt');
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [estoquePorInsumo]);
+
   const corEstoque = (dias) => {
     if (dias === null) return '#2563eb';
     if (dias < 7) return '#dc2626';
@@ -4493,7 +4522,7 @@ const EstoqueSubScreen = ({ cavalos = [], insumos = [], estoqueCompras = [], add
         <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma compra registrada</div>
       )}
 
-      {estoquePorInsumo.map(({ ins, compras, totalComprado, qtdDiaTotal, estoqueAtual, diasRestantes }) => (
+      {estoquePorInsumoOrdenado.map(({ ins, compras, totalComprado, qtdDiaTotal, estoqueAtual, diasRestantes }) => (
         <div key={ins.id} style={{ background: bgEstoque(diasRestantes), border: `1px solid ${corEstoque(diasRestantes)}30`, borderRadius: 14, marginBottom: 10, overflow: 'hidden' }}>
           <div onClick={() => setExpandedId(expandedId === ins.id ? null : ins.id)} style={{ padding: '12px 14px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: 5, background: corEstoque(diasRestantes), flexShrink: 0 }} />
