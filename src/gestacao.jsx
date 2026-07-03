@@ -35,9 +35,12 @@ const mesDaGestacao = dataCobricao => {
 const CAMPOS_ULTRA_BASE = [
   { key: 'liquidoAmniotico',    label: 'Aspecto líquido amniótico',   tipo: 'text' },
   { key: 'liquidoAlantoideano', label: 'Aspecto líquido alantoideano', tipo: 'text' },
-  { key: 'orbitaAltura',        label: 'Órbita ocular — altura (mm)',  tipo: 'number' },
-  { key: 'orbitaLargura',       label: 'Órbita ocular — largura (mm)', tipo: 'number' },
-  { key: 'orbitaVolume',        label: 'Órbita ocular — volume (cm³)', tipo: 'number' },
+  // Órbita ocular: 3 medidas em uma linha. orbitaLargura é o "âncora"
+  // do grupo — os outros dois (altura, volume) são renderizados junto
+  // sob esse item e ficam pulados na iteração.
+  { key: 'orbitaLargura',       label: 'Órbita ocular',                tipo: 'group-orbita' },
+  { key: 'orbitaAltura',        label: '',                             tipo: 'skip' },
+  { key: 'orbitaVolume',        label: '',                             tipo: 'skip' },
   { key: 'aorta',               label: 'Artéria aorta (mm)',           tipo: 'number' },
   { key: 'freqCardiaca',        label: 'Frequência cardíaca (bpm)',    tipo: 'number' },
   { key: 'biparietal',          label: 'Espaço biparietal (mm)',       tipo: 'number' },
@@ -71,7 +74,7 @@ const SEXAGEM_OPTIONS = [
   { value: 'indefinido', label: '? Indefinido', color: '#6b7280', bg: '#f3f4f6' },
 ];
 
-const ACOMP_VAZIO = { liquidoAmniotico:'', liquidoAlantoideano:'', orbitaOcular:'', aorta:'', freqCardiaca:'', biparietal:'', jup:'', obs:'' };
+const ACOMP_VAZIO = { liquidoAmniotico:'', liquidoAlantoideano:'', orbitaLargura:'', orbitaAltura:'', orbitaVolume:'', aorta:'', freqCardiaca:'', biparietal:'', jup:'', obs:'' };
 
 // Meses com palpações múltiplas em vez do formulário único de ultrassom.
 const MESES_PALPACAO = new Set([0, 1, 2]);
@@ -1343,7 +1346,16 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
 }
 
 function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar }) {
-  const [form, setForm] = useState({ ...ACOMP_VAZIO, ...dados });
+  const [form, setForm] = useState(() => {
+    const base = { ...ACOMP_VAZIO, ...dados };
+    // Backward compat: até o refactor, o campo era só "orbitaOcular" e
+    // guardava a LARGURA. Se dados antigos tiverem esse campo e não houver
+    // orbitaLargura, migra pra não perder as medições registradas.
+    if (base.orbitaOcular && (base.orbitaLargura === '' || base.orbitaLargura == null)) {
+      base.orbitaLargura = base.orbitaOcular;
+    }
+    return base;
+  });
   const [sexagem, setSexagem] = useState(sexagemAtual);
   const [estaticaFetal, setEstaticaFetal] = useState(dados?.estaticaFetal || '');
   const [saved, setSaved] = useState(false);
@@ -1458,6 +1470,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
           {/* Campos clínicos */}
           {camposDoMes.map(campo => {
+            if (campo.tipo === 'skip') return null;
             const ehJup = campo.key === 'jup';
             const refJup = ehJup ? _refJupPorMes(mes) : null;
             const classe = ehJup && form.jup !== '' && form.jup != null
@@ -1490,6 +1503,46 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
               ? { ...inputStyle, background: ofClasse.classe === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
               : inputStyle;
 
+            // Grupo Órbita ocular — 3 medidas em uma linha
+            if (campo.tipo === 'group-orbita') {
+              const ofInputStyleFor = (key) => {
+                const destaqueEste = ofClasseAtiva && (
+                  (ofClasse.tipo === 'volume' && key === 'orbitaVolume') ||
+                  (ofClasse.tipo === 'largura' && key === 'orbitaLargura')
+                );
+                return destaqueEste
+                  ? { ...inputStyle, background: ofClasse.classe === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
+                  : inputStyle;
+              };
+              return (
+                <div key={campo.key} style={{ marginBottom:10 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:6 }}>Órbita ocular</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:6 }}>
+                    <div>
+                      <div style={{ fontSize:10, color:'var(--ink-3)', marginBottom:3 }}>Largura (mm)</div>
+                      <input type="number" value={form.orbitaLargura || ''} onChange={e => setForm(f => ({...f, orbitaLargura: e.target.value}))} style={ofInputStyleFor('orbitaLargura')} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:10, color:'var(--ink-3)', marginBottom:3 }}>Altura (mm)</div>
+                      <input type="number" value={form.orbitaAltura || ''} onChange={e => setForm(f => ({...f, orbitaAltura: e.target.value}))} style={inputStyle} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize:10, color:'var(--ink-3)', marginBottom:3 }}>Volume (cm³)</div>
+                      <input type="number" value={form.orbitaVolume || ''} onChange={e => setForm(f => ({...f, orbitaVolume: e.target.value}))} style={ofInputStyleFor('orbitaVolume')} />
+                    </div>
+                  </div>
+                  {ofClasse && (
+                    <div style={{ marginTop:4, fontSize:10, color: ofClasseAtiva ? (ofClasse.classe === 'critico' ? '#7f1d1d' : '#b91c1c') : 'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                      {ofClasse.classe === 'alta' && <span>Órbita fetal acima da medida esperada (ref. {ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade})</span>}
+                      {ofClasse.classe === 'baixa' && <span>Órbita fetal abaixo da medida esperada (ref. {ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade})</span>}
+                      {ofClasse.classe === 'critico' && <span>⚠ Órbita fetal muito abaixo do esperado — restrição de crescimento intrauterino</span>}
+                      {ofClasse.classe === 'normal' && <span>Dentro da faixa esperada ({ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade}) · usando {ofClasse.tipo}</span>}
+                    </div>
+                  )}
+                </div>
+              );
+            }
+
             return (
               <div key={campo.key} style={{ marginBottom:10 }}>
                 <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
@@ -1505,7 +1558,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     type={campo.tipo}
                     value={form[campo.key] || ''}
                     onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                    style={ehFc ? fcInputStyle : (ehOf ? ofInputStyle : inputStyle)}
+                    style={ehFc ? fcInputStyle : inputStyle}
                   />
                 )}
                 {ehJup && refJup && (
