@@ -318,6 +318,40 @@ export function analisarAortaCritica(cavalo) {
   return null;
 }
 
+// ── Espaço biparietal ──────────────────────────────────
+// Mesma mecânica de aorta: >15% acima ou abaixo = sutil; -20% = crítico.
+const BIPARIETAL_REF_POR_MES_MM = {
+  3: 20.6, 4: 33.5, 5: 45.0, 6: 54.9, 7: 63.4,
+  8: 70.5, 9: 76.3, 10: 80.5, 11: 83.2,
+};
+
+function _refBiparietalPorMes(mes) { return BIPARIETAL_REF_POR_MES_MM[mes] || null; }
+
+function _classificarBiparietal(mes, valorMm) {
+  if (valorMm === '' || valorMm == null) return null;
+  const v = parseFloat(valorMm);
+  if (isNaN(v)) return null;
+  const ref = _refBiparietalPorMes(mes);
+  if (!ref) return null;
+  if (v <= ref * 0.80) return 'critico';
+  if (v <  ref * 0.85) return 'baixa';
+  if (v >  ref * 1.15) return 'alta';
+  return 'normal';
+}
+
+// Última medição de biparietal. Retorna { mes, valor, status } ou null.
+export function analisarBiparietalCritico(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = 11; mes >= 3; mes--) {
+    const dados = acomp[mes];
+    if (!dados) continue;
+    if (dados.biparietal === '' || dados.biparietal == null) continue;
+    const status = _classificarBiparietal(mes, dados.biparietal);
+    return { mes, valor: parseFloat(dados.biparietal), status };
+  }
+  return null;
+}
+
 // Fórmula: Y (kg) = -19,62 + 2,925 * X (mm da aorta fetal).
 // Válido só a partir do 11º mês, quando o cálculo é aplicável.
 export function pesoSugeridoNascimento(aortaMm) {
@@ -822,7 +856,10 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const temAlertaFc = brady || taqui;
     const ofCrit = !isGray ? analisarOfCritico(c) : null;
     const aortaCrit = !isGray ? analisarAortaCritica(c) : null;
-    const rciu = (ofCrit && ofCrit.classe === 'critico') || (aortaCrit && aortaCrit.status === 'critico');
+    const bpCrit = !isGray ? analisarBiparietalCritico(c) : null;
+    const rciu = (ofCrit && ofCrit.classe === 'critico')
+      || (aortaCrit && aortaCrit.status === 'critico')
+      || (bpCrit && bpCrit.status === 'critico');
     const temAlertaOf = rciu;
 
     const cardVermelho = posterior || temAlertaJup || temAlertaFc || temAlertaOf;
@@ -1090,12 +1127,15 @@ export function EguaGestanteDetalheScreen({
         {(() => {
           const of = analisarOfCritico(c);
           const aorta = analisarAortaCritica(c);
+          const bp = analisarBiparietalCritico(c);
           const ofCrit = of && of.classe === 'critico';
           const aortaCritico = aorta && aorta.status === 'critico';
-          if (!ofCrit && !aortaCritico) return null;
+          const bpCritico = bp && bp.status === 'critico';
+          if (!ofCrit && !aortaCritico && !bpCritico) return null;
           const detalhes = [];
           if (ofCrit) detalhes.push(`OF ${of.valor} ${of.unidade}`);
           if (aortaCritico) detalhes.push(`Aorta ${aorta.valor} mm`);
+          if (bpCritico) detalhes.push(`BP ${bp.valor} mm`);
           return (
             <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
               ⚠️ Restrição de Crescimento Intrauterino! ({detalhes.join(' · ')})
@@ -1453,6 +1493,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
   const fcStatus = _classificarFc(mes, form.freqCardiaca);
   const ofClasse = _classificarOf(mes, form);
   const aortaStatus = _classificarAorta(mes, form.aorta);
+  const bpStatus = _classificarBiparietal(mes, form.biparietal);
 
   // Auto-preenche o volume ao editar altura/largura. Se o usuário digitar
   // volume manualmente, ele vai ser sobrescrito no próximo edit de a/l —
@@ -1488,6 +1529,9 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           {aortaStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ccfbf1', color:'#0f766e', border:'1px solid #5eead4' }}>AF ↑</span>}
           {aortaStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#ccfbf1', color:'#0f766e', border:'1px solid #5eead4' }}>AF ↓</span>}
           {aortaStatus === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ AF ↓↓</span>}
+          {bpStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef3c7', color:'#b45309', border:'1px solid #fcd34d' }}>BP ↑</span>}
+          {bpStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef3c7', color:'#b45309', border:'1px solid #fcd34d' }}>BP ↓</span>}
+          {bpStatus === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ BP ↓↓</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
@@ -1575,6 +1619,14 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
               ? { ...inputStyle, background: aortaClasse === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
               : inputStyle;
 
+            const ehBp = campo.key === 'biparietal';
+            const refBp = ehBp ? _refBiparietalPorMes(mes) : null;
+            const bpClasse = ehBp ? _classificarBiparietal(mes, form.biparietal) : null;
+            const bpAlterada = bpClasse && bpClasse !== 'normal';
+            const bpInputStyle = bpAlterada
+              ? { ...inputStyle, background: bpClasse === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
+              : inputStyle;
+
             // Campos da órbita — Volume tem prioridade. Destaca sutil no
             // input que a classificação está aplicando (usually o volume
             // se estiver preenchido, senão a largura).
@@ -1643,7 +1695,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     type={campo.tipo}
                     value={form[campo.key] || ''}
                     onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                    style={ehFc ? fcInputStyle : (ehAorta ? aortaInputStyle : inputStyle)}
+                    style={ehFc ? fcInputStyle : (ehAorta ? aortaInputStyle : (ehBp ? bpInputStyle : inputStyle))}
                   />
                 )}
                 {ehJup && refJup && (
@@ -1669,6 +1721,14 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     {aortaClasse === 'baixa' && <span>Aorta fetal abaixo do esperado (ref. {refAorta} mm)</span>}
                     {aortaClasse === 'critico' && <span>⚠ Aorta fetal muito abaixo do esperado — restrição de crescimento intrauterino</span>}
                     {(!aortaClasse || aortaClasse === 'normal') && <span>Referência ({mes}º mês): {refAorta} mm</span>}
+                  </div>
+                )}
+                {ehBp && refBp && (
+                  <div style={{ marginTop:4, fontSize:10, color: bpAlterada ? (bpClasse === 'critico' ? '#7f1d1d' : '#b91c1c') : 'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    {bpClasse === 'alta' && <span>Espaço biparietal acima do esperado (ref. {refBp} mm)</span>}
+                    {bpClasse === 'baixa' && <span>Espaço biparietal abaixo do esperado (ref. {refBp} mm)</span>}
+                    {bpClasse === 'critico' && <span>⚠ Espaço biparietal muito abaixo do esperado — restrição de crescimento intrauterino</span>}
+                    {(!bpClasse || bpClasse === 'normal') && <span>Referência ({mes}º mês): {refBp} mm</span>}
                   </div>
                 )}
                 {/* Peso sugerido do nascimento — só no 11º mês, embaixo da aorta */}
