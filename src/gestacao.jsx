@@ -30,16 +30,38 @@ const mesDaGestacao = dataCobricao => {
   return Math.min(Math.max(Math.floor(diff / 30), 0), 11);
 };
 
-const CAMPOS_ACOMP = [
+// Campos ultra (do 3º mês em diante). JUP saiu — só entra a partir do 4º mês
+// e como o usuário pediu, ficou removido dos meses iniciais. Mantido em 4-11.
+const CAMPOS_ULTRA_BASE = [
   { key: 'liquidoAmniotico',    label: 'Aspecto líquido amniótico',   tipo: 'text' },
   { key: 'liquidoAlantoideano', label: 'Aspecto líquido alantoideano', tipo: 'text' },
   { key: 'orbitaOcular',        label: 'Órbita ocular (mm)',           tipo: 'number' },
   { key: 'aorta',               label: 'Artéria aorta (mm)',           tipo: 'number' },
   { key: 'freqCardiaca',        label: 'Frequência cardíaca (bpm)',    tipo: 'number' },
   { key: 'biparietal',          label: 'Espaço biparietal (mm)',       tipo: 'number' },
-  { key: 'jup',                 label: 'JUP (mm)',                     tipo: 'number' },
-  { key: 'obs',                 label: 'Observações',                  tipo: 'textarea' },
 ];
+const CAMPO_JUP = { key: 'jup', label: 'JUP (mm)', tipo: 'number' };
+const CAMPO_OBS = { key: 'obs', label: 'Observações', tipo: 'textarea' };
+
+// Retorna os campos ultra pra um dado mês (3+ sem JUP, 4+ com JUP).
+function camposUltraDoMes(mes) {
+  const inclui = [...CAMPOS_ULTRA_BASE];
+  if (mes >= 4) inclui.push(CAMPO_JUP);
+  inclui.push(CAMPO_OBS);
+  return inclui;
+}
+
+// Meses 0, 1 e 2 têm palpações múltiplas com esses campos.
+const CAMPOS_PALPACAO = [
+  { key: 'tamanhoVesicula',    label: 'Tamanho da vesícula',       tipo: 'text' },
+  { key: 'aspectoUterino',     label: 'Aspecto uterino',           tipo: 'text' },
+  { key: 'presencaCL',         label: 'Presença de CL',            tipo: 'simnao' },
+  { key: 'iniciarProgesterona',label: 'Iniciar Progesterona',      tipo: 'check' },
+  { key: 'batimentoCardiaco',  label: 'Presença de Batimento Cardíaco', tipo: 'simnao' },
+  { key: 'obs',                label: 'Observações',               tipo: 'textarea' },
+];
+
+const PALPACAO_VAZIA = { data: '', tamanhoVesicula: '', aspectoUterino: '', presencaCL: '', iniciarProgesterona: false, batimentoCardiaco: '', obs: '' };
 
 const SEXAGEM_OPTIONS = [
   { value: 'macho',      label: '♂ Macho',     color: '#1e40af', bg: '#dbeafe' },
@@ -48,6 +70,22 @@ const SEXAGEM_OPTIONS = [
 ];
 
 const ACOMP_VAZIO = { liquidoAmniotico:'', liquidoAlantoideano:'', orbitaOcular:'', aorta:'', freqCardiaca:'', biparietal:'', jup:'', obs:'' };
+
+// Meses com palpações múltiplas em vez do formulário único de ultrassom.
+const MESES_PALPACAO = new Set([0, 1, 2]);
+// Estática Fetal só aparece a partir do 8º mês.
+const MES_ESTATICA_FETAL = 8;
+
+// Detecta se a égua tem alguma palpação com estatica_fetal='posterior' num
+// mês >=8. Serve tanto pra alerta na card quanto no header da tela.
+export function temApresentacaoPosterior(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = MES_ESTATICA_FETAL; mes <= 11; mes++) {
+    const dados = acomp[mes];
+    if (dados && dados.estaticaFetal === 'posterior') return true;
+  }
+  return false;
+}
 
 // ── Shared UI ─────────────────────────────────────────────────
 const SubTabBar = ({ tabs, active, onChange }) => (
@@ -201,19 +239,26 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const mes = mesDaGestacao(c.gestacao?.dataCobricao);
     const pct = Math.round((mes / 11) * 100);
     const sexagem = c.gestacao?.sexagem;
+    const posterior = !isGray && temApresentacaoPosterior(c);
 
     return (
       <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
         style={{
-          background: isGray ? '#f3f4f6' : 'var(--card)',
-          border: `1px solid ${isGray ? '#d1d5db' : (alerta || atrasada ? '#fca5a5' : 'var(--line)')}`,
+          background: isGray ? '#f3f4f6' : (posterior ? '#fef2f2' : 'var(--card)'),
+          border: `1px solid ${isGray ? '#d1d5db' : (posterior ? '#dc2626' : (alerta || atrasada ? '#fca5a5' : 'var(--line)'))}`,
           borderRadius:14, marginBottom:10, overflow:'hidden', cursor:'pointer',
           opacity: isGray ? 0.8 : 1,
+          boxShadow: posterior ? '0 0 0 1px #fecaca' : 'none',
         }}>
 
         {isGray && (
           <div style={{ background:'#9ca3af', color:'#fff', padding:'6px 14px', fontSize:11, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
             📤 Fora do haras
+          </div>
+        )}
+        {posterior && (
+          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Feto em apresentação posterior — acompanhar
           </div>
         )}
         {!isGray && atrasada && (
@@ -388,6 +433,11 @@ export function EguaGestanteDetalheScreen({
             </span>
           ) : null}
         />
+        {temApresentacaoPosterior(c) && (
+          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+            ⚠️ Feto em apresentação posterior — acompanhar
+          </div>
+        )}
         {atrasada && (
           <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
             ⚠️ Gestação além da previsão · +{Math.abs(dias)} dias
@@ -659,6 +709,8 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   const temDados = (mes) => {
     const d = acomp[mes];
     if (!d) return false;
+    // Meses de palpação usam { palpacoes: [...] }
+    if (MESES_PALPACAO.has(mes)) return Array.isArray(d.palpacoes) && d.palpacoes.length > 0;
     return Object.values(d).some(v => v && v !== '');
   };
 
@@ -669,17 +721,30 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
       </div>
 
       {Array.from({ length:12 }, (_, i) => i).map(mes => (
-        <MesAcompanhamento
-          key={mes}
-          mes={mes}
-          mesAtual={mesAtual}
-          dados={acomp[mes] || { ...ACOMP_VAZIO }}
-          sexagemAtual={g.sexagem || ''}
-          expandido={expandido === mes}
-          temDados={temDados(mes)}
-          onToggle={() => setExpandido(expandido === mes ? null : mes)}
-          onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
-        />
+        MESES_PALPACAO.has(mes) ? (
+          <MesPalpacoes
+            key={mes}
+            mes={mes}
+            mesAtual={mesAtual}
+            dados={acomp[mes] || { palpacoes: [] }}
+            expandido={expandido === mes}
+            temDados={temDados(mes)}
+            onToggle={() => setExpandido(expandido === mes ? null : mes)}
+            onSalvar={(dados) => salvarMes(mes, dados)}
+          />
+        ) : (
+          <MesAcompanhamento
+            key={mes}
+            mes={mes}
+            mesAtual={mesAtual}
+            dados={acomp[mes] || { ...ACOMP_VAZIO }}
+            sexagemAtual={g.sexagem || ''}
+            expandido={expandido === mes}
+            temDados={temDados(mes)}
+            onToggle={() => setExpandido(expandido === mes ? null : mes)}
+            onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
+          />
+        )
       ))}
     </div>
   );
@@ -688,12 +753,16 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
 function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar }) {
   const [form, setForm] = useState({ ...ACOMP_VAZIO, ...dados });
   const [sexagem, setSexagem] = useState(sexagemAtual);
+  const [estaticaFetal, setEstaticaFetal] = useState(dados?.estaticaFetal || '');
   const [saved, setSaved] = useState(false);
   const isAtual = mes === mesAtual;
   const is4 = mes === 4;
+  const isEstaticaFetal = mes >= MES_ESTATICA_FETAL;
+  const camposDoMes = camposUltraDoMes(mes);
 
   const handleSalvar = () => {
-    onSalvar(form, is4 ? sexagem : undefined);
+    const finalForm = isEstaticaFetal ? { ...form, estaticaFetal } : form;
+    onSalvar(finalForm, is4 ? sexagem : undefined);
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
   };
@@ -703,6 +772,8 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
     border:'1px solid var(--line)', background:'var(--bg)',
     fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none',
   };
+
+  const isPosterior = estaticaFetal === 'posterior';
 
   return (
     <div style={{ marginBottom:8, background:'var(--card)', border:`1px solid ${isAtual ? 'var(--accent)' : 'var(--line)'}`, borderRadius:12, overflow:'hidden' }}>
@@ -716,6 +787,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           </span>
           {isAtual && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'var(--accent)', color:'#fff' }}>Atual</span>}
           {is4 && <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background:'#f0fdf4', color:'#16a34a', border:'1px solid #bbf7d0' }}>Sexagem</span>}
+          {isPosterior && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#b91c1c', border:'1px solid #fca5a5' }}>⚠ POSTERIOR</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
@@ -746,8 +818,35 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
             </div>
           )}
 
+          {/* Estática Fetal (a partir do 8º mês) */}
+          {isEstaticaFetal && (
+            <div style={{ marginBottom:14, padding:'12px', background: isPosterior ? '#fef2f2' : '#f0f9ff', borderRadius:10, border: `1px solid ${isPosterior ? '#fca5a5' : '#bae6fd'}` }}>
+              <div style={{ fontSize:11, fontWeight:700, color: isPosterior ? '#b91c1c' : '#0c4a6e', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>Estática Fetal</div>
+              <div style={{ display:'flex', gap:6 }}>
+                {[
+                  { value: '', label: '—', cor: '#6b7280', bg: '#f3f4f6' },
+                  { value: 'anterior', label: 'Apresentação Anterior', cor: '#0284c7', bg: '#e0f2fe' },
+                  { value: 'posterior', label: 'Apresentação Posterior', cor: '#dc2626', bg: '#fee2e2' },
+                ].map(opt => (
+                  <button key={opt.value || 'vazio'} onClick={() => setEstaticaFetal(opt.value)} style={{
+                    flex:1, padding:'8px 6px', borderRadius:8, cursor:'pointer', fontFamily:'var(--sans)',
+                    border:`1px solid ${estaticaFetal===opt.value ? opt.cor : 'var(--line)'}`,
+                    background: estaticaFetal===opt.value ? opt.bg : 'var(--bg)',
+                    color: estaticaFetal===opt.value ? opt.cor : 'var(--ink-3)',
+                    fontSize:11, fontWeight: estaticaFetal===opt.value ? 700 : 500, lineHeight: 1.3,
+                  }}>{opt.label}</button>
+                ))}
+              </div>
+              {isPosterior && (
+                <div style={{ marginTop:8, fontSize:11, color:'#b91c1c', display:'flex', alignItems:'center', gap:6 }}>
+                  ⚠ Feto em apresentação posterior — dispara alerta na ficha da égua e na lista de gestantes.
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Campos clínicos */}
-          {CAMPOS_ACOMP.map(campo => (
+          {camposDoMes.map(campo => (
             <div key={campo.key} style={{ marginBottom:10 }}>
               <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
               {campo.tipo === 'textarea' ? (
@@ -767,6 +866,140 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
               )}
             </div>
           ))}
+
+          <button onClick={handleSalvar} style={{
+            width:'100%', padding:'10px', borderRadius:10, border:'none',
+            background: saved ? '#16a34a' : 'var(--accent)',
+            color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+            transition:'background 0.2s',
+          }}>
+            {saved ? '✓ Salvo!' : `Salvar ${mes}º mês`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Componente pros meses 0-2, que aceitam MÚLTIPLAS palpações.
+// Estrutura: dados = { palpacoes: [ { data, ...campos }, ... ] }
+function MesPalpacoes({ mes, mesAtual, dados, expandido, temDados, onToggle, onSalvar }) {
+  const [palpacoes, setPalpacoes] = useState(() => {
+    const p = dados?.palpacoes;
+    return Array.isArray(p) && p.length > 0 ? p.map(x => ({ ...PALPACAO_VAZIA, ...x })) : [{ ...PALPACAO_VAZIA, data: '' }];
+  });
+  const [saved, setSaved] = useState(false);
+  const isAtual = mes === mesAtual;
+
+  const inputStyle = {
+    width:'100%', boxSizing:'border-box', padding:'9px 11px', borderRadius:9,
+    border:'1px solid var(--line)', background:'var(--bg)',
+    fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none',
+  };
+
+  const updatePalpacao = (idx, key, valor) => {
+    setPalpacoes(prev => prev.map((p, i) => i === idx ? { ...p, [key]: valor } : p));
+  };
+  const removerPalpacao = (idx) => {
+    setPalpacoes(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : [{ ...PALPACAO_VAZIA }]);
+  };
+  const adicionarPalpacao = () => {
+    setPalpacoes(prev => [...prev, { ...PALPACAO_VAZIA }]);
+  };
+
+  const handleSalvar = () => {
+    // Filtra palpações vazias antes de salvar
+    const naoVazias = palpacoes.filter(p =>
+      p.data || p.tamanhoVesicula || p.aspectoUterino || p.presencaCL ||
+      p.iniciarProgesterona || p.batimentoCardiaco || p.obs
+    );
+    onSalvar({ palpacoes: naoVazias });
+    setSaved(true);
+    setTimeout(() => setSaved(false), 1500);
+  };
+
+  return (
+    <div style={{ marginBottom:8, background:'var(--card)', border:`1px solid ${isAtual ? 'var(--accent)' : 'var(--line)'}`, borderRadius:12, overflow:'hidden' }}>
+      <button onClick={onToggle} style={{
+        width:'100%', padding:'12px 14px', border:'none', background: isAtual ? 'var(--accent-soft)' : 'transparent',
+        cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'space-between', fontFamily:'var(--sans)',
+      }}>
+        <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+          <span style={{ fontSize:14, fontWeight:700, color: isAtual ? 'var(--accent)' : 'var(--ink)' }}>
+            {mes}º Mês
+          </span>
+          {isAtual && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'var(--accent)', color:'#fff' }}>Atual</span>}
+          <span style={{ fontSize:10, fontWeight:600, padding:'2px 7px', borderRadius:6, background:'#eff6ff', color:'#1d4ed8', border:'1px solid #bfdbfe' }}>Palpações</span>
+          {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ {(dados?.palpacoes || []).length} registro(s)</span>}
+        </div>
+        <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
+      </button>
+
+      {expandido && (
+        <div style={{ padding:'0 14px 14px' }}>
+          {palpacoes.map((p, idx) => (
+            <div key={idx} style={{
+              marginBottom:12, padding:'12px', borderRadius:10,
+              background:'var(--bg)', border:'1px solid var(--line)',
+            }}>
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:10 }}>
+                <span style={{ fontSize:11, fontWeight:700, color:'var(--ink-2)', textTransform:'uppercase', letterSpacing:'0.05em' }}>Palpação #{idx + 1}</span>
+                {palpacoes.length > 1 && (
+                  <button onClick={() => removerPalpacao(idx)} style={{
+                    background:'transparent', color:'#dc2626', border:'1px solid #fca5a5',
+                    borderRadius:6, padding:'2px 8px', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)',
+                  }}>Remover</button>
+                )}
+              </div>
+              {/* Data */}
+              <div style={{ marginBottom:10 }}>
+                <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>Data</div>
+                <input type="date" value={p.data || ''} onChange={e => updatePalpacao(idx, 'data', e.target.value)} style={inputStyle} />
+              </div>
+              {/* Campos da palpação */}
+              {CAMPOS_PALPACAO.map(campo => (
+                <div key={campo.key} style={{ marginBottom:10 }}>
+                  <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
+                  {campo.tipo === 'textarea' ? (
+                    <textarea value={p[campo.key] || ''} onChange={e => updatePalpacao(idx, campo.key, e.target.value)}
+                      placeholder="Observações…" style={{ ...inputStyle, minHeight:55, resize:'vertical', lineHeight:1.5 }} />
+                  ) : campo.tipo === 'simnao' ? (
+                    <div style={{ display:'flex', gap:6 }}>
+                      {[
+                        { v: '', l: '—' },
+                        { v: 'sim', l: 'Sim' },
+                        { v: 'nao', l: 'Não' },
+                      ].map(opt => {
+                        const sel = (p[campo.key] || '') === opt.v;
+                        return (
+                          <button key={opt.v || 'vazio'} onClick={() => updatePalpacao(idx, campo.key, opt.v)} style={{
+                            flex:1, padding:'8px 4px', borderRadius:8, cursor:'pointer', fontFamily:'var(--sans)',
+                            border:`1px solid ${sel ? 'var(--accent)' : 'var(--line)'}`,
+                            background: sel ? 'var(--accent-soft)' : 'var(--card)',
+                            color: sel ? 'var(--accent)' : 'var(--ink-3)',
+                            fontSize:12, fontWeight: sel ? 700 : 500,
+                          }}>{opt.l}</button>
+                        );
+                      })}
+                    </div>
+                  ) : campo.tipo === 'check' ? (
+                    <label style={{ display:'flex', alignItems:'center', gap:10, padding:'9px 11px', background:'var(--card)', border:'1px solid var(--line)', borderRadius:9, cursor:'pointer' }}>
+                      <input type="checkbox" checked={!!p[campo.key]} onChange={e => updatePalpacao(idx, campo.key, e.target.checked)} style={{ width:18, height:18, accentColor:'var(--accent)' }} />
+                      <span style={{ fontSize:13, color:'var(--ink)' }}>Marcar</span>
+                    </label>
+                  ) : (
+                    <input type={campo.tipo} value={p[campo.key] || ''} onChange={e => updatePalpacao(idx, campo.key, e.target.value)} style={inputStyle} />
+                  )}
+                </div>
+              ))}
+            </div>
+          ))}
+
+          <button onClick={adicionarPalpacao} style={{
+            width:'100%', padding:'10px', borderRadius:10, border:'1px dashed var(--accent)',
+            background:'var(--accent-soft)', color:'var(--accent)',
+            fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', marginBottom:10,
+          }}>+ Adicionar palpação</button>
 
           <button onClick={handleSalvar} style={{
             width:'100%', padding:'10px', borderRadius:10, border:'none',
