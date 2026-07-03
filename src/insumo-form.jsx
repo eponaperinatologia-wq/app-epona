@@ -119,9 +119,14 @@ function InsumoForm({ initialValues, onSave, onBack, title, insumos, onDelete })
     return [...base, ...extras];
   };
 
-  // Descartáveis disponíveis para extras (categoria descartavel, excluindo os obrigatórios de injetável)
+  // Descartáveis disponíveis pra extras: qualquer da categoria descartavel.
+  // Quando o insumo é injetável, seringa/agulha/algodão já entram por padrão,
+  // então tiro esses três da lista de extras pra não duplicar. Se não é
+  // injetável, o usuário pode escolher qualquer descartável, inclusive só
+  // 1 seringa, ou só 1 agulha, etc.
   const descartaveisDisponiveis = insumos.filter(i =>
-    i.categoria === 'descartavel' && !DESCARTAVEIS_INJETAVEL.some(ob => ob.insumoId === i.id)
+    i.categoria === 'descartavel' &&
+    !(injetavel && DESCARTAVEIS_INJETAVEL.some(ob => ob.insumoId === i.id))
   );
 
   const parseNum = (s) => {
