@@ -88,20 +88,22 @@ export function temApresentacaoPosterior(cavalo) {
 }
 
 // ── JUP: análise de placenta ────────────────────────────────
-// Referência clínica por idade gestacional (dias). Abaixo do min
-// sugere Placenta Insuficiente, acima do max sugere Placentite.
-const JUP_REFS = [
-  { minDias:  90, maxDias: 270, insufMax: 3.0, placMin: 7.0 },
-  { minDias: 271, maxDias: 300, insufMax: 5.0, placMin: 8.0 },
-  { minDias: 301, maxDias: 330, insufMax: 7.0, placMin: 10.0 },
-  { minDias: 331, maxDias: 9999, insufMax: 8.0, placMin: 12.0 },
-];
-// Aproximação: cada mês do acompanhamento ≈ 30 dias de gestação.
-function _diasEstimadosPorMes(mes) { return mes * 30; }
+// Referência clínica por MÊS de gestação. Abaixo do min sugere
+// Placenta Insuficiente, acima do max sugere Placentite.
+const JUP_REFS_POR_MES = {
+  3:  { min: 3.1, max: 4.5 },
+  4:  { min: 3.1, max: 4.5 },
+  5:  { min: 3.1, max: 4.5 },
+  6:  { min: 4.5, max: 4.9 },
+  7:  { min: 4.5, max: 5.5 },
+  8:  { min: 4.4, max: 6.0 },
+  9:  { min: 5.5, max: 8.0 },
+  10: { min: 7.5, max: 10.0 },
+  11: { min: 8.0, max: 12.6 },
+};
 
 function _refJupPorMes(mes) {
-  const dias = _diasEstimadosPorMes(mes);
-  return JUP_REFS.find(r => dias >= r.minDias && dias <= r.maxDias) || null;
+  return JUP_REFS_POR_MES[mes] || null;
 }
 
 function _classificarJup(mes, valorMm) {
@@ -110,8 +112,8 @@ function _classificarJup(mes, valorMm) {
   if (isNaN(v)) return null;
   const ref = _refJupPorMes(mes);
   if (!ref) return null;
-  if (v < ref.insufMax) return 'insuficiencia';
-  if (v > ref.placMin) return 'placentite';
+  if (v < ref.min) return 'insuficiencia';
+  if (v > ref.max) return 'placentite';
   return 'normal';
 }
 
@@ -1249,8 +1251,8 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
             const corClasse = classe === 'insuficiencia' ? '#b45309'
               : classe === 'placentite' ? '#be123c'
               : classe === 'normal' ? '#15803d' : null;
-            const labelClasse = classe === 'insuficiencia' ? 'Insuficiente (< ' + refJup.insufMax.toFixed(1) + ')'
-              : classe === 'placentite' ? 'Placentite (> ' + refJup.placMin.toFixed(1) + ')'
+            const labelClasse = classe === 'insuficiencia' ? 'Insuficiente (< ' + refJup.min.toFixed(1) + ')'
+              : classe === 'placentite' ? 'Placentite (> ' + refJup.max.toFixed(1) + ')'
               : classe === 'normal' ? 'Dentro do esperado' : null;
             return (
               <div key={campo.key} style={{ marginBottom:10 }}>
@@ -1272,7 +1274,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                 )}
                 {ehJup && refJup && (
                   <div style={{ marginTop:4, fontSize:10, color:'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
-                    <span>Referência ({refJup.minDias}-{refJup.maxDias === 9999 ? '≥331' : refJup.maxDias}d): {refJup.insufMax.toFixed(1)} – {refJup.placMin.toFixed(1)} mm</span>
+                    <span>Referência ({mes}º mês): {refJup.min.toFixed(1)} – {refJup.max.toFixed(1)} mm</span>
                     {classe && corClasse && (
                       <span style={{ fontSize:10, fontWeight:700, padding:'2px 6px', borderRadius:5, color:'#fff', background:corClasse }}>
                         {labelClasse}
