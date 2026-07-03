@@ -1,5 +1,5 @@
 // gestacao.jsx — Gestação e Partos: gestantes, detalhe e acompanhamento mensal
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from './icons';
 import { norm, addDescartaveis } from './data';
 import { TopBar } from './screens';
@@ -35,7 +35,9 @@ const mesDaGestacao = dataCobricao => {
 const CAMPOS_ULTRA_BASE = [
   { key: 'liquidoAmniotico',    label: 'Aspecto líquido amniótico',   tipo: 'text' },
   { key: 'liquidoAlantoideano', label: 'Aspecto líquido alantoideano', tipo: 'text' },
-  { key: 'orbitaOcular',        label: 'Órbita ocular (mm)',           tipo: 'number' },
+  { key: 'orbitaAltura',        label: 'Órbita ocular — altura (mm)',  tipo: 'number' },
+  { key: 'orbitaLargura',       label: 'Órbita ocular — largura (mm)', tipo: 'number' },
+  { key: 'orbitaVolume',        label: 'Órbita ocular — volume (cm³)', tipo: 'number' },
   { key: 'aorta',               label: 'Artéria aorta (mm)',           tipo: 'number' },
   { key: 'freqCardiaca',        label: 'Frequência cardíaca (bpm)',    tipo: 'number' },
   { key: 'biparietal',          label: 'Espaço biparietal (mm)',       tipo: 'number' },
@@ -191,6 +193,86 @@ export function analisarFcCritico(cavalo) {
     // Retorna sempre o último mês com FC preenchida (com ou sem crítico)
     // — se o último não é crítico, alerta some.
     return { mes, valor: parseFloat(dados.freqCardiaca), critico: crit };
+  }
+  return null;
+}
+
+// ── Órbita fetal ──────────────────────────────────────────
+// Volume tem prioridade sobre largura. Regra:
+// - fora de ±20% do esperado → alerta sutil (chip OF ↑/↓ + msg)
+// - abaixo de 30% do esperado → alerta grande (Restrição Crescimento
+//   Intrauterino)
+// Faixas por mês. Quando o valor é único (não range), min=max.
+const OF_LARGURA_REF_MM = {
+  3:  { min: 11.0, max: 13.0 },
+  4:  { min: 15.3, max: 15.3 },
+  5:  { min: 19.1, max: 19.1 },
+  6:  { min: 22.5, max: 22.5 },
+  7:  { min: 25.3, max: 25.3 },
+  8:  { min: 27.5, max: 27.5 },
+  9:  { min: 29.2, max: 29.2 },
+  10: { min: 30.4, max: 30.4 },
+  11: { min: 31.0, max: 31.0 },
+};
+const OF_VOLUME_REF_CM3 = {
+  3:  { min: 1.5,  max: 2.0 },
+  4:  { min: 3.5,  max: 3.5 },
+  5:  { min: 7.0,  max: 7.0 },
+  6:  { min: 11.5, max: 11.5 },
+  7:  { min: 16.5, max: 16.5 },
+  8:  { min: 21.0, max: 21.0 },
+  9:  { min: 25.5, max: 25.5 },
+  10: { min: 29.5, max: 29.5 },
+  11: { min: 32.0, max: 35.0 },
+};
+
+// Volume calculado a partir de altura e largura (mm): (a² × l) / 1000.
+export function calcularVolumeOrbita(alturaMm, larguraMm) {
+  const a = parseFloat(alturaMm);
+  const l = parseFloat(larguraMm);
+  if (isNaN(a) || isNaN(l) || a <= 0 || l <= 0) return null;
+  return +(a * a * l / 1000).toFixed(2);
+}
+
+// Escolhe qual referência usar (volume tem prioridade). Retorna
+// { valor, ref, tipo } ou null se não há medida.
+function _medidaOfDe(dados, mes) {
+  const vol = parseFloat(dados?.orbitaVolume);
+  if (!isNaN(vol) && vol > 0) {
+    const ref = OF_VOLUME_REF_CM3[mes];
+    if (ref) return { valor: vol, ref, tipo: 'volume', unidade: 'cm³' };
+  }
+  const larg = parseFloat(dados?.orbitaLargura);
+  if (!isNaN(larg) && larg > 0) {
+    const ref = OF_LARGURA_REF_MM[mes];
+    if (ref) return { valor: larg, ref, tipo: 'largura', unidade: 'mm' };
+  }
+  return null;
+}
+
+// Classifica em: 'critico' (< 70% do min), 'baixa' (< 80% do min),
+// 'alta' (> 120% do max), 'normal'. null se não há medida ou ref.
+function _classificarOf(mes, dados) {
+  const med = _medidaOfDe(dados, mes);
+  if (!med) return null;
+  const { valor, ref } = med;
+  if (valor < ref.min * 0.7) return { ...med, classe: 'critico' };
+  if (valor > ref.max * 1.2) return { ...med, classe: 'alta' };
+  if (valor < ref.min * 0.8) return { ...med, classe: 'baixa' };
+  return { ...med, classe: 'normal' };
+}
+
+// Última medição da OF em que foi classificado como crítico ('critico').
+// Se a última for normal/alta/baixa, retorna essa — assim o alerta grande
+// some quando o próximo mês normaliza.
+export function analisarOfCritico(cavalo) {
+  const acomp = cavalo?.gestacao?.acompanhamento || {};
+  for (let mes = 11; mes >= 3; mes--) {
+    const dados = acomp[mes];
+    if (!dados) continue;
+    const res = _classificarOf(mes, dados);
+    if (!res) continue;
+    return { mes, ...res };
   }
   return null;
 }
@@ -670,8 +752,11 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
     const brady = fcCrit && fcCrit.critico === 'bradicardia';
     const taqui = fcCrit && fcCrit.critico === 'taquicardia';
     const temAlertaFc = brady || taqui;
+    const ofCrit = !isGray ? analisarOfCritico(c) : null;
+    const rciu = ofCrit && ofCrit.classe === 'critico';
+    const temAlertaOf = rciu;
 
-    const cardVermelho = posterior || temAlertaJup || temAlertaFc;
+    const cardVermelho = posterior || temAlertaJup || temAlertaFc || temAlertaOf;
 
     return (
       <div key={c.id} onClick={() => { setSelected(c.id); setScreen('eguaGestanteDetalhe'); }}
@@ -711,6 +796,11 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
         {taqui && (
           <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
             ⚠️ Taquicardia muito acentuada! Checar urgente
+          </div>
+        )}
+        {rciu && (
+          <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 14px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:7 }}>
+            ⚠️ Restrição de Crescimento Intrauterino!
           </div>
         )}
         {!isGray && atrasada && (
@@ -927,6 +1017,15 @@ export function EguaGestanteDetalheScreen({
             );
           }
           return null;
+        })()}
+        {(() => {
+          const of = analisarOfCritico(c);
+          if (!of || of.classe !== 'critico') return null;
+          return (
+            <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              ⚠️ Restrição de Crescimento Intrauterino! (OF {of.valor} {of.unidade})
+            </div>
+          );
         })()}
         {atrasada && (
           <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
@@ -1268,6 +1367,19 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
   const isPosterior = estaticaFetal === 'posterior';
   const fcStatus = _classificarFc(mes, form.freqCardiaca);
+  const ofClasse = _classificarOf(mes, form);
+
+  // Auto-preenche o volume ao editar altura/largura. Se o usuário digitar
+  // volume manualmente, ele vai ser sobrescrito no próximo edit de a/l —
+  // aceito o compromisso pra não complicar com "modo manual vs auto".
+  useEffect(() => {
+    const vol = calcularVolumeOrbita(form.orbitaAltura, form.orbitaLargura);
+    if (vol == null) return;
+    const volStr = String(vol);
+    if (String(form.orbitaVolume ?? '') === volStr) return;
+    setForm(f => ({ ...f, orbitaVolume: volStr }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.orbitaAltura, form.orbitaLargura]);
 
   return (
     <div style={{ marginBottom:8, background:'var(--card)', border:`1px solid ${isAtual ? 'var(--accent)' : 'var(--line)'}`, borderRadius:12, overflow:'hidden' }}>
@@ -1284,6 +1396,9 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
           {isPosterior && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#b91c1c', border:'1px solid #fca5a5' }}>⚠ POSTERIOR</span>}
           {fcStatus === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↑</span>}
           {fcStatus === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>FC ↓</span>}
+          {ofClasse?.classe === 'alta' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>OF ↑</span>}
+          {ofClasse?.classe === 'baixa' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fef2f2', color:'#b91c1c', border:'1px solid #fecaca' }}>OF ↓</span>}
+          {ofClasse?.classe === 'critico' && <span style={{ fontSize:10, fontWeight:700, padding:'2px 7px', borderRadius:6, background:'#fee2e2', color:'#7f1d1d', border:'1px solid #fca5a5' }}>⚠ OF ↓↓</span>}
           {temDados && !expandido && <span style={{ fontSize:10, color:'var(--ink-3)' }}>✓ preenchido</span>}
         </div>
         <Icon name={expandido ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
@@ -1362,6 +1477,19 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
               ? { ...inputStyle, background:'#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
               : inputStyle;
 
+            // Campos da órbita — Volume tem prioridade. Destaca sutil no
+            // input que a classificação está aplicando (usually o volume
+            // se estiver preenchido, senão a largura).
+            const ehOf = campo.key === 'orbitaAltura' || campo.key === 'orbitaLargura' || campo.key === 'orbitaVolume';
+            const ofClasseAtiva = ofClasse?.classe === 'alta' || ofClasse?.classe === 'baixa' || ofClasse?.classe === 'critico';
+            const ofDestaqueEste = ehOf && ofClasseAtiva && (
+              (ofClasse.tipo === 'volume' && campo.key === 'orbitaVolume') ||
+              (ofClasse.tipo === 'largura' && campo.key === 'orbitaLargura')
+            );
+            const ofInputStyle = ofDestaqueEste
+              ? { ...inputStyle, background: ofClasse.classe === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
+              : inputStyle;
+
             return (
               <div key={campo.key} style={{ marginBottom:10 }}>
                 <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-3)', marginBottom:4 }}>{campo.label}</div>
@@ -1377,7 +1505,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     type={campo.tipo}
                     value={form[campo.key] || ''}
                     onChange={e => setForm(f => ({...f, [campo.key]: e.target.value}))}
-                    style={ehFc ? fcInputStyle : inputStyle}
+                    style={ehFc ? fcInputStyle : (ehOf ? ofInputStyle : inputStyle)}
                   />
                 )}
                 {ehJup && refJup && (
@@ -1395,6 +1523,20 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     {fcClasse === 'alta' && <span>Frequência cardíaca acima do esperado ({refFc.min}–{refFc.max} bpm)</span>}
                     {fcClasse === 'baixa' && <span>Frequência cardíaca abaixo do esperado ({refFc.min}–{refFc.max} bpm)</span>}
                     {(!fcClasse || fcClasse === 'normal') && <span>Referência ({mes}º mês): {refFc.min}–{refFc.max} bpm</span>}
+                  </div>
+                )}
+                {/* Hint sob o campo Volume — mostra sempre ali quando OF tem
+                    classificação com volume prioritário. Se só largura tem
+                    valor, o hint vai embaixo do input de largura. */}
+                {ehOf && ofClasse && (
+                  (ofClasse.tipo === 'volume' && campo.key === 'orbitaVolume') ||
+                  (ofClasse.tipo === 'largura' && campo.key === 'orbitaLargura')
+                ) && (
+                  <div style={{ marginTop:4, fontSize:10, color: ofClasseAtiva ? (ofClasse.classe === 'critico' ? '#7f1d1d' : '#b91c1c') : 'var(--ink-3)', display:'flex', alignItems:'center', gap:6, flexWrap:'wrap' }}>
+                    {ofClasse.classe === 'alta' && <span>Órbita fetal acima da medida esperada (ref. {ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade})</span>}
+                    {ofClasse.classe === 'baixa' && <span>Órbita fetal abaixo da medida esperada (ref. {ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade})</span>}
+                    {ofClasse.classe === 'critico' && <span>⚠ Órbita fetal muito abaixo do esperado — restrição de crescimento intrauterino</span>}
+                    {ofClasse.classe === 'normal' && <span>Dentro da faixa esperada ({ofClasse.ref.min === ofClasse.ref.max ? ofClasse.ref.min : `${ofClasse.ref.min}–${ofClasse.ref.max}`} {ofClasse.unidade})</span>}
                   </div>
                 )}
               </div>
