@@ -370,260 +370,75 @@ export function pesoSugeridoDoCavalo(cavalo) {
 }
 
 // ── Desenvolvimento fetal ──────────────────────────────────────
-// SVGs sketch progressivos: silhueta do feto em posição curva, com
-// detalhes aumentando por fase. Todos os traços são livres (stroke) —
-// sem preenchimento — pra dar o aspecto de desenho a lápis.
-const _skC = { stroke:'#3f3f46', strokeWidth:1.4, strokeLinecap:'round', strokeLinejoin:'round', fill:'none' };
-const _skB = { stroke:'#3f3f46', strokeWidth:1.8, strokeLinecap:'round', strokeLinejoin:'round', fill:'none' };
-const _skHint = { stroke:'#a1a1aa', strokeWidth:1, strokeLinecap:'round', strokeLinejoin:'round', fill:'none' };
-const svgWrapProps = { viewBox: '0 0 200 200', style: { width: '100%', height: '100%', maxWidth: 160, maxHeight: 160 } };
-
-// Fase 1 — 45-52 dias · Azeitona · ~2 cm (imagem real)
-const SvgFase1 = () => (
-  <img
-    src="/assets/feto/fase1.png"
-    alt="Feto de 45 a 52 dias — tamanho de azeitona"
-    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-  />
+// Fases guiadas por dias desde a cobrição. Cada fase tem uma imagem
+// realista (public/assets/feto/diaXXX.png) que troca automaticamente
+// nas fronteiras definidas em minDia.
+const ImgFase = ({ src, alt }) => (
+  <img src={src} alt={alt} style={{ width:'100%', height:'100%', objectFit:'contain' }} />
 );
 
-// Fase 2 — 53-55 dias · Noz Pecan · ~2,5 cm
-const SvgFase2 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M40 100 q-2 -22 22 -32 q30 -12 55 4 q22 14 20 40 q-2 24 -22 34 q-30 14 -55 -2 q-18 -12 -20 -44 z" {..._skC} />
-    <circle cx="60" cy="82" r="14" {..._skC} />
-    <path d="M52 74 q0 -6 4 -8" {..._skHint} />
-    <path d="M62 72 q4 -6 8 -6" {..._skHint} />
-    <circle cx="56" cy="82" r="1.8" fill="#3f3f46" />
-    <path d="M78 88 q6 4 12 2" {..._skHint} />
-    <path d="M82 100 q10 4 20 2" {..._skHint} />
-    <path d="M86 108 q10 6 22 4" {..._skHint} />
-    <path d="M96 132 q-2 14 4 22" {..._skC} />
-    <path d="M108 134 q0 14 6 22" {..._skC} />
-    <path d="M116 122 q10 6 12 16" {..._skC} />
-    <path d="M118 108 q10 0 14 8" {..._skC} />
-    <path d="M126 94 q10 -6 6 -18" {..._skC} />
-  </svg>
-);
-
-// Fase 3 — 56-79 dias · Hamster · ~6 cm, 20g
-const SvgFase3 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M45 92 q4 -30 40 -34 q40 -4 60 20 q18 20 12 46 q-6 22 -30 30 q-30 10 -55 -6 q-30 -20 -27 -56 z" {..._skB} />
-    <path d="M58 78 q-6 -8 -2 -18 q4 -8 16 -8 q10 0 14 8 q4 8 -2 18" {..._skC} />
-    <path d="M52 66 q4 -8 4 -12" {..._skC} />
-    <path d="M74 62 q2 -8 6 -10" {..._skC} />
-    <circle cx="60" cy="80" r="2" fill="#3f3f46" />
-    <path d="M62 90 q4 4 10 2" {..._skC} />
-    <path d="M98 130 q-4 16 2 26" {..._skC} />
-    <path d="M113 132 q-2 16 4 26" {..._skC} />
-    <path d="M118 124 q14 4 16 18" {..._skC} />
-    <path d="M120 108 q12 -2 18 10" {..._skC} />
-    <circle cx="103" cy="160" r="3" {..._skC} />
-    <circle cx="119" cy="160" r="3" {..._skC} />
-    <circle cx="134" cy="144" r="3" {..._skC} />
-    <circle cx="140" cy="120" r="3" {..._skC} />
-    <path d="M144 92 q14 -12 4 -26 q-6 -10 -4 6" {..._skC} />
-  </svg>
-);
-
-// Fase 4 — 80-99 dias · Esquilo · ~10 cm, 50g
-const SvgFase4 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M32 100 q0 -34 36 -46 q40 -12 66 12 q22 20 18 48 q-6 22 -30 32 q-32 12 -60 -4 q-30 -18 -30 -42 z" {..._skB} />
-    <path d="M52 72 q-6 -10 2 -22 q10 -14 26 -8 q10 4 14 14 q4 10 -4 20" {..._skC} />
-    <path d="M46 58 q4 -12 8 -14" {..._skC} />
-    <path d="M74 52 q0 -12 4 -14" {..._skC} />
-    <circle cx="60" cy="76" r="2" fill="#3f3f46" />
-    <path d="M62 88 q6 4 12 2" {..._skC} />
-    <path d="M78 78 q10 2 22 12" {..._skHint} />
-    <path d="M100 90 q6 20 -2 40" {..._skHint} />
-    <path d="M96 138 q-8 18 -2 30" {..._skC} />
-    <path d="M114 138 q-4 18 4 30" {..._skC} />
-    <path d="M120 122 q14 4 20 20" {..._skC} />
-    <path d="M124 106 q14 -2 22 12" {..._skC} />
-    <circle cx="98" cy="172" r="3.5" {..._skC} />
-    <circle cx="118" cy="172" r="3.5" {..._skC} />
-    <circle cx="142" cy="146" r="3.5" {..._skC} />
-    <circle cx="148" cy="122" r="3.5" {..._skC} />
-    <path d="M152 100 q18 -10 8 -30 q-6 -12 -6 8" {..._skC} />
-  </svg>
-);
-
-// Fase 5 — 100-149 dias · Gatinho · ~18 cm, 500g
-const SvgFase5 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M28 108 q-2 -40 44 -54 q46 -12 74 16 q22 22 18 50 q-6 22 -32 32 q-38 14 -68 -6 q-34 -22 -36 -38 z" {..._skB} />
-    <path d="M48 70 q-6 -14 4 -28 q14 -18 32 -10 q12 4 16 16 q4 10 -6 22" {..._skC} />
-    <path d="M42 52 q4 -14 12 -18" {..._skB} />
-    <path d="M46 56 q0 -8 4 -10" {..._skC} />
-    <path d="M76 44 q2 -14 10 -14" {..._skB} />
-    <path d="M78 48 q0 -8 4 -10" {..._skC} />
-    <circle cx="60" cy="74" r="2.2" fill="#3f3f46" />
-    <path d="M64 78 q-2 3 -4 4" {..._skC} />
-    <path d="M62 88 q8 4 14 2" {..._skC} />
-    <path d="M74 90 q4 2 10 2" {..._skHint} />
-    <path d="M64 92 q2 -1 4 0" {..._skHint} />
-    <path d="M66 94 q2 -1 4 0" {..._skHint} />
-    <path d="M84 78 q14 -2 26 12" {..._skHint} />
-    <path d="M112 92 q8 22 -2 42" {..._skHint} />
-    <path d="M98 142 q-8 20 0 34" {..._skC} />
-    <path d="M118 142 q-4 20 6 34" {..._skC} />
-    <path d="M124 124 q16 4 22 22" {..._skC} />
-    <path d="M128 108 q16 -2 24 14" {..._skC} />
-    <circle cx="98" cy="180" r="4" {..._skC} />
-    <circle cx="122" cy="180" r="4" {..._skC} />
-    <circle cx="148" cy="150" r="4" {..._skC} />
-    <circle cx="154" cy="124" r="4" {..._skC} />
-    <path d="M158 102 q22 -10 8 -34 q-4 -12 -8 8" {..._skC} />
-  </svg>
-);
-
-// Fase 6 — 150-179 dias · Coelho · ~30 cm, 2,7 kg
-const SvgFase6 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M24 110 q-4 -44 48 -58 q52 -14 82 18 q22 22 20 50 q-4 24 -34 34 q-42 14 -74 -6 q-38 -22 -42 -38 z" {..._skB} />
-    <path d="M46 68 q-8 -14 4 -30 q16 -20 34 -10 q14 6 18 18 q4 12 -6 24" {..._skC} />
-    <path d="M40 46 q6 -18 14 -20" {..._skB} />
-    <path d="M76 38 q2 -18 12 -18" {..._skB} />
-    <circle cx="60" cy="74" r="2.2" fill="#3f3f46" />
-    <path d="M64 80 q-2 3 -4 4" {..._skC} />
-    <path d="M64 90 q10 3 16 0" {..._skC} />
-    <path d="M50 82 q-3 0 -5 2" {..._skHint} />
-    <path d="M52 86 q-3 0 -5 2" {..._skHint} />
-    <path d="M56 92 q-3 2 -5 4" {..._skHint} />
-    <path d="M76 94 q3 0 5 2" {..._skHint} />
-    <path d="M78 98 q3 0 5 2" {..._skHint} />
-    <path d="M86 78 q16 -4 30 12" {..._skHint} />
-    <path d="M118 96 q10 22 -2 46" {..._skHint} />
-    <path d="M100 148 q-10 20 -2 38" {..._skC} />
-    <path d="M122 148 q-4 20 8 38" {..._skC} />
-    <path d="M128 128 q18 4 24 22" {..._skC} />
-    <path d="M132 110 q18 -2 26 14" {..._skC} />
-    <circle cx="98" cy="188" r="4.5" {..._skC} />
-    <circle cx="128" cy="188" r="4.5" {..._skC} />
-    <circle cx="154" cy="154" r="4.5" {..._skC} />
-    <circle cx="160" cy="128" r="4.5" {..._skC} />
-    <path d="M164 108 q28 -10 8 -38 q-4 -14 -10 10" {..._skC} />
-  </svg>
-);
-
-// Fase 7 — 180-239 dias · Beagle · ~50 cm, 11 kg
-const SvgFase7 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M20 112 q-4 -50 54 -62 q56 -12 88 22 q22 24 20 52 q-4 24 -38 34 q-46 14 -80 -6 q-40 -22 -44 -40 z" {..._skB} />
-    <path d="M44 66 q-10 -14 4 -32 q18 -22 38 -10 q14 6 18 20 q4 12 -6 26" {..._skC} />
-    <path d="M38 42 q6 -22 16 -22" {..._skB} />
-    <path d="M74 34 q2 -20 14 -20" {..._skB} />
-    <path d="M42 42 q-2 -14 4 -18" {..._skC} />
-    <path d="M76 34 q-2 -14 4 -18" {..._skC} />
-    <path d="M42 34 q3 -4 6 -2" {..._skC} />
-    <path d="M46 30 q3 -4 6 -2" {..._skC} />
-    <path d="M50 26 q3 -4 6 -2" {..._skC} />
-    <circle cx="60" cy="74" r="2.4" fill="#3f3f46" />
-    <path d="M66 80 q-2 4 -4 5" {..._skC} />
-    <path d="M64 90 q10 3 16 0" {..._skC} />
-    <path d="M46 82 q-4 0 -6 2" {..._skHint} />
-    <path d="M48 86 q-4 0 -6 2" {..._skHint} />
-    <path d="M52 92 q-4 0 -6 2" {..._skHint} />
-    <path d="M76 94 q4 0 6 2" {..._skHint} />
-    <path d="M78 100 q4 0 6 2" {..._skHint} />
-    <path d="M88 78 q18 -4 34 14" {..._skHint} />
-    <path d="M124 100 q10 22 -4 48" {..._skHint} />
-    <path d="M102 154 q-10 20 -2 40" {..._skC} />
-    <path d="M126 154 q-4 20 10 40" {..._skC} />
-    <path d="M132 132 q20 4 26 24" {..._skC} />
-    <path d="M136 112 q20 -2 30 16" {..._skC} />
-    <circle cx="98" cy="196" r="5" {..._skC} />
-    <circle cx="134" cy="196" r="5" {..._skC} />
-    <circle cx="160" cy="158" r="5" {..._skC} />
-    <circle cx="168" cy="130" r="5" {..._skC} />
-    <path d="M170 110 q30 -10 10 -40 q-6 -16 -10 12" {..._skB} />
-    <path d="M180 130 q6 4 4 12" {..._skHint} />
-    <path d="M182 138 q6 4 4 12" {..._skHint} />
-    <path d="M182 146 q6 4 4 12" {..._skHint} />
-  </svg>
-);
-
-// Fase 8 — 240-363 dias · Cordeirinho · ~60 cm, 20 kg
-const SvgFase8 = () => (
-  <svg {...svgWrapProps}>
-    <path d="M18 114 q-6 -54 58 -66 q60 -12 92 24 q24 26 20 54 q-2 26 -40 36 q-48 14 -84 -6 q-40 -22 -46 -42 z" {..._skB} />
-    <path d="M42 62 q-10 -14 4 -34 q20 -24 42 -10 q14 8 18 22 q4 14 -8 28" {..._skB} />
-    <path d="M34 38 q8 -24 20 -22" {..._skB} />
-    <path d="M74 30 q4 -22 16 -20" {..._skB} />
-    <path d="M40 38 q-4 -14 2 -18" {..._skC} />
-    <path d="M78 30 q-4 -14 2 -18" {..._skC} />
-    <path d="M40 30 q2 -6 5 -4" {..._skC} />
-    <path d="M44 24 q2 -6 5 -4" {..._skC} />
-    <path d="M48 18 q2 -6 5 -4" {..._skC} />
-    <path d="M52 14 q3 -4 6 -4" {..._skC} />
-    <circle cx="60" cy="72" r="2.6" fill="#3f3f46" />
-    <path d="M66 78 q-2 4 -4 5" {..._skC} />
-    <path d="M62 82 q-1 2 -2 3" {..._skHint} />
-    <path d="M64 90 q10 4 16 0" {..._skC} />
-    <path d="M44 80 q-6 0 -8 3" {..._skHint} />
-    <path d="M46 84 q-6 0 -8 3" {..._skHint} />
-    <path d="M50 90 q-6 0 -8 3" {..._skHint} />
-    <path d="M76 94 q5 0 7 2" {..._skHint} />
-    <path d="M78 100 q5 0 7 2" {..._skHint} />
-    <path d="M80 106 q5 0 7 2" {..._skHint} />
-    <path d="M90 78 q20 -4 36 16" {..._skHint} />
-    <path d="M128 102 q12 24 -4 52" {..._skHint} />
-    <path d="M104 158 q-10 22 -2 42" {..._skB} />
-    <path d="M130 158 q-4 22 12 42" {..._skB} />
-    <path d="M136 134 q22 4 28 26" {..._skB} />
-    <path d="M140 114 q22 -2 32 18" {..._skB} />
-    <circle cx="100" cy="200" r="5.5" {..._skC} />
-    <circle cx="138" cy="200" r="5.5" {..._skC} />
-    <circle cx="164" cy="162" r="5.5" {..._skC} />
-    <circle cx="172" cy="134" r="5.5" {..._skC} />
-    <path d="M176 112 q34 -12 12 -46 q-6 -18 -12 14" {..._skB} />
-    <path d="M186 130 q6 4 4 14" {..._skHint} />
-    <path d="M188 138 q6 4 4 14" {..._skHint} />
-    <path d="M188 146 q6 4 4 14" {..._skHint} />
-    <path d="M188 154 q6 4 4 14" {..._skHint} />
-    <path d="M40 42 q-4 4 -3 8" {..._skHint} />
-    <path d="M36 46 q-4 4 -3 8" {..._skHint} />
-    <path d="M40 52 q-4 4 -3 8" {..._skHint} />
-  </svg>
-);
-
-// Definição das fases. min/max em DIAS de gestação.
+// Definição das fases. Cada linha começa em minDia e vale até o minDia
+// da linha seguinte (inclusive maxDia calculado). Imagem em
+// public/assets/feto/diaXXX.png.
 const FASES_FETO = [
-  { min: 45,  max: 52,  frase: 'O feto está do tamanho de uma azeitona!',   medidas: 'Cerca de 2 cm',
-    descricao: 'A vesícula agora tem 6,3 cm de diâmetro. O embrião de 2 cm é reconhecível como uma criatura de quatro patas. Possui cabeça, pálpebras, orelhas rudimentares, cotovelos funcionais e articulações do joelho.',
-    Svg: SvgFase1 },
-  { min: 53,  max: 55,  frase: 'O feto está do tamanho de uma noz pecan!',  medidas: 'Cerca de 2,5 cm',
-    descricao: 'O embrião tem pouco mais de 2,5 cm. Pequenas costelas são visíveis sob a pele, a cabeça desenvolveu um crânio distinto. Pequenos triângulos representam as orelhas; articulações do jarrete e boleto se desenvolveram.',
-    Svg: SvgFase2 },
-  { min: 56,  max: 79,  frase: 'O feto está do tamanho de um hamster!',     medidas: 'Cerca de 6 cm e 20 g',
-    descricao: 'O feto tem cerca de 6,3 cm. Assemelha-se claramente a um cavalo, com cascos minúsculos, solas e ranilhas. Não tem pelos.',
-    Svg: SvgFase3 },
-  { min: 80,  max: 99,  frase: 'O feto está do tamanho de um esquilo!',     medidas: 'Cerca de 10 cm e 50 g',
-    descricao: 'A cabeça e o pescoço se separam e estão nivelados com a coluna. O sexo está definido (pequenos caroços para escroto ou úbere).',
-    Svg: SvgFase4 },
-  { min: 100, max: 149, frase: 'O feto está do tamanho de um gatinho!',     medidas: 'Quase 18 cm e 0,5 kg',
-    descricao: 'O feto tem cerca de 18 cm. Um pouco de pelo surge nos lábios, as orelhas estão desamassando da cabeça, com quase 1,5 cm de comprimento e enroladas para a frente.',
-    Svg: SvgFase5 },
-  { min: 150, max: 179, frase: 'O feto está do tamanho de um coelho!',      medidas: 'Cerca de 30 cm e 2,7 kg',
-    descricao: 'Ganhando mais de meio quilo a cada 10 dias. Pelos enfeitam o queixo, focinho e pálpebras. Cílios já surgiram.',
-    Svg: SvgFase6 },
-  { min: 180, max: 239, frase: 'O feto está do tamanho de um beagle!',      medidas: 'Quase 50 cm e mais de 11 kg',
-    descricao: 'O feto quadruplicou seu peso em apenas 30 dias. Os pelos da crina e da cauda apareceram.',
-    Svg: SvgFase7 },
-  { min: 240, max: 363, frase: 'O feto está do tamanho de um cordeirinho!', medidas: 'Cerca de 60 cm e 20 kg',
-    descricao: 'Está quase lá, já parecendo com um potro completo e se desenvolvendo para o nascimento.',
-    Svg: SvgFase8 },
+  { minDia: 12,  maxDia: 23,  img: '/assets/feto/dia012.png',
+    frase: 'O embrião é uma pequena vesícula!',
+    medidas: 'Poucos milímetros',
+    descricao: 'Nesse estágio a gestação ainda é uma vesícula esférica preenchida por líquido. O embrião propriamente dito começa a se formar dentro dela.' },
+  { minDia: 24,  maxDia: 39,  img: '/assets/feto/dia024.png',
+    frase: 'O embrião começa a se enrolar!',
+    medidas: 'Poucos milímetros',
+    descricao: 'Início da formação do corpo. O embrião assume a forma curva característica e os primeiros esboços de órgãos começam a aparecer.' },
+  { minDia: 40,  maxDia: 54,  img: '/assets/feto/dia040.png',
+    frase: 'O feto está do tamanho de uma azeitona!',
+    medidas: 'Cerca de 2 cm',
+    descricao: 'A vesícula tem cerca de 6,3 cm de diâmetro. O embrião de 2 cm é reconhecível como uma criatura de quatro patas. Possui cabeça, pálpebras, orelhas rudimentares, cotovelos funcionais e articulações do joelho.' },
+  { minDia: 55,  maxDia: 59,  img: '/assets/feto/dia055.png',
+    frase: 'O feto está do tamanho de uma noz pecan!',
+    medidas: 'Cerca de 2,5 cm',
+    descricao: 'O embrião tem pouco mais de 2,5 cm. Pequenas costelas são visíveis sob a pele, a cabeça desenvolveu um crânio distinto. Pequenos triângulos representam as orelhas; articulações do jarrete e boleto se desenvolveram.' },
+  { minDia: 60,  maxDia: 79,  img: '/assets/feto/dia060.png',
+    frase: 'O feto está do tamanho de um hamster!',
+    medidas: 'Cerca de 6 cm e 20 g',
+    descricao: 'O feto tem cerca de 6,3 cm. Assemelha-se claramente a um cavalo, com cascos minúsculos, solas e ranilhas. Não tem pelos.' },
+  { minDia: 80,  maxDia: 99,  img: '/assets/feto/dia080.png',
+    frase: 'O feto está do tamanho de um esquilo!',
+    medidas: 'Cerca de 10 cm e 50 g',
+    descricao: 'A cabeça e o pescoço se separam e estão nivelados com a coluna. O sexo está definido (pequenos caroços para escroto ou úbere).' },
+  { minDia: 100, maxDia: 149, img: '/assets/feto/dia100.png',
+    frase: 'O feto está do tamanho de um gatinho!',
+    medidas: 'Quase 18 cm e 0,5 kg',
+    descricao: 'O feto tem cerca de 18 cm. Um pouco de pelo surge nos lábios, as orelhas estão desamassando da cabeça, com quase 1,5 cm de comprimento e enroladas para a frente.' },
+  { minDia: 150, maxDia: 199, img: '/assets/feto/dia150.png',
+    frase: 'O feto está do tamanho de um coelho!',
+    medidas: 'Cerca de 30 cm e 2,7 kg',
+    descricao: 'Ganhando mais de meio quilo a cada 10 dias. Pelos enfeitam o queixo, focinho e pálpebras. Cílios já surgiram.' },
+  { minDia: 200, maxDia: 249, img: '/assets/feto/dia200.png',
+    frase: 'O feto está do tamanho de um beagle!',
+    medidas: 'Quase 50 cm e mais de 11 kg',
+    descricao: 'O feto quadruplicou seu peso em apenas 30 dias. Os pelos da crina e da cauda apareceram.' },
+  { minDia: 250, maxDia: 299, img: '/assets/feto/dia250.png',
+    frase: 'O feto está do tamanho de um cordeirinho!',
+    medidas: 'Cerca de 60 cm e 20 kg',
+    descricao: 'Já parece um potro completo. Continua ganhando peso e amadurecendo pra vida fora do útero.' },
+  { minDia: 300, maxDia: 329, img: '/assets/feto/dia300.png',
+    frase: 'O potro está quase pronto!',
+    medidas: 'Cerca de 70 cm e 30 kg',
+    descricao: 'Os últimos sistemas amadurecem — em especial o respiratório e o imunológico. O potro se prepara pra chegar ao mundo.' },
+  { minDia: 330, maxDia: 400, img: '/assets/feto/dia330.png',
+    frase: 'O potro está pronto pra nascer!',
+    medidas: 'Cerca de 80 cm e 40–50 kg',
+    descricao: 'Todos os sistemas amadureceram. O parto pode acontecer a qualquer momento a partir daqui — fique atenta aos sinais.' },
 ];
 
-// Retorna a fase atual dado a data de cobrição. null se ainda muito cedo (<45d).
+// Retorna a fase atual dado a data de cobrição. Antes do minDia da 1ª
+// fase (dia 12), mostra placeholder de contagem.
 function faseDoFeto(dataCobricao) {
   if (!dataCobricao) return null;
   const inicio = new Date(dataCobricao + 'T12:00:00');
   const dias = Math.floor((new Date() - inicio) / 86400000);
-  if (dias < FASES_FETO[0].min) return { antesInicio: true, dias };
-  const fase = FASES_FETO.find(f => dias >= f.min && dias <= f.max);
+  if (dias < FASES_FETO[0].minDia) return { antesInicio: true, dias };
+  const fase = FASES_FETO.find(f => dias >= f.minDia && dias <= f.maxDia);
   if (!fase) return { fase: FASES_FETO[FASES_FETO.length - 1], dias, fim: true };
   return { fase, dias };
 }
@@ -651,22 +466,22 @@ function BoxDesenvolvimentoFetal({ dataCobricao, cavalo }) {
             {dias >= 0 ? `${dias} dia${dias!==1?'s':''}` : `${Math.abs(dias)} dia${Math.abs(dias)!==1?'s':''} até a cobrição`}
           </div>
           <div style={{ fontSize:12, color:'var(--ink-3)', lineHeight:1.5 }}>
-            Ilustrações começam a partir do 45º dia de gestação.
+            Ilustrações começam a partir do 12º dia de gestação.
           </div>
         </div>
       ) : (
         <div style={{ display:'flex', gap:14, alignItems:'flex-start' }}>
           <div style={{
             width:130, height:130, flexShrink:0, borderRadius:14,
-            background:'#fafaf9', border:'1px solid #e7e5e4',
-            display:'grid', placeItems:'center', padding:8,
+            background:'#0b0b0f', border:'1px solid #e7e5e4',
+            display:'grid', placeItems:'center', overflow:'hidden',
           }}>
-            <fase.Svg />
+            <ImgFase src={fase.img} alt={fase.frase} />
           </div>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ fontSize:11, fontWeight:700, color:'var(--accent)',
               textTransform:'uppercase', letterSpacing:'0.06em', marginBottom:3 }}>
-              {fase.min}–{fase.max} dias · dia {dias}
+              {fase.minDia}–{fase.maxDia} dias · dia {dias}
             </div>
             <div style={{ fontSize:16, fontWeight:700, color:'var(--ink)', fontFamily:'var(--serif)', marginBottom:2, lineHeight:1.25 }}>
               {fase.frase}
