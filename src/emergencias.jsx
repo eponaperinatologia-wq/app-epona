@@ -1843,9 +1843,19 @@ function ParametroLinha({ p, emergAtiva, onEditar, onExcluir }) {
 }
 
 export function ParametroForm({ initial, onCancel, onSave }) {
-  const nowLocal = new Date();
-  const isoLocal = new Date(nowLocal.getTime() - nowLocal.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  const [dataHora, setDataHora] = useState(initial?.dataHora ? initial.dataHora.slice(0, 16) : isoLocal);
+  // datetime-local usa horário LOCAL. Se initial.dataHora vier em ISO UTC
+  // (caso dos cursores da agenda de aferição), preciso converter pra local
+  // antes de exibir. Sem isso, o navegador reconverte pra UTC ao salvar,
+  // gerando um offset em horas → o Math.abs contra o cursor estoura a
+  // janela de 30 min e o box de aferição segue como 'atrasado'.
+  const toLocalInput = (isoStr) => {
+    if (!isoStr) return '';
+    const d = new Date(isoStr);
+    if (isNaN(d.getTime())) return '';
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
+  const isoLocalAgora = toLocalInput(new Date().toISOString());
+  const [dataHora, setDataHora] = useState(initial?.dataHora ? toLocalInput(initial.dataHora) : isoLocalAgora);
   const [temperatura, setTemperatura] = useState(initial?.temperatura != null ? String(initial.temperatura) : '');
   const [fc, setFc] = useState(initial?.fc != null ? String(initial.fc) : '');
   const [fr, setFr] = useState(initial?.fr != null ? String(initial.fr) : '');
