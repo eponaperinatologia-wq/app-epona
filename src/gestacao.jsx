@@ -318,6 +318,23 @@ export function analisarAortaCritica(cavalo) {
   return null;
 }
 
+// Fórmula: Y (kg) = -19,62 + 2,925 * X (mm da aorta fetal).
+// Válido só a partir do 11º mês, quando o cálculo é aplicável.
+export function pesoSugeridoNascimento(aortaMm) {
+  const x = parseFloat(aortaMm);
+  if (isNaN(x) || x <= 0) return null;
+  const y = -19.62 + 2.925 * x;
+  if (!isFinite(y) || y <= 0) return null;
+  return +y.toFixed(2);
+}
+
+// Retorna o peso sugerido a partir do registro de aorta no 11º mês, ou
+// null. Usado no box de Desenvolvimento fetal.
+export function pesoSugeridoDoCavalo(cavalo) {
+  const aorta11 = cavalo?.gestacao?.acompanhamento?.[11]?.aorta;
+  return pesoSugeridoNascimento(aorta11);
+}
+
 // ── Desenvolvimento fetal ──────────────────────────────────────
 // SVGs sketch progressivos: silhueta do feto em posição curva, com
 // detalhes aumentando por fase. Todos os traços são livres (stroke) —
@@ -577,10 +594,11 @@ function faseDoFeto(dataCobricao) {
   return { fase, dias };
 }
 
-function BoxDesenvolvimentoFetal({ dataCobricao }) {
+function BoxDesenvolvimentoFetal({ dataCobricao, cavalo }) {
   const info = faseDoFeto(dataCobricao);
   if (!info) return null;
   const { fase, dias, antesInicio } = info;
+  const peso = pesoSugeridoDoCavalo(cavalo);
 
   return (
     <div style={{
@@ -625,6 +643,15 @@ function BoxDesenvolvimentoFetal({ dataCobricao }) {
             <div style={{ fontSize:12, color:'var(--ink-2)', lineHeight:1.5 }}>
               {fase.descricao}
             </div>
+            {peso != null && (
+              <div style={{ marginTop:10, padding:'8px 10px', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:9, display:'flex', alignItems:'center', gap:8 }}>
+                <span style={{ fontSize:16 }}>⚖️</span>
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:9, fontWeight:700, color:'#1d4ed8', textTransform:'uppercase', letterSpacing:'0.06em' }}>Peso sugerido de nascimento</div>
+                  <div style={{ fontSize:14, fontWeight:700, color:'#1e3a8a', fontFamily:'var(--serif)' }}>{peso.toFixed(2).replace('.', ',')} kg</div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -1231,7 +1258,7 @@ function GestacaoTab({ c, updateCavalo, mes }) {
       </div>
 
       {/* Desenvolvimento fetal — muda só com a idade gestacional */}
-      <BoxDesenvolvimentoFetal dataCobricao={dataCobricao} />
+      <BoxDesenvolvimentoFetal dataCobricao={dataCobricao} cavalo={c} />
 
       <button onClick={handleSave} style={{
         width:'100%', padding:'13px', borderRadius:12, border:'none',
@@ -1644,6 +1671,20 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
                     {(!aortaClasse || aortaClasse === 'normal') && <span>Referência ({mes}º mês): {refAorta} mm</span>}
                   </div>
                 )}
+                {/* Peso sugerido do nascimento — só no 11º mês, embaixo da aorta */}
+                {ehAorta && mes === 11 && (() => {
+                  const peso = pesoSugeridoNascimento(form.aorta);
+                  if (peso == null) return null;
+                  return (
+                    <div style={{ marginTop:8, padding:'10px 12px', background:'#eff6ff', border:'1px solid #bfdbfe', borderRadius:9, display:'flex', alignItems:'center', gap:10 }}>
+                      <span style={{ fontSize:18 }}>⚖️</span>
+                      <div style={{ flex:1 }}>
+                        <div style={{ fontSize:10, fontWeight:700, color:'#1d4ed8', textTransform:'uppercase', letterSpacing:'0.06em' }}>Peso sugerido de nascimento</div>
+                        <div style={{ fontSize:16, fontWeight:700, color:'#1e3a8a', fontFamily:'var(--serif)', marginTop:1 }}>{peso.toFixed(2).replace('.', ',')} kg</div>
+                      </div>
+                    </div>
+                  );
+                })()}
                 {/* Hint sob o campo Volume — mostra sempre ali quando OF tem
                     classificação com volume prioritário. Se só largura tem
                     valor, o hint vai embaixo do input de largura. */}
