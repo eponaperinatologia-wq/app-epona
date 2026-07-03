@@ -43,10 +43,10 @@ const CAMPOS_ULTRA_BASE = [
 const CAMPO_JUP = { key: 'jup', label: 'JUP (mm)', tipo: 'number' };
 const CAMPO_OBS = { key: 'obs', label: 'Observações', tipo: 'textarea' };
 
-// Retorna os campos ultra pra um dado mês (3+ sem JUP, 4+ com JUP).
+// Retorna os campos ultra pra um dado mês. JUP entra a partir do 3º mês.
 function camposUltraDoMes(mes) {
   const inclui = [...CAMPOS_ULTRA_BASE];
-  if (mes >= 4) inclui.push(CAMPO_JUP);
+  if (mes >= 3) inclui.push(CAMPO_JUP);
   inclui.push(CAMPO_OBS);
   return inclui;
 }
@@ -91,12 +91,12 @@ export function temApresentacaoPosterior(cavalo) {
 // Referência clínica por MÊS de gestação. Abaixo do min sugere
 // Placenta Insuficiente, acima do max sugere Placentite.
 const JUP_REFS_POR_MES = {
-  3:  { min: 3.1, max: 4.5 },
-  4:  { min: 3.1, max: 4.5 },
-  5:  { min: 3.1, max: 4.5 },
-  6:  { min: 4.5, max: 4.9 },
-  7:  { min: 4.5, max: 5.5 },
-  8:  { min: 4.4, max: 6.0 },
+  3:  { min: 2.1, max: 4.4 },
+  4:  { min: 2.3, max: 4.7 },
+  5:  { min: 3.5, max: 5.4 },
+  6:  { min: 4.0, max: 6.0 },
+  7:  { min: 4.5, max: 7.4 },
+  8:  { min: 5.0, max: 7.9 },
   9:  { min: 5.5, max: 8.0 },
   10: { min: 7.5, max: 10.0 },
   11: { min: 8.0, max: 12.6 },
@@ -122,7 +122,7 @@ function _classificarJup(mes, valorMm) {
 // status é 'normal' — alerta somem sozinhos.
 export function analisarJupCavalo(cavalo) {
   const acomp = cavalo?.gestacao?.acompanhamento || {};
-  for (let mes = 11; mes >= 4; mes--) {
+  for (let mes = 11; mes >= 3; mes--) {
     const dados = acomp[mes];
     if (!dados) continue;
     if (dados.jup === '' || dados.jup == null) continue;
