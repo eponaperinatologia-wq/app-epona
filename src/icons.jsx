@@ -107,6 +107,16 @@ const Icon = ({ name, size = 24, color = 'currentColor', style = {} }) => {
         <circle cx="21" cy="14.5" r="1.3" fill={color}/>
         <circle cx="21.5" cy="14" r="0.4" fill="white" stroke="none"/>
       </svg>;
+    case 'trending-up':
+      return <svg {...props}>
+        <path d="M3 17l6-6 4 4 8-8"/>
+        <path d="M15 7h6v6"/>
+      </svg>;
+    case 'trending-down':
+      return <svg {...props}>
+        <path d="M3 7l6 6 4-4 8 8"/>
+        <path d="M15 17h6v-6"/>
+      </svg>;
     case 'bar-chart':
       // Gráfico de barras crescente
       return <svg {...props}>
