@@ -193,6 +193,47 @@ const CATEGORIAS_PROTOCOLO = [
   { key: 'castrado',      label: 'Castrados',       filter: c => (c.categorias||[]).includes('Castrado') },
 ];
 
+// ─── Vermifugação: dose programada por animal ─────────────────
+// prot.doses (JSONB) legado é []; o formato novo é { datas?, dosePadrao?, dosesAnimais? }
+const doseVermPara = (prot, cavaloId) => {
+  const d = prot?.doses;
+  if (!d || Array.isArray(d)) return null;
+  const v = d.dosesAnimais?.[cavaloId] ?? d.dosePadrao;
+  return Number(v) > 0 ? Number(v) : null;
+};
+const datasProgramadas = (prot) => {
+  const d = prot?.doses;
+  if (!d || Array.isArray(d) || !Array.isArray(d.datas) || d.datas.length === 0) return null;
+  return d.datas;
+};
+
+// Expande períodos [{inicio, fim}] em lista ordenada de datas únicas (fim opcional)
+const expandPeriodos = (periodos) => {
+  const dates = new Set();
+  (periodos || []).forEach(p => {
+    if (!p.inicio) return;
+    const fim = p.fim && p.fim >= p.inicio ? p.fim : p.inicio;
+    let d = p.inicio, guard = 0;
+    while (d <= fim && guard < 90) { dates.add(d); d = addDays(d, 1); guard++; }
+  });
+  return [...dates].sort();
+};
+
+// Comprime lista de datas em períodos consecutivos (para reabrir no formulário)
+const comprimirDatas = (datas) => {
+  const ds = [...(datas || [])].sort();
+  if (!ds.length) return [{ inicio: '', fim: '' }];
+  const periodos = [];
+  let inicio = ds[0], fim = ds[0];
+  for (let i = 1; i < ds.length; i++) {
+    if (ds[i] === addDays(fim, 1)) { fim = ds[i]; continue; }
+    periodos.push({ inicio, fim: fim === inicio ? '' : fim });
+    inicio = fim = ds[i];
+  }
+  periodos.push({ inicio, fim: fim === inicio ? '' : fim });
+  return periodos;
+};
+
 // ─── Vermifugação: cálculo de agenda ──────────────────────────
 export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   const items = [];
@@ -212,6 +253,36 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
   for (const prot of protocolos) {
     if (!prot.ativo) continue;
     if (prot.subtipo === 'opg') continue;
+    // Datas específicas (uma ou mais datas / faixa) — cada data × animal é uma dose
+    const datasProg = datasProgramadas(prot);
+    if (datasProg) {
+      const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
+      const total = datasProg.length;
+      datasProg.forEach((dataOrig, dIdx) => {
+        for (const cavalo of alvo) {
+          const registros = (vermifugacoesAnimais || []).filter(v =>
+            v.cavaloId === cavalo.id && v.protocoloId === prot.id && v.etapaIdx === dIdx
+          );
+          if (registros.some(r => r.cancelado)) continue;
+          if (registros.some(r => !r.cancelado && !r.reagendadoPara)) continue;
+          const reagKey = `${prot.id}_${cavalo.id}_${dIdx}`;
+          const dataPrev = reagEtapa.get(reagKey) || dataOrig;
+          items.push({
+            key: `verm_data_${prot.id}_${cavalo.id}_${dIdx}`,
+            protocoloId: prot.id, protocoloNome: prot.nome,
+            cavaloId: cavalo.id, cavaloNome: cavalo.nome,
+            dataPrevista: dataPrev, diasRestantes: diffDays(dataPrev),
+            ultimaRealizacao: null,
+            insumoId: prot.insumoId,
+            etapaIdx: dIdx,
+            etapaLabel: total > 1 ? `${prot.nome} · Dia ${dIdx + 1}/${total}` : prot.nome,
+            dose: doseVermPara(prot, cavalo.id),
+            reagendadoDe: reagEtapa.has(reagKey) ? dataOrig : null,
+          });
+        }
+      });
+      continue;
+    }
     if (prot.eventoUnico || prot.tipo === 'unico') {
       const alvo = cavalos.filter(c => c.presente && (prot.animaisAlvo||[]).includes(c.id));
       for (const cavalo of alvo) {
@@ -228,6 +299,7 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           diasRestantes: diffDays(dataPrev),
           ultimaRealizacao: null,
           insumoId: prot.insumoId,
+          dose: doseVermPara(prot, cavalo.id),
           reagendadoDe: reagInterv.has(reagKey) ? dataOrig : null,
         });
       }
@@ -295,6 +367,7 @@ export function calcAgendaVerm(protocolos, cavalos, vermifugacoesAnimais) {
           dataPrevista, diasRestantes: diffDays(dataPrevista),
           ultimaRealizacao: ultimo?.dataRealizacao || null,
           insumoId: prot.insumoId,
+          dose: doseVermPara(prot, cavalo.id),
           reagendadoDe: reagInterv.has(reagKey) ? dataOrig : null,
         });
       }
@@ -1366,8 +1439,10 @@ function VermifugacaoScreen({
   const [vista, setVista] = useState('agenda');
   const [editProt, setEditProt] = useState(null);
   const [showProtForm, setShowProtForm] = useState(false);
+  const [showPontual, setShowPontual] = useState(false);
   const [filtroProtocolo, setFiltroProtocolo] = useState(null);
-  const isAdmin = currentUser?.role === 'admin';
+  // Veterinários têm as mesmas permissões que admin nesta área
+  const podeGerir = currentUser?.role === 'admin' || currentUser?.role === 'vet';
   const today = todayStr();
 
   const agendaFiltrada = filtroProtocolo ? agenda.filter(i => i.protocoloId === filtroProtocolo) : agenda;
@@ -1376,29 +1451,77 @@ function VermifugacaoScreen({
   const proximas = agendaFiltrada.filter(i => i.diasRestantes > 0 && i.diasRestantes <= 60).sort((a,b)=>a.diasRestantes-b.diasRestantes);
   const futuras = agendaFiltrada.filter(i => i.diasRestantes > 60).sort((a,b)=>a.diasRestantes-b.diasRestantes);
 
-  const handleVermifugar = (item, dataRealizada) => {
+  const handleVermifugar = (item, dataRealizada, doseQtd) => {
     const data = dataRealizada || today;
     const cavalo = cavalos.find(c => c.id === item.cavaloId);
     const insumo = insumos.find(i => i.id === item.insumoId);
+    const dose = Number(doseQtd) > 0 ? Number(doseQtd) : null;
     addVermifugacao({
       id: 'verm_' + Date.now() + '_' + item.cavaloId,
       protocoloId: item.protocoloId,
       cavaloId: item.cavaloId,
       dataRealizacao: data,
-      produto: insumo?.nome || '',
+      produto: insumo ? `${insumo.nome}${dose ? ` · ${dose} ${insumo.unidade || 'un'}` : ''}` : '',
       registradoPor: currentUser?.nome || '',
       etapaIdx: item.etapaIdx ?? null,
     });
+    // Cobrança: a dose do insumo entra na fatura quando marcada como registrada
+    if (cavalo && insumo && dose && addRegistro) {
+      const ehMesAtual = data.slice(0, 7) === today.slice(0, 7);
+      if (ehMesAtual) {
+        addRegistro({ id: 'reg_verm_' + Date.now() + '_' + cavalo.id, cavaloId: cavalo.id, insumoId: item.insumoId, qtd: dose, hora: new Date().toTimeString().slice(0, 5), usuario: currentUser?.nome || '', isAuto: false, data });
+      }
+    }
     if (cavalo) {
       addAtividade({
         id: 'at_verm_' + Date.now() + '_' + cavalo.id,
         tipo: 'vermifugacao', cavaloId: cavalo.id,
         insumoId: item.insumoId,
-        qtd: 1, motivo: item.protocoloNome,
+        qtd: dose || 1, motivo: item.etapaLabel || item.protocoloNome,
         usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
         mes: data.slice(0,7), data, hora: new Date().toTimeString().slice(0,5), texto: '',
       });
     }
+  };
+
+  // Vermifugação pontual: cria o "protocolo pontual" e, se pedido, já registra tudo
+  const handlePontual = ({ nome, datas, animaisIds, insumoId, dosePadrao, dosesAnimais, aplicarAgora }) => {
+    const protId = 'pverm_pont_' + Date.now();
+    const insumo = insumos.find(i => i.id === insumoId);
+    addProtocolo({
+      id: protId, nome, tipo: 'geral', subtipo: 'vermifugacao',
+      insumoId: insumoId || '', servicoId: '', laboratorio: '',
+      intervaloDias: 0, etapas: [], eventoUnico: false, dataFixa: null,
+      animaisAlvo: animaisIds,
+      doses: { datas, dosePadrao: Number(dosePadrao) || null, dosesAnimais: dosesAnimais || {} },
+      observacoes: '', ativo: true,
+    });
+    if (aplicarAgora) {
+      const hora = new Date().toTimeString().slice(0, 5);
+      const ehMesAtual = (d) => d.slice(0, 7) === today.slice(0, 7);
+      datas.forEach((data, dIdx) => {
+        animaisIds.forEach((cavaloId, aIdx) => {
+          const dose = Number(dosesAnimais?.[cavaloId] ?? dosePadrao) > 0 ? Number(dosesAnimais?.[cavaloId] ?? dosePadrao) : null;
+          const suf = `${Date.now()}_${dIdx}_${aIdx}`;
+          addVermifugacao({
+            id: 'verm_' + suf, protocoloId: protId, cavaloId,
+            dataRealizacao: data,
+            produto: insumo ? `${insumo.nome}${dose ? ` · ${dose} ${insumo.unidade || 'un'}` : ''}` : '',
+            registradoPor: currentUser?.nome || '', etapaIdx: dIdx,
+          });
+          if (insumo && dose && addRegistro && ehMesAtual(data)) {
+            addRegistro({ id: 'reg_verm_' + suf, cavaloId, insumoId, qtd: dose, hora, usuario: currentUser?.nome || '', isAuto: false, data });
+          }
+          addAtividade({
+            id: 'at_verm_' + suf, tipo: 'vermifugacao', cavaloId,
+            insumoId: insumoId || null, qtd: dose || 1, motivo: nome,
+            usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
+            mes: data.slice(0, 7), data, hora, texto: '',
+          });
+        });
+      });
+    }
+    setShowPontual(false);
   };
 
   const handleCancelarVerm = (item) => {
@@ -1513,6 +1636,16 @@ function VermifugacaoScreen({
 
         {vista === 'agenda' && (
           <>
+            {/* Vermifugação pontual */}
+            {podeGerir && !showPontual && (
+              <button onClick={() => setShowPontual(true)} style={{ width:'100%', background:'#f0fdf4', border:'1px dashed #15803d', borderRadius:12, padding:12, fontSize:14, fontWeight:600, color:'#15803d', marginBottom:14, fontFamily:'var(--sans)', cursor:'pointer' }}>
+                + Vermifugação pontual (um ou mais animais)
+              </button>
+            )}
+            {showPontual && (
+              <VermPontualForm cavalos={cavalos} insumos={insumos} onSave={handlePontual} onCancel={() => setShowPontual(false)} />
+            )}
+
             {/* Planner vermifugação */}
             {protocolos.length > 0 && (
               <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: '14px', marginBottom: 16 }}>
@@ -1562,7 +1695,7 @@ function VermifugacaoScreen({
 
         {vista === 'protocolos' && (
           <>
-            {isAdmin && !showProtForm && (
+            {podeGerir && !showProtForm && (
               <button onClick={() => { setEditProt(null); setShowProtForm(true); }} style={{ width:'100%', background:'var(--accent-soft)', border:'1px dashed var(--accent)', borderRadius:12, padding:13, fontSize:14, fontWeight:600, color:'var(--accent)', marginBottom:14, fontFamily:'var(--sans)' }}>
                 + Novo protocolo
               </button>
@@ -1576,7 +1709,7 @@ function VermifugacaoScreen({
               <div style={{ textAlign:'center', padding:'32px 0', color:'var(--ink-3)', fontSize:14 }}>Nenhum protocolo cadastrado.</div>
             )}
             {protocolos.map((p, idx) => (
-              <ProtocoloVermCard key={p.id} protocolo={p} insumos={insumos} servicos={servicos||[]} isAdmin={isAdmin} cor={PROT_COLORS[idx%PROT_COLORS.length]}
+              <ProtocoloVermCard key={p.id} protocolo={p} insumos={insumos} servicos={servicos||[]} isAdmin={podeGerir} cor={PROT_COLORS[idx%PROT_COLORS.length]}
                 onEdit={() => { setEditProt(p); setShowProtForm(true); }}
                 onDelete={() => deleteProtocolo(p.id)} />
             ))}
@@ -1584,7 +1717,7 @@ function VermifugacaoScreen({
         )}
 
         {vista === 'opg' && (
-          <OPGScreen cavalos={cavalos} opgs={opgs} isAdmin={isAdmin} currentUser={currentUser} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} insumos={insumos} />
+          <OPGScreen cavalos={cavalos} opgs={opgs} isAdmin={podeGerir} currentUser={currentUser} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} insumos={insumos} />
         )}
       </div>
     </div>
@@ -1658,6 +1791,7 @@ function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, onReagenda
   const [reagendando, setReagendando] = useState(false);
   const [dataReal, setDataReal] = useState(item.dataPrevista < todayStr() ? item.dataPrevista : todayStr());
   const [novaData, setNovaData] = useState(item.dataPrevista > todayStr() ? item.dataPrevista : todayStr());
+  const [doseAplicada, setDoseAplicada] = useState(item.dose != null ? String(item.dose) : '');
   const hoje = todayStr();
   const insumo = insumos.find(i => i.id === item.insumoId);
   const dr = item.diasRestantes;
@@ -1670,7 +1804,9 @@ function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, onReagenda
         <div style={{ flex:1, minWidth:0 }}>
           <div style={{ fontSize:14, fontWeight:600, color:'var(--ink)' }}>{item.cavaloNome}</div>
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
-            {insumo?.nome||'—'} · {item.etapaLabel || item.protocoloNome}
+            {insumo?.nome||'—'}
+            {item.dose != null && <span style={{ fontWeight:700, color:'var(--ink-2)' }}> · {item.dose} {insumo?.unidade||'un'}</span>}
+            {' · '}{item.etapaLabel || item.protocoloNome}
             {item.reagendadoDe && <span style={{ marginLeft: 6, fontSize: 10, background: '#e5e7eb', color: '#4b5563', borderRadius: 4, padding: '1px 5px', fontWeight: 700 }}>REAGENDADA</span>}
           </div>
           {item.ultimaRealizacao && (
@@ -1704,9 +1840,20 @@ function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, onReagenda
         <div style={{ marginTop:12, padding:'12px 14px', background:'var(--soft)', borderRadius:10 }}>
           <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:8 }}>Quando foi aplicada?</div>
           <input type="date" value={dataReal} max={hoje} onChange={e=>setDataReal(e.target.value)} style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box', marginBottom:8 }} />
+          {insumo && (
+            <>
+              <div style={{ fontSize:12, fontWeight:600, color:'var(--ink)', marginBottom:6 }}>Dose aplicada ({insumo.unidade||'un'})</div>
+              <input type="number" min="0" step="0.5" value={doseAplicada} onChange={e=>setDoseAplicada(e.target.value)} placeholder="Ex: 8" style={{ width:'100%', padding:'9px 12px', borderRadius:9, border:'1px solid var(--line)', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box', marginBottom:4 }} />
+              <div style={{ fontSize:10.5, color: Number(doseAplicada)>0 ? '#15803d' : 'var(--ink-3)', marginBottom:8 }}>
+                {Number(doseAplicada)>0
+                  ? `${doseAplicada} ${insumo.unidade||'un'} de ${insumo.nome} será lançado na fatura do animal.`
+                  : 'Sem dose informada, o insumo não é cobrado na fatura.'}
+              </div>
+            </>
+          )}
           <div style={{ display:'flex', gap:8 }}>
             <button onClick={()=>setConfirmando(false)} style={{ flex:1, padding:'8px 0', borderRadius:8, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:13, fontFamily:'var(--sans)' }}>Cancelar</button>
-            <button onClick={()=>{ onVermifugar?.(item,dataReal); setConfirmando(false); }} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:cor, color:'#fff', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Confirmar</button>
+            <button onClick={()=>{ onVermifugar?.(item,dataReal,doseAplicada); setConfirmando(false); }} style={{ flex:2, padding:'8px 0', borderRadius:8, border:'none', background:cor, color:'#fff', fontSize:13, fontWeight:700, fontFamily:'var(--sans)' }}>Confirmar</button>
           </div>
         </div>
       )}
@@ -1735,6 +1882,17 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
   const labelEtapas = refEtapas === 'cobertura' ? 'Gestantes' : 'Potros';
   const isUnico = !!protocolo.eventoUnico || protocolo.tipo === 'unico';
   const nAnimais = (protocolo.animaisAlvo||[]).length;
+  const datasProg = datasProgramadas(protocolo);
+  const doseInfo = (() => {
+    const d = protocolo.doses;
+    if (!d || Array.isArray(d)) return null;
+    const vals = Object.values(d.dosesAnimais || {}).map(Number).filter(v => v > 0);
+    if (vals.length > 0) {
+      const unicos = [...new Set(vals)];
+      return unicos.length === 1 ? `${unicos[0]} ${insumo?.unidade||'un'}` : `doses individuais (${vals.length} animais)`;
+    }
+    return d.dosePadrao ? `${d.dosePadrao} ${insumo?.unidade||'un'}` : null;
+  })();
   return (
     <div style={{ background:'var(--card)', border:`1px solid ${cor}30`, borderRadius:14, marginBottom:10, overflow:'hidden' }}>
       <button onClick={()=>setOpen(o=>!o)} style={{ width:'100%', background:'none', border:'none', padding:'14px 16px', display:'flex', alignItems:'center', gap:12, textAlign:'left', cursor:'pointer' }}>
@@ -1746,11 +1904,14 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
           <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:2 }}>
             {protocolo.subtipo==='opg' && !isPotroEtapas && <span style={{ fontSize:10, background:'#ede9fe', color:'#7c3aed', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>OPG</span>}
             {isUnico && <span style={{ fontSize:10, background:'#fff7ed', color:'#9a3412', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>EVENTO ÚNICO</span>}
+            {datasProg && <span style={{ fontSize:10, background:'#dcfce7', color:'#15803d', borderRadius:4, padding:'1px 6px', marginRight:6, fontWeight:700 }}>DATAS</span>}
             {isPotroEtapas
               ? `${labelEtapas} · ${protocolo.etapas.length} etapa${protocolo.etapas.length!==1?'s':''}`
-              : isUnico
-                ? `${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${nAnimais} animal(is)`
-                : `${intervOpt?.label||`${protocolo.intervaloDias} dias`} · ${nAnimais} animal(is)`}
+              : datasProg
+                ? `${datasProg.length} dia${datasProg.length>1?'s':''} · ${fmtDate(datasProg[0])}${datasProg.length>1?`–${fmtDate(datasProg[datasProg.length-1])}`:''} · ${nAnimais} animal(is)`
+                : isUnico
+                  ? `${protocolo.dataFixa ? new Date(protocolo.dataFixa+'T12:00:00').toLocaleDateString('pt-BR') : '—'} · ${nAnimais} animal(is)`
+                  : `${intervOpt?.label||`${protocolo.intervaloDias} dias`} · ${nAnimais} animal(is)`}
           </div>
         </div>
         <span style={{ fontSize:16, color:'var(--ink-3)', transform:open?'rotate(90deg)':'none', transition:'transform 0.15s' }}>›</span>
@@ -1777,6 +1938,21 @@ function ProtocoloVermCard({ protocolo, insumos, servicos, isAdmin, onEdit, onDe
                 );
               })}
             </div>
+          ) : datasProg ? (
+            <>
+              <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                <span style={{ color:'var(--ink-3)' }}>Aplicações: </span>{datasProg.length} dia{datasProg.length>1?'s':''} · {fmtDate(datasProg[0])}{datasProg.length>1?` a ${fmtDate(datasProg[datasProg.length-1])}`:''}
+              </div>
+              <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                <span style={{ color:'var(--ink-3)' }}>Produto: </span>{insumo?.nome||'—'}{doseInfo ? ` · ${doseInfo}/animal/dia` : ''}
+              </div>
+              <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
+                <span style={{ color:'var(--ink-3)' }}>Animais: </span>{nAnimais}
+              </div>
+              <div style={{ fontSize:11.5, color:'#15803d', background:'#f0fdf4', borderRadius:8, padding:'6px 10px', marginBottom:6 }}>
+                A dose é cobrada na fatura quando cada aplicação é registrada na agenda.
+              </div>
+            </>
           ) : isUnico ? (
             <>
               <div style={{ fontSize:13, color:'var(--ink)', marginBottom:6 }}>
@@ -1841,6 +2017,17 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const [etapas, setEtapas] = useState(
     initial?.etapas?.length ? initial.etapas : [{ diasDesdeNascimento:60, subtipo:'vermifugacao', insumoId:'', servicoId:'', laboratorio:'', label:'' }]
   );
+  // Doses / datas específicas (formato novo do JSONB `doses`)
+  const dosesInit = (initial?.doses && !Array.isArray(initial.doses)) ? initial.doses : null;
+  const [modoDatas, setModoDatas] = useState(!!dosesInit?.datas?.length);
+  const [periodos, setPeriodos] = useState(dosesInit?.datas?.length ? comprimirDatas(dosesInit.datas) : [{ inicio:'', fim:'' }]);
+  const [dosesAnimais, setDosesAnimais] = useState(() => {
+    const base = { ...(dosesInit?.dosesAnimais || {}) };
+    // Protocolos antigos com dose padrão: vira dose individual de cada animal
+    if (dosesInit?.dosePadrao) (initial?.animaisAlvo || []).forEach(id => { if (base[id] == null) base[id] = dosesInit.dosePadrao; });
+    return base;
+  });
+  const datasExpandidas = modoDatas ? expandPeriodos(periodos) : [];
 
   const insumosVerm = [...insumos].filter(i=>i.categoria==='vermifugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
   const opgServico = (servicos||[]).find(s => (s.nome||'').toUpperCase().includes('OPG'));
@@ -1867,25 +2054,49 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
   const addEtapa = () => setEtapas(e=>[...e,{diasDesdeNascimento:0,subtipo:'vermifugacao',insumoId:'',servicoId:'',laboratorio:'',label:''}]);
   const removeEtapa = i => setEtapas(e=>e.filter((_,idx)=>idx!==i));
   const updateEtapa = (i,field,val) => setEtapas(e=>e.map((e2,idx)=>idx===i?{...e2,[field]:val}:e2));
-  const toggleAnimal = id => setAnimaisAlvo(a => a.includes(id) ? a.filter(x=>x!==id) : [...a, id]);
+  const toggleAnimal = id => {
+    if (animaisAlvo.includes(id)) {
+      setAnimaisAlvo(a => a.filter(x => x !== id));
+      setDosesAnimais(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } else {
+      setAnimaisAlvo(a => [...a, id]);
+    }
+  };
+  const setDoseAnimal = (id, v) => setDosesAnimais(prev => {
+    const n = { ...prev };
+    if (v === '' || v == null) delete n[id]; else n[id] = v;
+    return n;
+  });
   const selectAllAnimais = () => setAnimaisAlvo(cavalosPresentes.map(c=>c.id));
-  const clearAnimais = () => setAnimaisAlvo([]);
+  const clearAnimais = () => { setAnimaisAlvo([]); setDosesAnimais({}); };
   const canSave = nome.trim() && (
     modoEtapas ? etapas.length>0 :
+    modoDatas ? (datasExpandidas.length>0 && animaisAlvo.length>0) :
     eventoUnico ? (dataFixa && animaisAlvo.length>0) :
     (intervaloDias>0 && animaisAlvo.length>0)
   );
 
   const handleSave = () => {
     const opgId = opgServico?.id || '';
+    // Monta JSONB de doses: dose individual por animal, só de animais selecionados
+    const dosesLimpas = {};
+    Object.entries(dosesAnimais).forEach(([id, v]) => {
+      if (animaisAlvo.includes(id) && Number(v) > 0) dosesLimpas[id] = Number(v);
+    });
+    const temDose = Object.keys(dosesLimpas).length > 0;
+    const dosesObj = (subtipo === 'vermifugacao' && (modoDatas || temDose))
+      ? { ...(modoDatas ? { datas: datasExpandidas } : {}), dosePadrao: null, dosesAnimais: dosesLimpas }
+      : (initial?.doses || []);
     if (modoEtapas) {
       const etapasFinal = etapas.map(e => e.subtipo === 'opg' ? { ...e, servicoId: opgId } : e);
       const tipoFromEvento = eventoReferencia === 'cobertura' ? 'gestante' : 'potro';
-      onSave({ nome:nome.trim(), tipo:tipoFromEvento, eventoReferencia, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:null, animaisAlvo:[], observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:tipoFromEvento, eventoReferencia, subtipo:'', insumoId:'', servicoId:'', laboratorio:'', intervaloDias:0, etapas:etapasFinal, eventoUnico:false, dataFixa:null, animaisAlvo:[], doses:initial?.doses||[], observacoes, ativo:true });
+    } else if (modoDatas) {
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo:'vermifugacao', insumoId, servicoId:'', laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:false, dataFixa:null, animaisAlvo, doses:dosesObj, observacoes, ativo:true });
     } else if (eventoUnico) {
-      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias:0, etapas:[], eventoUnico:true, dataFixa, animaisAlvo, doses:dosesObj, observacoes, ativo:true });
     } else {
-      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:null, animaisAlvo, observacoes, ativo:true });
+      onSave({ nome:nome.trim(), tipo:'geral', subtipo, insumoId:subtipo==='vermifugacao'?insumoId:'', servicoId:subtipo==='opg'?opgId:'', laboratorio:subtipo==='opg'?laboratorio:'', intervaloDias, etapas:[], eventoUnico:false, dataFixa:null, animaisAlvo, doses:dosesObj, observacoes, ativo:true });
     }
   };
 
@@ -1987,6 +2198,11 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
                 <option value="">— selecionar (opcional) —</option>
                 {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
               </select>
+              {insumoId && (
+                <div style={{ fontSize:10.5, color:'var(--ink-3)', marginTop:4 }}>
+                  Ao marcar cada animal abaixo, informe a dose individual{modoDatas?' (por dia)':''} — ela é cobrada na fatura quando a aplicação for registrada.
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -2013,16 +2229,32 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
             </>
           )}
           <div style={{ marginBottom:12 }}>
-            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Intervalo entre {subtipo==='opg'?'coletas':'aplicações'}</div>
-            <select value={eventoUnico ? 'unico' : String(intervaloDias)} onChange={e=>{
-              if (e.target.value === 'unico') setEventoUnico(true);
-              else { setEventoUnico(false); setIntervaloDias(Number(e.target.value)); }
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Agendamento</div>
+            <select value={modoDatas ? 'datas' : eventoUnico ? 'unico' : String(intervaloDias)} onChange={e=>{
+              if (e.target.value === 'datas') { setModoDatas(true); setEventoUnico(false); }
+              else if (e.target.value === 'unico') { setModoDatas(false); setEventoUnico(true); }
+              else { setModoDatas(false); setEventoUnico(false); setIntervaloDias(Number(e.target.value)); }
             }} style={inputSt}>
               {INTERVALO_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
               <option value={60}>Bimestral (60 dias)</option>
               <option value="unico">Evento único (data fixa, sem recorrência)</option>
+              {subtipo==='vermifugacao' && <option value="datas">Datas específicas (uma ou mais datas / faixa de dias)</option>}
             </select>
           </div>
+          {modoDatas && (
+            <>
+              <div style={{ background:'#f0fdf4', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#15803d', marginBottom:12 }}>
+                Cada data gera uma dose por animal na agenda. Para um protocolo de vários dias seguidos (ex.: 5 dias de fenbendazol), informe a faixa "de… até…".
+              </div>
+              <PeriodosEditor periodos={periodos} setPeriodos={setPeriodos} />
+              {datasExpandidas.length > 0 && (
+                <div style={{ fontSize:11, color:'var(--ink-2)', margin:'2px 0 12px', fontWeight:600 }}>
+                  {datasExpandidas.length} dia{datasExpandidas.length>1?'s':''} de aplicação · {fmtDate(datasExpandidas[0])}{datasExpandidas.length>1?` a ${fmtDate(datasExpandidas[datasExpandidas.length-1])}`:''}
+                  {animaisAlvo.length>0 && ` · ${datasExpandidas.length*animaisAlvo.length} dose(s) no total`}
+                </div>
+              )}
+            </>
+          )}
           {eventoUnico && (
             <>
               <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#9a3412', marginBottom:12 }}>
@@ -2061,17 +2293,15 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
               </div>
             </div>
             <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
-            <div style={{ maxHeight:200, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
+            <div style={{ maxHeight:240, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
               {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
               {cavalosFiltrados.map(c => {
                 const checked = animaisAlvo.includes(c.id);
                 return (
-                  <button key={c.id} onClick={()=>toggleAnimal(c.id)} style={{ width:'100%', display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:checked?'#f0fdf4':'transparent', border:'none', borderBottom:'1px solid var(--line)', cursor:'pointer', textAlign:'left' }}>
-                    <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
-                      {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
-                    </div>
-                    <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)' }}>{c.nome}</span>
-                  </button>
+                  <AnimalDoseRow key={c.id} cavalo={c} checked={checked} onToggle={()=>toggleAnimal(c.id)}
+                    mostrarDose={checked && subtipo==='vermifugacao' && !!insumoId}
+                    dose={dosesAnimais[c.id] ?? ''} setDose={v=>setDoseAnimal(c.id, v)}
+                    unidade={insumos.find(i=>i.id===insumoId)?.unidade||'un'} />
                 );
               })}
             </div>
@@ -2085,6 +2315,176 @@ function ProtocoloVermForm({ initial, insumos, servicos, cavalos, onSave, onCanc
       <div style={{ display:'flex', gap:8 }}>
         <button onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:14, fontFamily:'var(--sans)' }}>Cancelar</button>
         <button disabled={!canSave} onClick={handleSave} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>Salvar protocolo</button>
+      </div>
+    </div>
+  );
+}
+
+// ─── PeriodosEditor: uma ou mais datas / faixas de dias ───────
+function PeriodosEditor({ periodos, setPeriodos }) {
+  const update = (i, field, val) => setPeriodos(p => p.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
+  const remove = i => setPeriodos(p => p.filter((_, idx) => idx !== i));
+  return (
+    <div style={{ marginBottom:10 }}>
+      {periodos.map((p, i) => (
+        <div key={i} style={{ display:'flex', gap:8, alignItems:'flex-end', marginBottom:8 }}>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>{p.fim ? 'De' : 'Data'}</div>
+            <input type="date" value={p.inicio} onChange={e=>update(i,'inicio',e.target.value)} style={inputSt} />
+          </div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:4 }}>Até (opcional)</div>
+            <input type="date" value={p.fim} min={p.inicio||undefined} onChange={e=>update(i,'fim',e.target.value)} style={inputSt} />
+          </div>
+          {periodos.length > 1 && (
+            <button onClick={()=>remove(i)} style={{ background:'#fef2f2', border:'none', borderRadius:9, padding:'11px 12px', cursor:'pointer', flexShrink:0 }}><Icon name="x" size={13} color="#dc2626" /></button>
+          )}
+        </div>
+      ))}
+      <button onClick={()=>setPeriodos(p=>[...p,{inicio:'',fim:''}])} style={{ width:'100%', background:'none', border:'1px dashed var(--line-2)', borderRadius:10, padding:'9px 0', fontSize:12.5, color:'var(--ink-3)', cursor:'pointer', fontFamily:'var(--sans)' }}>+ Adicionar outra data / faixa</button>
+    </div>
+  );
+}
+
+// ─── AnimalDoseRow: linha de animal com dose individual inline ─
+// Ao marcar a caixa do animal, abre o campo de dose ao lado (dado individual).
+function AnimalDoseRow({ cavalo, checked, onToggle, mostrarDose, dose, setDose, unidade }) {
+  return (
+    <div style={{ display:'flex', alignItems:'center', borderBottom:'1px solid var(--line)', background:checked?'#f0fdf4':'transparent' }}>
+      <button onClick={onToggle} style={{ flex:1, minWidth:0, display:'flex', alignItems:'center', gap:10, padding:'8px 12px', background:'none', border:'none', cursor:'pointer', textAlign:'left' }}>
+        <div style={{ width:18, height:18, borderRadius:5, border:`2px solid ${checked?'#15803d':'var(--line-2)'}`, background:checked?'#15803d':'transparent', display:'grid', placeItems:'center', flexShrink:0 }}>
+          {checked && <span style={{ color:'#fff', fontSize:11, fontWeight:700 }}>✓</span>}
+        </div>
+        <span style={{ fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{cavalo.nome}</span>
+      </button>
+      {mostrarDose && (
+        <div style={{ display:'flex', alignItems:'center', gap:4, paddingRight:10, flexShrink:0 }}>
+          <input
+            type="number" min="0" step="0.5" placeholder="dose"
+            value={dose}
+            onChange={e=>setDose(e.target.value)}
+            style={{ width:64, padding:'6px 8px', borderRadius:8, border:`1px solid ${Number(dose)>0?'#15803d':'#fcd34d'}`, background:'var(--card)', fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', textAlign:'right' }}
+          />
+          <span style={{ fontSize:11, color:'var(--ink-3)', minWidth:20 }}>{unidade}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── VermPontualForm: vermifugação avulsa em um ou mais animais ─
+function VermPontualForm({ cavalos, insumos, onSave, onCancel }) {
+  const hoje = todayStr();
+  const [nome, setNome] = useState('');
+  const [periodos, setPeriodos] = useState([{ inicio: hoje, fim: '' }]);
+  const [animaisIds, setAnimaisIds] = useState([]);
+  const [animalSearch, setAnimalSearch] = useState('');
+  const [insumoId, setInsumoId] = useState('');
+  const [dosesAnimais, setDosesAnimais] = useState({});
+  const [aplicarAgora, setAplicarAgora] = useState(true);
+
+  const insumosVerm = [...insumos].filter(i=>i.categoria==='vermifugo').sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const insumoSel = insumos.find(i => i.id === insumoId);
+  const cavalosPresentes = (cavalos||[]).filter(c=>c.presente).sort((a,b)=>a.nome.localeCompare(b.nome,'pt'));
+  const cavalosFiltrados = animalSearch.trim() ? cavalosPresentes.filter(c=>c.nome.toLowerCase().includes(animalSearch.trim().toLowerCase())) : cavalosPresentes;
+  const toggleAnimal = id => {
+    if (animaisIds.includes(id)) {
+      setAnimaisIds(a => a.filter(x => x !== id));
+      setDosesAnimais(prev => { const n = { ...prev }; delete n[id]; return n; });
+    } else {
+      setAnimaisIds(a => [...a, id]);
+    }
+  };
+  const setDose = (id, v) => setDosesAnimais(prev => {
+    const n = { ...prev };
+    if (v === '' || v == null) delete n[id]; else n[id] = v;
+    return n;
+  });
+
+  const datas = expandPeriodos(periodos);
+  const todasPassadas = datas.length > 0 && datas.every(d => d <= hoje);
+  const nomeFinal = nome.trim() || `Vermifugação ${datas.length ? fmtDate(datas[0]) : ''}`.trim();
+  const temDoses = insumoId && animaisIds.some(id => Number(dosesAnimais[id]) > 0);
+  const canSave = datas.length > 0 && animaisIds.length > 0;
+
+  const handleSave = () => {
+    const dosesLimpas = {};
+    Object.entries(dosesAnimais).forEach(([id, v]) => {
+      if (animaisIds.includes(id) && Number(v) > 0) dosesLimpas[id] = Number(v);
+    });
+    onSave({
+      nome: nomeFinal, datas, animaisIds, insumoId,
+      dosePadrao: null, dosesAnimais: dosesLimpas,
+      aplicarAgora: aplicarAgora && todasPassadas,
+    });
+  };
+
+  return (
+    <div style={{ background:'var(--soft)', borderRadius:16, padding:16, marginBottom:16, border:'1px solid #bbf7d0' }}>
+      <div style={{ fontSize:14, fontWeight:700, color:'var(--ink)', marginBottom:4 }}>Vermifugação pontual</div>
+      <div style={{ fontSize:11.5, color:'var(--ink-3)', marginBottom:14 }}>Registre uma vermifugação avulsa em um ou mais animais — sem criar recorrência.</div>
+      <div style={{ marginBottom:12 }}>
+        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Nome (opcional)</div>
+        <input value={nome} onChange={e=>setNome(e.target.value)} placeholder={nomeFinal || 'Ex: Vermifugação geral agosto'} style={inputSt} />
+      </div>
+      <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Data(s) da aplicação</div>
+      <PeriodosEditor periodos={periodos} setPeriodos={setPeriodos} />
+      {datas.length > 1 && (
+        <div style={{ fontSize:11, color:'var(--ink-2)', margin:'2px 0 10px', fontWeight:600 }}>
+          {datas.length} dias de aplicação · {fmtDate(datas[0])} a {fmtDate(datas[datas.length-1])}
+        </div>
+      )}
+      <div style={{ marginBottom:12 }}>
+        <div style={{ fontSize:11, color:'var(--ink-3)', marginBottom:5 }}>Produto (insumo)</div>
+        <select value={insumoId} onChange={e=>setInsumoId(e.target.value)} style={inputSt}>
+          <option value="">— selecionar (opcional) —</option>
+          {insumosVerm.map(i=><option key={i.id} value={i.id}>{i.nome}</option>)}
+        </select>
+        {insumoId && (
+          <div style={{ fontSize:10.5, color:'var(--ink-3)', marginTop:4 }}>
+            Ao marcar cada animal abaixo, informe a dose individual{datas.length>1?' (por dia)':''} — ela é lançada na fatura quando a aplicação é registrada.
+          </div>
+        )}
+      </div>
+      <div style={{ marginBottom:12 }}>
+        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6 }}>
+          <div style={{ fontSize:11, color:'var(--ink-3)' }}>Animais ({animaisIds.length}/{cavalosPresentes.length})</div>
+          <div style={{ display:'flex', gap:8 }}>
+            <button onClick={()=>setAnimaisIds(cavalosPresentes.map(c=>c.id))} style={{ background:'none', border:'none', color:'var(--accent)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Selecionar todos</button>
+            <button onClick={()=>{ setAnimaisIds([]); setDosesAnimais({}); }} style={{ background:'none', border:'none', color:'var(--ink-3)', fontSize:11, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', textDecoration:'underline' }}>Limpar</button>
+          </div>
+        </div>
+        <input value={animalSearch} onChange={e=>setAnimalSearch(e.target.value)} placeholder="Buscar animal…" style={{...inputSt, marginBottom:6, fontSize:13}} />
+        <div style={{ maxHeight:240, overflowY:'auto', border:'1px solid var(--line)', borderRadius:10, background:'var(--card)' }}>
+          {cavalosFiltrados.length === 0 && <div style={{ padding:10, fontSize:12, color:'var(--ink-3)', textAlign:'center' }}>Nenhum animal</div>}
+          {cavalosFiltrados.map(c => {
+            const checked = animaisIds.includes(c.id);
+            return (
+              <AnimalDoseRow key={c.id} cavalo={c} checked={checked} onToggle={()=>toggleAnimal(c.id)}
+                mostrarDose={checked && !!insumoId} dose={dosesAnimais[c.id] ?? ''} setDose={v=>setDose(c.id, v)}
+                unidade={insumoSel?.unidade||'un'} />
+            );
+          })}
+        </div>
+      </div>
+      {todasPassadas ? (
+        <label style={{ display:'flex', alignItems:'center', gap:8, padding:'10px 12px', background:aplicarAgora?'#f0fdf4':'var(--card)', border:`1px solid ${aplicarAgora?'#15803d':'var(--line)'}`, borderRadius:10, cursor:'pointer', marginBottom:12 }}>
+          <input type="checkbox" checked={aplicarAgora} onChange={e=>setAplicarAgora(e.target.checked)} style={{ width:18, height:18, cursor:'pointer' }} />
+          <div>
+            <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>Registrar como já aplicada</div>
+            <div style={{ fontSize:11, color:'var(--ink-3)' }}>Marca todas as doses como feitas agora{temDoses ? ' e lança as doses na fatura' : ''}. Desmarque para deixar na agenda.</div>
+          </div>
+        </label>
+      ) : datas.length > 0 && (
+        <div style={{ background:'#fff7ed', borderRadius:10, padding:'8px 12px', fontSize:12, color:'#9a3412', marginBottom:12 }}>
+          Data(s) futura(s): as doses entram na agenda e a cobrança acontece quando cada aplicação for registrada.
+        </div>
+      )}
+      <div style={{ display:'flex', gap:8 }}>
+        <button onClick={onCancel} style={{ flex:1, padding:12, borderRadius:10, border:'1px solid var(--line)', background:'var(--card)', color:'var(--ink)', fontSize:14, fontFamily:'var(--sans)' }}>Cancelar</button>
+        <button disabled={!canSave} onClick={handleSave} style={{ flex:2, padding:12, borderRadius:10, border:'none', background:canSave?'#15803d':'var(--soft)', color:canSave?'#fff':'var(--ink-3)', fontSize:14, fontWeight:700, fontFamily:'var(--sans)' }}>
+          {aplicarAgora && todasPassadas ? 'Registrar vermifugação' : 'Agendar vermifugação'}
+        </button>
       </div>
     </div>
   );
