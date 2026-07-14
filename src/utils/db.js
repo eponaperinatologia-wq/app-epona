@@ -735,7 +735,7 @@ const _traduzErro = (raw) => {
   if (s.includes('relation') && s.includes('does not exist')) return 'Tabela ausente no banco — rode a migração SQL.';
   if (s.includes('column') && s.includes('does not exist')) return 'Coluna ausente no banco — rode a migração SQL.';
   if (s.includes('invalid input syntax')) return 'Formato inválido em algum campo.';
-  if (s.includes('Failed to fetch') || s.includes('NetworkError')) return 'Sem conexão com o servidor.';
+  if (_isNetworkError(s)) return 'Sem conexão com o servidor.';
   return s;
 };
 
@@ -745,34 +745,124 @@ const notifyDbError = (op, table, msg) => {
   window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg: friendly, raw: msg } }));
 };
 
-export const dbInsert = async (table, row) => {
-  const { error } = await supabase.from(table).insert([row]);
-  if (error) { notifyDbError('insert', table, error.message); return false; }
-  return true;
+// ── Resiliência de rede: retry + outbox persistente ──────────
+// "Load failed" = Safari/iOS · "Failed to fetch" = Chrome · "NetworkError" = Firefox.
+// No haras a rede oscila e o iOS mata fetches quando a tela bloqueia — por isso
+// toda escrita tenta de novo e, se seguir sem rede, entra numa fila no
+// localStorage que sincroniza sozinha quando a conexão volta.
+const _isNetworkError = (msg) =>
+  /load failed|failed to fetch|networkerror|network request failed|fetch failed|network connection was lost|timed out|timeout|aborted|socket/i
+    .test(String(msg || ''));
+
+const OUTBOX_KEY = 'epona_outbox_v1';
+const _loadOutbox = () => {
+  try { const p = JSON.parse(localStorage.getItem(OUTBOX_KEY) || '[]'); return Array.isArray(p) ? p : []; }
+  catch { return []; }
+};
+let _outbox = _loadOutbox();
+const _saveOutbox = () => {
+  try { localStorage.setItem(OUTBOX_KEY, JSON.stringify(_outbox)); } catch { /* storage cheio */ }
 };
 
-export const dbUpdate = async (table, id, changes) => {
-  if (!changes || Object.keys(changes).length === 0) return true; // no-op
-  const { error } = await supabase.from(table).update(changes).eq('id', id);
-  if (error) { notifyDbError('update', table, error.message); return false; }
-  return true;
+export const outboxPendentes = () => _outbox.length;
+
+const _sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Executa uma operação. `idempotent`: em retries/replays, inserts viram upsert
+// ignoreDuplicates — se a 1ª tentativa chegou ao servidor mas a resposta se
+// perdeu, o replay não cria erro de chave duplicada.
+const _attempt = async (item, idempotent) => {
+  const { op, table, row, id, changes } = item;
+  // Depuração em campo: `window.__eponaSimulaOffline = true` no console força
+  // falha de rede para validar a fila offline sem desligar o Wi-Fi.
+  if (typeof window !== 'undefined' && window.__eponaSimulaOffline) {
+    return { ok: false, msg: 'TypeError: Load failed (simulado)' };
+  }
+  try {
+    let q;
+    if (op === 'insert') {
+      q = idempotent
+        ? supabase.from(table).upsert([row], { onConflict: 'id', ignoreDuplicates: true })
+        : supabase.from(table).insert([row]);
+    } else if (op === 'insertIgnore') {
+      q = supabase.from(table).upsert([row], { onConflict: 'id', ignoreDuplicates: true });
+    } else if (op === 'upsert') {
+      q = supabase.from(table).upsert([row]);
+    } else if (op === 'update') {
+      q = supabase.from(table).update(changes).eq('id', id);
+    } else if (op === 'delete') {
+      q = supabase.from(table).delete().eq('id', id);
+    } else {
+      return { ok: false, msg: `operação desconhecida: ${op}` };
+    }
+    const { error } = await q;
+    return error ? { ok: false, msg: error.message } : { ok: true };
+  } catch (e) {
+    return { ok: false, msg: e?.message || String(e) };
+  }
 };
 
-export const dbDelete = async (table, id) => {
-  const { error } = await supabase.from(table).delete().eq('id', id);
-  if (error) { notifyDbError('delete', table, error.message); return false; }
-  return true;
+const _enqueue = (item) => {
+  _outbox.push({ ...item, ts: Date.now() });
+  _saveOutbox();
+  window.dispatchEvent(new CustomEvent('db-queued', { detail: { op: item.op, table: item.table, pendentes: _outbox.length } }));
 };
 
-export const dbUpsert = async (table, row) => {
-  const { error } = await supabase.from(table).upsert([row]);
-  if (error) { notifyDbError('upsert', table, error.message); return false; }
-  return true;
+// Fluxo de toda escrita: tenta → retry com backoff → enfileira se for rede.
+// Erros de dados (não-rede) continuam indo para o toast de erro.
+const _run = async (item) => {
+  let res = await _attempt(item, false);
+  if (res.ok) return true;
+  if (!_isNetworkError(res.msg)) { notifyDbError(item.op, item.table, res.msg); return false; }
+  for (const delay of [800, 2500]) {
+    await _sleep(delay);
+    res = await _attempt(item, true);
+    if (res.ok) return true;
+    if (!_isNetworkError(res.msg)) { notifyDbError(item.op, item.table, res.msg); return false; }
+  }
+  _enqueue(item);
+  return true; // dado preservado na fila — será sincronizado
 };
+
+let _flushing = false;
+export const flushOutbox = async () => {
+  if (_flushing || _outbox.length === 0) return;
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+  _flushing = true;
+  try {
+    while (_outbox.length > 0) {
+      const item = _outbox[0];
+      const res = await _attempt(item, true);
+      if (!res.ok && _isNetworkError(res.msg)) break; // ainda sem rede — tenta depois
+      if (!res.ok) notifyDbError(item.op, item.table, res.msg); // erro de dados: descarta p/ não travar a fila
+      _outbox.shift();
+      _saveOutbox();
+      window.dispatchEvent(new CustomEvent('db-synced', { detail: { op: item.op, table: item.table, pendentes: _outbox.length } }));
+    }
+  } finally {
+    _flushing = false;
+  }
+};
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('online', () => { flushOutbox(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') flushOutbox();
+  });
+  setInterval(() => { flushOutbox(); }, 30000);
+  setTimeout(() => { flushOutbox(); }, 3000); // pendências de sessões anteriores
+}
+
+export const dbInsert = (table, row) => _run({ op: 'insert', table, row });
+
+export const dbUpdate = (table, id, changes) => {
+  if (!changes || Object.keys(changes).length === 0) return Promise.resolve(true); // no-op
+  return _run({ op: 'update', table, id, changes });
+};
+
+export const dbDelete = (table, id) => _run({ op: 'delete', table, id });
+
+export const dbUpsert = (table, row) => _run({ op: 'upsert', table, row });
 
 // Insert silently ignoring PK conflict — used for auto-generated avisos
-export const dbInsertIgnore = async (table, row) => {
-  const { error } = await supabase.from(table).upsert([row], { onConflict: 'id', ignoreDuplicates: true });
-  if (error) { notifyDbError('insert', table, error.message); return false; }
-  return true;
-};
+export const dbInsertIgnore = (table, row) => _run({ op: 'insertIgnore', table, row });

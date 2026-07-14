@@ -129,14 +129,33 @@ function AppEpona() {
   const [fluxo, setFluxo] = useState(null);
   const [tweaks, setTweak] = useTweaks(TWEAKS_DEFAULTS);
   const [dbErrorMsg, setDbErrorMsg] = useState(null);
+  const [dbSyncMsg, setDbSyncMsg] = useState(null);
 
   React.useEffect(() => {
-    const handler = (e) => {
+    const syncTimer = { id: null };
+    const showSync = (msg, ms) => {
+      setDbSyncMsg(msg);
+      if (syncTimer.id) clearTimeout(syncTimer.id);
+      syncTimer.id = setTimeout(() => setDbSyncMsg(null), ms);
+    };
+    const onError = (e) => {
       setDbErrorMsg(`Erro ao salvar (${e.detail.table}): ${e.detail.msg}`);
       setTimeout(() => setDbErrorMsg(null), 6000);
     };
-    window.addEventListener('db-error', handler);
-    return () => window.removeEventListener('db-error', handler);
+    const onQueued = (e) => {
+      showSync(`Sem conexão — ${e.detail.pendentes} alteraç${e.detail.pendentes > 1 ? 'ões' : 'ão'} salva${e.detail.pendentes > 1 ? 's' : ''} no aparelho. Sincroniza sozinho quando a internet voltar.`, 7000);
+    };
+    const onSynced = (e) => {
+      if (e.detail.pendentes === 0) showSync('✓ Tudo sincronizado com o servidor.', 4000);
+    };
+    window.addEventListener('db-error', onError);
+    window.addEventListener('db-queued', onQueued);
+    window.addEventListener('db-synced', onSynced);
+    return () => {
+      window.removeEventListener('db-error', onError);
+      window.removeEventListener('db-queued', onQueued);
+      window.removeEventListener('db-synced', onSynced);
+    };
   }, []);
 
  // ── Carregamento inicial ──────────────────────────────────────
@@ -1626,6 +1645,12 @@ const loadAllData = async () => {
         <div style={{ position: 'fixed', bottom: 80, left: 16, right: 16, zIndex: 9999, background: '#fee2e2', border: '1px solid #fecaca', color: '#991b1b', padding: '10px 12px', borderRadius: 10, fontFamily: 'var(--sans)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
           <span>⚠️ {dbErrorMsg}</span>
           <button onClick={() => setDbErrorMsg(null)} style={{ background: 'none', border: 'none', color: '#991b1b', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}>×</button>
+        </div>
+      )}
+      {!dbErrorMsg && dbSyncMsg && (
+        <div style={{ position: 'fixed', bottom: 80, left: 16, right: 16, zIndex: 9999, background: dbSyncMsg.startsWith('✓') ? '#f0fdf4' : '#fffbeb', border: dbSyncMsg.startsWith('✓') ? '1px solid #bbf7d0' : '1px solid #fcd34d', color: dbSyncMsg.startsWith('✓') ? '#15803d' : '#92400e', padding: '10px 12px', borderRadius: 10, fontFamily: 'var(--sans)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, boxShadow: '0 4px 12px rgba(0,0,0,0.08)' }}>
+          <span>{dbSyncMsg.startsWith('✓') ? '' : '📶 '}{dbSyncMsg}</span>
+          <button onClick={() => setDbSyncMsg(null)} style={{ background: 'none', border: 'none', color: 'inherit', fontSize: 18, cursor: 'pointer', padding: '0 4px' }}>×</button>
         </div>
       )}
       <div style={{
