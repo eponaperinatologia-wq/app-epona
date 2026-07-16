@@ -1120,17 +1120,30 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
   const c = cavalos.find(cav => cav.id === id) || getCavalo(id);
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
   const props = (c.proprietarioIds || [c.proprietarioId]).map(id => getProprietarioLocal(id) || { nome: 'Sem proprietário' });
-  const hoje = new Date();
-  const anoAtual = hoje.getFullYear();
-  const mesAtual = hoje.getMonth() + 1;
-  const mesNomeAtual = MESES[hoje.getMonth()];
-  const meusRegistros = registros.filter(r => {
-    if (r.cavaloId !== id) return false;
-    if (!r.data) return false;
-    const d = new Date(r.data + 'T12:00:00');
-    return d.getFullYear() === anoAtual && d.getMonth() + 1 === mesAtual;
+  // Registros e procedimentos agrupados por mês, com navegação ‹ mês ›
+  const mesKeyDe = (data) => data ? data.slice(0, 7) : 'sem-data';
+  const ordenaMeses = (arr) => arr.sort((a, b) => {
+    if (a === 'sem-data') return 1;
+    if (b === 'sem-data') return -1;
+    return b.localeCompare(a);
   });
-  const meusProcedimentos = procedimentos.filter(p => p.cavaloId === id);
+  const regsCavalo = registros.filter(r => r.cavaloId === id);
+  const procsCavalo = procedimentos.filter(p => p.cavaloId === id);
+  const mesesReg = ordenaMeses([...new Set(regsCavalo.map(r => mesKeyDe(r.data)))]);
+  const mesesProc = ordenaMeses([...new Set(procsCavalo.map(p => mesKeyDe(p.data)))]);
+  const [mesRegIdx, setMesRegIdx] = useState(0);
+  const [mesProcIdx, setMesProcIdx] = useState(0);
+  const mesRegSel = mesesReg[Math.min(mesRegIdx, Math.max(0, mesesReg.length - 1))];
+  const mesProcSel = mesesProc[Math.min(mesProcIdx, Math.max(0, mesesProc.length - 1))];
+  const ordDesc = (a, b) => ((b.data || '') + (b.hora || '')).localeCompare((a.data || '') + (a.hora || ''));
+  const meusRegistros = regsCavalo.filter(r => mesKeyDe(r.data) === mesRegSel).sort(ordDesc);
+  const meusProcedimentos = procsCavalo.filter(p => mesKeyDe(p.data) === mesProcSel).sort(ordDesc);
+  const fmtMesLabel = (k) => {
+    if (k === 'sem-data') return 'Sem data';
+    const nome = new Date(parseInt(k.slice(0, 4)), parseInt(k.slice(5, 7)) - 1, 15).toLocaleDateString('pt-BR', { month: 'long' });
+    return `${nome.charAt(0).toUpperCase()}${nome.slice(1)} de ${k.slice(0, 4)}`;
+  };
+  const fmtDia = (d) => { if (!d) return null; const [a, m, dd] = d.split('-'); return `${dd}/${m}/${a.slice(2)}`; };
   const [editRegQtd, setEditRegQtd] = useState(null);
   const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
   const consumoDia = consumoDiarioCavalo(c.id, insumos);
@@ -1262,16 +1275,17 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
         </div>
       </div>
 
-      {/* Registros avulsos do mês */}
+      {/* Registros avulsos por mês */}
       <div style={{ padding: '20px 20px 0' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Insumos avulsos · {mesNomeAtual}</h2>
-          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusRegistros.length} registros</span>
+          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Insumos avulsos</h2>
+          <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusRegistros.length} registro{meusRegistros.length !== 1 ? 's' : ''} no mês</span>
         </div>
+        <MesNavegador meses={mesesReg} idx={mesRegIdx} setIdx={setMesRegIdx} fmtMesLabel={fmtMesLabel} />
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
           {meusRegistros.length === 0 && (
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-              Sem registros este mês.
+              {mesesReg.length === 0 ? 'Nenhum insumo avulso registrado.' : 'Sem registros neste mês.'}
             </div>
           )}
           {meusRegistros.map((r, i) => {
@@ -1293,7 +1307,8 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{ins.nome}</div>
                   <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
-                    {r.hora} ·
+                    {fmtDia(r.data) && <span style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{fmtDia(r.data)}</span>}
+                    {fmtDia(r.data) && ' · '}{r.hora} ·
                     {editing ? (
                       <input type="number" min="0.5" step="0.5" value={r.qtd}
                         onChange={e => updateRegistro(r.id, { qtd: parseFloat(e.target.value) || 0.5 })}
@@ -1328,14 +1343,18 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
         </div>
       </div>
 
-      {/* Procedimentos do mês */}
-      {meusProcedimentos.length > 0 && (
+      {/* Procedimentos por mês */}
+      {procsCavalo.length > 0 && (
         <div style={{ padding: '20px 20px 0' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
             <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Registro Veterinário</h2>
-            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusProcedimentos.length} registros</span>
+            <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{meusProcedimentos.length} registro{meusProcedimentos.length !== 1 ? 's' : ''} no mês</span>
           </div>
+          <MesNavegador meses={mesesProc} idx={mesProcIdx} setIdx={setMesProcIdx} fmtMesLabel={fmtMesLabel} />
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
+            {meusProcedimentos.length === 0 && (
+              <div style={{ padding: '20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>Sem procedimentos neste mês.</div>
+            )}
             {meusProcedimentos.map((p, i) => {
               const sv = servicos.find(s => s.id === p.servicoId);
               const cat = CATEGORIAS_SERVICOS.find(c => c.id === sv?.categoria);
@@ -1353,6 +1372,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome || 'Procedimento'}</div>
                     <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                      {fmtDia(p.data) && <span style={{ fontWeight: 700, color: 'var(--ink-2)' }}>{fmtDia(p.data)} · </span>}
                       {p.hora}{p.laboratorio ? ` · ${p.laboratorio}` : ''} · total {formatBRL(p.total || 0)}
                     </div>
                     {p.motoboy?.ativo && (
@@ -1400,6 +1420,30 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
           Registrar insumo p/ {c.nome.split(' ')[0]}
         </button>
       </div>
+    </div>
+  );
+};
+
+// Navegação horizontal ‹ mês › (idx 0 = mês mais recente)
+const MesNavegador = ({ meses, idx, setIdx, fmtMesLabel }) => {
+  if (meses.length === 0) return null;
+  const i = Math.min(idx, meses.length - 1);
+  const btnSt = (disabled) => ({
+    background: 'none', border: 'none', fontSize: 20, padding: '2px 14px', lineHeight: 1,
+    color: disabled ? 'var(--ink-3)' : 'var(--accent)', opacity: disabled ? 0.35 : 1,
+    cursor: disabled ? 'default' : 'pointer', fontFamily: 'var(--sans)',
+  });
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10,
+      padding: '5px 6px', marginBottom: 10,
+    }}>
+      <button onClick={() => setIdx(Math.min(i + 1, meses.length - 1))} disabled={i >= meses.length - 1} style={btnSt(i >= meses.length - 1)}>‹</button>
+      <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--sans)' }}>
+        {fmtMesLabel(meses[i])}
+      </span>
+      <button onClick={() => setIdx(Math.max(i - 1, 0))} disabled={i <= 0} style={btnSt(i <= 0)}>›</button>
     </div>
   );
 };
