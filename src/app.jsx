@@ -123,6 +123,8 @@ function AppEpona() {
   const [loadError, setLoadError] = useState(null);
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
+  // Mês de destino ao registrar insumo/procedimento a partir de uma fatura ('YYYY-MM' ou null = hoje)
+  const [mesRegistroDestino, setMesRegistroDestino] = useState(null);
 
   const [novoCavaloPendente, setNovoCavaloPendente] = useState(null);
   const [pendingEntradaCavalo, setPendingEntradaCavalo] = useState(false);
@@ -1565,6 +1567,8 @@ const loadAllData = async () => {
     if (currentUser?.role === 'operacional' && !['avisos', 'nutricional', 'compras', 'planner', 'minhaConta'].includes(s)) return;
     if (currentUser?.role === 'vet' && ['faturas', 'faturaDetalhe', 'cadMensalidades'].includes(s)) return;
     if (currentUser?.role === 'operacional' && ['partos', 'registrarParto', 'partoDetalhe'].includes(s)) return;
+    // O mês de destino de registro (correção de fatura) só vale enquanto se está no fluxo de registro
+    if (s !== 'registrar' && s !== 'registrarProcedimento') setMesRegistroDestino(null);
     setScreen(s);
     if (s === 'home' || s === 'historico') setTab('home');
     if (s === 'cavalos' || s === 'addCavalo' || s === 'cavaloDetalhe' || s === 'editarCavalo') setTab('cavalos');
@@ -1605,13 +1609,13 @@ const loadAllData = async () => {
   else if (screen === 'addInsumo') content = <AddInsumoScreen setScreen={goScreen} addInsumo={addInsumo} insumos={insumos} />;
   else if (screen === 'editarInsumo') content = <EditarInsumoScreen id={selected} setScreen={goScreen} insumos={insumos} updateInsumo={updateInsumo} deleteInsumo={deleteInsumo} />;
   else if (screen === 'cadServicos') content = <CadServicosScreen setScreen={goScreen} servicos={servicos} addServico={addServico} updateServico={updateServico} setSelected={setSelected} deleteServico={deleteServico} insumos={insumos} />;
-  else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} />;
+  else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalos} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} mesDestino={mesRegistroDestino} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
   else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} />;
   else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalos} insumos={insumos} custosFixos={custosFixos} proprietarios={proprietarios} />;
   else if (screen === 'custosFixos') content = <CustosFixosScreen custosFixos={custosFixos} funcionarios={funcionarios} cavalos={cavalos} addCustoFixo={addCustoFixo} updateCustoFixo={updateCustoFixo} deleteCustoFixo={deleteCustoFixo} onBack={() => goScreen('faturas')} />;
-  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} />;
+  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} setMesRegistroDestino={setMesRegistroDestino} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
@@ -1624,9 +1628,9 @@ const loadAllData = async () => {
   else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;
-    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
-    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
-    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} />;
+    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
+    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
+    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalos} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
   }
 
   const isOperacional = currentUser?.role === 'operacional';
@@ -1692,6 +1696,11 @@ const loadAllData = async () => {
             </div>
           )}
           <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', position: 'relative', overscrollBehavior: 'contain', WebkitOverflowScrolling: 'touch' }}>
+            {mesRegistroDestino && (screen === 'registrar' || screen === 'registrarProcedimento') && mesRegistroDestino !== new Date().toLocaleDateString('sv-SE').slice(0, 7) && (
+              <div style={{ position: 'sticky', top: 0, zIndex: 50, background: '#fffbeb', borderBottom: '1px solid #fcd34d', color: '#92400e', padding: '8px 16px', fontSize: 12.5, fontWeight: 600, fontFamily: 'var(--sans)', textAlign: 'center' }}>
+                📋 Corrigindo fatura de {new Date(parseInt(mesRegistroDestino.slice(0, 4)), parseInt(mesRegistroDestino.slice(5, 7)) - 1, 15).toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' })} — os itens serão lançados nesse mês.
+              </div>
+            )}
             {content}
           </div>
           {showMainTabs && <TabBar tab={tab} setTab={setTab} role={currentUser?.role} />}

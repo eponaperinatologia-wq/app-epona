@@ -6,6 +6,7 @@ import {
   getInsumo, formatBRL, norm,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
+import { dataParaMesDestino } from './register';
 
 // ─────────────────────────────────────────────────────────────
 // CADASTRO DE SERVIÇOS
@@ -300,7 +301,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
 const EXAMES_LAB_ID = '__exames_lab__';
 const SV_EXAMES = { id: EXAMES_LAB_ID, nome: 'Exames Laboratoriais', categoria: 'exames', valor: 0, descartaveisObrigatorios: [] };
 
-const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento, addAtividade }) => {
+const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, insumos = INSUMOS, addProcedimento, addAtividade, mesDestino }) => {
   const [step, setStep] = useState('cavalo'); // cavalo → servico → exames → confirmar
   const [cavaloId, setCavaloId] = useState(null);
   const [servicoId, setServicoId] = useState(null);
@@ -382,10 +383,8 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   };
 
   const confirmar = () => {
-    const hoje = new Date();
-    const hora = hoje.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const data = hoje.toLocaleDateString('sv-SE');
-    const mes = data.slice(0, 7);
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const { data, mes } = dataParaMesDestino(mesDestino);
     addProcedimento({
       cavaloId, servicoId,
       valorServico: sv.categoria === 'exames' ? 0 : sv.valor,

@@ -5351,7 +5351,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [] }) => {
+const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [], setMesRegistroDestino }) => {
   const [shareOpen, setShareOpen] = useState(false);
   const [editRegId, setEditRegId] = useState(null);
   const [editQtd, setEditQtd] = useState('');
@@ -5646,7 +5646,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
             );
           })}
           {!faturaExistente && (
-            <button onClick={() => setScreen('registrar')} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
+            <button onClick={() => { setMesRegistroDestino?.(`${ref.ano}-${String(ref.mes).padStart(2, '0')}`); setScreen('registrar'); }} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
               + Registrar insumo
             </button>
           )}
@@ -5667,7 +5667,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
             </div>
           ))}
           {!faturaExistente && (
-            <button onClick={() => setScreen('registrarProcedimento')} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
+            <button onClick={() => { setMesRegistroDestino?.(`${ref.ano}-${String(ref.mes).padStart(2, '0')}`); setScreen('registrarProcedimento'); }} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
               + Registrar procedimento
             </button>
           )}

@@ -9,6 +9,21 @@ import {
 import { TopBar, HorseAvatar } from './screens';
 const { useState: useStateR, useMemo: useMemoR } = React;
 
+// Data/mês do registro. `mesDestino` ('YYYY-MM') aponta para a fatura em correção;
+// fora do mês vigente, o registro cai no dia de hoje "transposto" para aquele mês
+// (limitado ao último dia), para que a cobrança entre na fatura certa.
+export const dataParaMesDestino = (mesDestino) => {
+  const hoje = new Date();
+  const dataHoje = hoje.toLocaleDateString('sv-SE');
+  if (!mesDestino || dataHoje.slice(0, 7) === mesDestino) {
+    return { data: dataHoje, mes: dataHoje.slice(0, 7) };
+  }
+  const [ano, mes] = mesDestino.split('-').map(Number);
+  const ultimoDia = new Date(ano, mes, 0).getDate();
+  const dia = Math.min(hoje.getDate(), ultimoDia);
+  return { data: `${mesDestino}-${String(dia).padStart(2, '0')}`, mes: mesDestino };
+};
+
 // ─────────────────────────────────────────────────────────────
 // Quantity stepper — large touch targets
 // ─────────────────────────────────────────────────────────────
@@ -83,7 +98,7 @@ const Toast = ({ msg }) => msg ? (
 // ─────────────────────────────────────────────────────────────
 const REG_CAVALO_KEY = 'epona_reg_cavalo';
 
-const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCavaloId, insumos = INSUMOS, cavalos, currentUser }) => {
+const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCavaloId, insumos = INSUMOS, cavalos, currentUser, mesDestino }) => {
   const savedCavalo = React.useMemo(() => {
     try { return JSON.parse(sessionStorage.getItem(REG_CAVALO_KEY)); }
     catch (e) { return null; }
@@ -117,8 +132,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
 
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toLocaleDateString('sv-SE');
+    const { data, mes } = dataParaMesDestino(mesDestino);
     addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, data, usuario: currentUser?.nome || '' });
     addDescartaveis(addRegistro, insumoId, cavaloId, qtd, insumos, hora, 'Sistema (auto)', data);
     if (addAtividade) addAtividade({
@@ -329,7 +343,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
 // FLUXO B — POR INSUMO
 // 1) escolhe insumo  2) marca cavalos (multi)  3) confirma
 // ─────────────────────────────────────────────────────────────
-const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos, currentUser }) => {
+const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos, currentUser, mesDestino }) => {
   const [step, setStep] = useStateR('insumo');
   const [insumoId, setInsumoId] = useStateR(null);
   const [selectedCavalos, setSelectedCavalos] = useStateR(new Set());
@@ -353,8 +367,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
 
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toLocaleDateString('sv-SE');
+    const { data, mes } = dataParaMesDestino(mesDestino);
     selectedCavalos.forEach(cid => {
       addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, data, usuario: currentUser?.nome || '' });
       addDescartaveis(addRegistro, insumoId, cid, qtd, insumos, hora, 'Sistema (auto)', data);
@@ -513,7 +526,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
 // FLUXO C — POR SETOR (lote)
 // Lista de setores → grid de cavalos com ações rápidas inline
 // ─────────────────────────────────────────────────────────────
-const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos, currentUser }) => {
+const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INSUMOS, cavalos, currentUser, mesDestino }) => {
   const [setor, setSetor] = useStateR(null);
   const [insumoQuick, setInsumoQuick] = useStateR(INSUMOS[1].id);
   const [confirmados, setConfirmados] = useStateR(new Set());
@@ -524,8 +537,7 @@ const RegistrarPorSetor = ({ setScreen, addRegistro, addAtividade, insumos = INS
   const registrarRapido = (cid) => {
     if (confirmados.has(cid)) return;
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
-    const data = hoje.toLocaleDateString('sv-SE');
+    const { data, mes } = dataParaMesDestino(mesDestino);
     addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId: insumoQuick, qtd: 1, hora, data, usuario: currentUser?.nome || '' });
     addDescartaveis(addRegistro, insumoQuick, cid, 1, insumos, hora, 'Sistema (auto)', data);
     if (addAtividade) addAtividade({
