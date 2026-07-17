@@ -51,7 +51,10 @@ export const OLDENBURGO = [
   { m: 23, peso: 485, altura: 161 },
   { m: 24, peso: 502, altura: 161.75 },
 ];
-const OLD_ALTURA_ADULTA = 161.75;
+// Altura adulta de referência (7–8 anos) — cavalo que segue o padrão Oldenburgo
+// até 24 meses (161,75 cm) chega a 171 cm quando atinge a maturidade.
+const OLD_ALTURA_ADULTA = 171;
+const IDADE_ADULTA_ANOS = 7;
 
 const oldenburgoAt = (m, campo) => {
   if (m == null) return null;
@@ -589,7 +592,7 @@ export function DesenvolvimentoScreen({ cavalos, currentUser, medicoes, addMedic
                         ~{fmt1(proj.valor)} cm
                       </div>
                       <div style={{ fontSize: 10.5, color: 'var(--ink-3)' }}>
-                        faixa {fmt1(proj.min)}–{fmt1(proj.max)} cm · baseada na posição relativa à curva Oldenburgo ({proj.n} mediç{proj.n > 1 ? 'ões' : 'ão'})
+                        faixa {fmt1(proj.min)}–{fmt1(proj.max)} cm aos {IDADE_ADULTA_ANOS}–8 anos · projeção da posição relativa à curva Oldenburgo ({proj.n} mediç{proj.n > 1 ? 'ões' : 'ão'})
                       </div>
                     </div>
                   </Card>
