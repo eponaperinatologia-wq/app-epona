@@ -60,7 +60,7 @@ import {
   fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
   EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
   PROG_PROG_MAP, PROG_APL_MAP,
-  dbUpsert,
+  dbUpsert, notifyUploadError,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
   partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
@@ -736,7 +736,7 @@ const loadAllData = async () => {
     const path = `emergencias/${meta.emergenciaId}/${Date.now()}_${safeName}`;
     const { error: upErr } = await supabase.storage.from('exames').upload(path, file, { upsert: false });
     if (upErr) {
-      window.dispatchEvent(new CustomEvent('db-error', { detail: { op: 'upload', table: 'emergencia_exames', msg: upErr.message } }));
+      notifyUploadError('emergencia_exames', upErr.message);
       return null;
     }
     const { data: urlData } = supabase.storage.from('exames').getPublicUrl(path);
@@ -885,7 +885,7 @@ const loadAllData = async () => {
     const path = `${meta.cavaloId}/${Date.now()}_${safeName}`;
     const { error: upErr } = await supabase.storage.from('exames').upload(path, file, { upsert: false });
     if (upErr) {
-      window.dispatchEvent(new CustomEvent('db-error', { detail: { op: 'upload', table: 'exames', msg: upErr.message } }));
+      notifyUploadError('exames', upErr.message);
       return;
     }
     const { data: urlData } = supabase.storage.from('exames').getPublicUrl(path);

@@ -739,10 +739,28 @@ const _traduzErro = (raw) => {
   return s;
 };
 
+// Traduz erros específicos de upload no Supabase Storage
+const _traduzErroUpload = (raw) => {
+  if (!raw) return 'Erro desconhecido no upload';
+  const s = String(raw);
+  if (s.includes('row-level security') || s.includes('403') || /bucket.*not\s*found/i.test(s)) {
+    return 'Arquivo não foi enviado — o bucket "exames" precisa ser criado no Supabase Storage (peça ao admin).';
+  }
+  if (/exceed|too large/i.test(s)) return 'Arquivo muito grande para o servidor.';
+  if (_isNetworkError(s)) return 'Sem conexão para enviar o arquivo.';
+  return s;
+};
+
 const notifyDbError = (op, table, msg) => {
   const friendly = _traduzErro(msg);
   console.error(`${op} ${table}:`, msg);
   window.dispatchEvent(new CustomEvent('db-error', { detail: { op, table, msg: friendly, raw: msg } }));
+};
+
+export const notifyUploadError = (table, msg) => {
+  const friendly = _traduzErroUpload(msg);
+  console.error(`upload ${table}:`, msg);
+  window.dispatchEvent(new CustomEvent('db-error', { detail: { op: 'upload', table, msg: friendly, raw: msg } }));
 };
 
 // ── Resiliência de rede: retry + outbox persistente ──────────
