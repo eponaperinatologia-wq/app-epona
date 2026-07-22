@@ -229,12 +229,12 @@ const OF_VOLUME_REF_CM3 = {
   11: { min: 32.0, max: 35.0 },
 };
 
-// Volume calculado a partir de altura e largura (mm): (a² × l) / 1000.
+// Volume calculado a partir de altura e largura (mm): (l² × a) / 1000.
 export function calcularVolumeOrbita(alturaMm, larguraMm) {
   const a = parseFloat(alturaMm);
   const l = parseFloat(larguraMm);
   if (isNaN(a) || isNaN(l) || a <= 0 || l <= 0) return null;
-  return +(a * a * l / 1000).toFixed(2);
+  return +(l * l * a / 1000).toFixed(2);
 }
 
 // Escolhe qual referência usar (volume tem prioridade). Retorna
