@@ -148,9 +148,17 @@ export function gerarPdfFatura({
         const share = pp.share || 1;
         pp.linhas.forEach(l => {
           const cota = (l.valorMes || l.valor || 0);
-          const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
-          const diasUsados = l.dias ?? pp.dias;
-          const sub = `${pp.cav.nome} · ${qtd} ${l.unidade}/dia × ${diasUsados} dias`;
+          let sub;
+          if (l.periodico) {
+            const qtdMesFmt = Number(l.qtdMes || 0).toFixed(2).replace(/\.?0+$/, '');
+            const dosePorVez = Number(l.qtdDia || 0).toFixed(2).replace(/\.?0+$/, '');
+            const doses = l.dosesMes ?? l.dias ?? 0;
+            sub = `${pp.cav.nome} · ${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez}${l.freqLabel ? ` (${l.freqLabel})` : ''}`;
+          } else {
+            const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
+            const diasUsados = l.dias ?? pp.dias;
+            sub = `${pp.cav.nome} · ${qtd} ${l.unidade}/dia × ${diasUsados} dias`;
+          }
           row(l.nome, sub, BRL(share > 1 ? cota / share : cota));
         });
       });
@@ -178,11 +186,18 @@ export function gerarPdfFatura({
       procLinhas.forEach(l => {
         const share = l.share || 1;
         const dataStr = l.proc?.data ? new Date(l.proc.data + 'T12:00:00').toLocaleDateString('pt-BR') : '';
-        const sub = [
+        const isExamesLab = l.proc?.servicoId === '__exames_lab__';
+        const exames = isExamesLab ? (l.proc?.examesSelecionados || []) : [];
+        const subParts = [
           l.cav?.nome || '—',
           dataStr,
+          l.proc?.laboratorio ? `Lab: ${l.proc.laboratorio}` : null,
           share > 1 ? `${share} prop.` : null,
-        ].filter(Boolean).join(' · ');
+        ].filter(Boolean);
+        let sub = subParts.join(' · ');
+        if (exames.length > 0) {
+          sub += '\n' + exames.map(e => `• ${e.nome} — ${BRL(e.valor || 0)}`).join('\n');
+        }
         row(l.nomeSv || l.sv?.nome || 'Procedimento', sub, BRL(l.total));
       });
       y += 2;

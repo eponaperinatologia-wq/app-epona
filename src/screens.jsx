@@ -161,29 +161,70 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
   return { dias, total, parcial, valor: total > 0 ? valorBase * (dias / total) : 0, valorBase };
 };
 
-const calcDosesPeriodico = (p, ref) => {
+// Conta quantas doses de um insumo periódico ocorrem no mês de referência,
+// considerando presença do cavalo (movimentacoes + dataEntrada) e a data
+// de início/fim do programa. Semanal/Quinzenal usam diaSemana como âncora;
+// quinzenal mantém o ciclo de 14 dias ancorado em dataInicio se houver.
+const calcDosesPeriodico = (p, ref, cav, movimentacoes) => {
   const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
   const fimMes = new Date(ref.ano, ref.mes, 0);
   const today = new Date(); today.setHours(23, 59, 59, 999);
   const isCurrentMonth = today.getFullYear() === ref.ano && today.getMonth() + 1 === ref.mes;
-  const fimEfetivo = isCurrentMonth ? new Date(Math.min(today.getTime(), fimMes.getTime())) : fimMes;
-  const dataInicio = p.dataInicio ? new Date(p.dataInicio + 'T00:00:00') : inicioMes;
-  const effectiveStart = new Date(Math.max(dataInicio.getTime(), inicioMes.getTime()));
-  if (effectiveStart > fimEfetivo) return 0;
-  if (p.frequencia === 'diario') {
-    return Math.max(0, Math.floor((fimEfetivo - effectiveStart) / (1000 * 60 * 60 * 24)) + 1);
-  }
+  const fimEfetivo = isCurrentMonth ? new Date(Math.min(today.getTime(), fimMes.getTime())) : new Date(fimMes);
+  const dataInicioP = p.dataInicio ? new Date(p.dataInicio + 'T00:00:00') : null;
+  const dataFimP = p.dataFim ? new Date(p.dataFim + 'T00:00:00') : null;
+  const effStart = new Date(Math.max((dataInicioP || inicioMes).getTime(), inicioMes.getTime()));
+  const effEnd = new Date(Math.min((dataFimP || fimEfetivo).getTime(), fimEfetivo.getTime()));
+  if (effEnd < effStart) return 0;
+
   const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 :
-    p.frequencia?.startsWith('cada') ? (parseInt(p.frequencia.replace('cada', '')) || 7) : 7;
-  let cursor = new Date(effectiveStart);
+    p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? (parseInt(p.frequencia.replace('cada', '')) || 7) : 7;
+
+  const cavMovs = cav ? (movimentacoes || [])
+    .filter(m => m.cavaloId === cav.id)
+    .map(m => ({ ...m, d: new Date(m.data) }))
+    .sort((a, b) => a.d - b.d) : [];
+  const cavPresenteEm = (target) => {
+    if (!cav) return true;
+    const t = new Date(target); t.setHours(12, 0, 0, 0);
+    let presente = true;
+    if (cav.dataEntrada) presente = new Date(cav.dataEntrada + 'T00:00:00') <= t;
+    for (const m of cavMovs) {
+      if (m.d > t) break;
+      presente = m.tipo === 'entrada';
+    }
+    return presente;
+  };
+
+  let cursor = new Date(effStart);
   if (p.frequencia === 'semanal' || p.frequencia === 'quinzenal') {
     const targetDay = p.diaSemana != null ? p.diaSemana : cursor.getDay();
-    const offset = (targetDay - cursor.getDay() + 7) % 7;
-    cursor.setDate(cursor.getDate() + offset);
+    if (p.frequencia === 'quinzenal' && dataInicioP) {
+      const anchor = new Date(dataInicioP);
+      const anchorOffset = (targetDay - anchor.getDay() + 7) % 7;
+      anchor.setDate(anchor.getDate() + anchorOffset);
+      while (anchor < effStart) anchor.setDate(anchor.getDate() + freqDias);
+      cursor = anchor;
+    } else {
+      const offset = (targetDay - cursor.getDay() + 7) % 7;
+      cursor.setDate(cursor.getDate() + offset);
+    }
   }
+
   let doses = 0;
-  while (cursor <= fimEfetivo) { doses++; cursor.setDate(cursor.getDate() + freqDias); }
+  while (cursor <= effEnd) {
+    if (cavPresenteEm(cursor)) doses++;
+    cursor.setDate(cursor.getDate() + freqDias);
+  }
   return doses;
+};
+
+const _labelFreq = (freq) => {
+  if (freq === 'quinzenal') return 'quinzenal';
+  if (freq === 'semanal') return 'semanal';
+  if (freq === 'diario') return 'diário';
+  if (freq?.startsWith('cada')) return `cada ${freq.replace('cada', '')}d`;
+  return '';
 };
 
 const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
@@ -233,10 +274,23 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins || isIncluso(ins)) continue;
-    const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
-    const qtdDia = p.qtd / freqDias;
-    const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
-    linhas.push({ insumoId: ins.id, nome: ins.nome + ' (periódico)', qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * qtdDia, valorMes: ins.valorVenda * qtdDia * diasEfetivos, dias: diasEfetivos });
+    const doses = calcDosesPeriodico(p, ref, cav, movimentacoes);
+    if (doses === 0) continue;
+    const dosePorVez = Number(p.qtd) || 0;
+    const qtdMes = dosePorVez * doses;
+    linhas.push({
+      insumoId: ins.id,
+      nome: ins.nome + ' (periódico)',
+      qtdDia: dosePorVez, // dose por administração (não é mais média/dia)
+      qtdMes,
+      dosesMes: doses,
+      unidade: ins.unidade,
+      valorUnit: ins.valorVenda,
+      valorMes: (Number(ins.valorVenda) || 0) * qtdMes,
+      dias: doses, // compat: nº de doses no mês
+      periodico: true,
+      freqLabel: _labelFreq(p.frequencia),
+    });
   }
   return { linhas, total: linhas.reduce((s, l) => s + l.valorMes, 0), dias };
 };
@@ -5633,13 +5687,22 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
           {propPerfil.length > 0 && <SectionTitle>Óleo & suplementos · perfil × dias</SectionTitle>}
           {propPerfil.flatMap(pp => pp.linhas.map(l => {
-            const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
-            const diasUsados = l.dias ?? pp.dias;
+            let sub;
+            if (l.periodico) {
+              const qtdMesFmt = Number(l.qtdMes || 0).toFixed(2).replace(/\.?0+$/, '');
+              const dosePorVez = Number(l.qtdDia || 0).toFixed(2).replace(/\.?0+$/, '');
+              const doses = l.dosesMes ?? l.dias ?? 0;
+              sub = `${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez} ${l.unidade}${l.freqLabel ? ` (${l.freqLabel})` : ''}${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
+            } else {
+              const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
+              const diasUsados = l.dias ?? pp.dias;
+              sub = `${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
+            }
             return (
               <TableRow
                 key={pp.cav.id + l.insumoId}
                 left={`${l.nome} · ${pp.cav.nome}`}
-                sub={`${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`}
+                sub={sub}
                 right={formatBRL((l.valorMes || 0) / pp.share)}
               />
             );
@@ -5696,20 +5759,36 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
           )}
 
           {procLinhas.length > 0 && <SectionTitle>Procedimentos veterinários</SectionTitle>}
-          {procLinhas.map(l => (
-            <div key={l.proc.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.nomeSv}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>{l.cav?.nome || '—'} · {l.proc.data || ''}</div>
+          {procLinhas.map(l => {
+            const isExamesLab = l.proc.servicoId === '__exames_lab__';
+            const exames = isExamesLab ? (l.proc.examesSelecionados || []) : [];
+            return (
+              <div key={l.proc.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.nomeSv}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                    {l.cav?.nome || '—'} · {l.proc.data || ''}{l.proc.laboratorio ? ` · Lab: ${l.proc.laboratorio}` : ''}
+                  </div>
+                  {exames.length > 0 && (
+                    <div style={{ marginTop: 4, paddingLeft: 8, borderLeft: '2px solid var(--line)' }}>
+                      {exames.map(e => (
+                        <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, color: 'var(--ink-2)', padding: '1px 0' }}>
+                          <span>• {e.nome}</span>
+                          <span style={{ color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(e.valor || 0)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
+                  <span style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(l.total)}</span>
+                  {!faturaExistente && deleteProcedimento && (
+                    <button onClick={() => { if (window.confirm(`Remover ${l.nomeSv}?`)) deleteProcedimento(l.proc.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginLeft: 12 }}>
-                <span style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(l.total)}</span>
-                {!faturaExistente && deleteProcedimento && (
-                  <button onClick={() => { if (window.confirm(`Remover ${l.nomeSv}?`)) deleteProcedimento(l.proc.id); }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#dc2626', fontSize: 16, lineHeight: 1, padding: '0 2px' }}>×</button>
-                )}
-              </div>
-            </div>
-          ))}
+            );
+          })}
           {!faturaExistente && (
             <button onClick={() => { setMesRegistroDestino?.(`${ref.ano}-${String(ref.mes).padStart(2, '0')}`); setScreen('registrarProcedimento'); }} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
               + Registrar procedimento
