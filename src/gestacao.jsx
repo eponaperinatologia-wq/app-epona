@@ -853,7 +853,8 @@ function PartosTab({ partos, cavalos, proprietarios, setScreen, setSelected }) {
 // DETALHE DA ÉGUA GESTANTE — 3 abas
 // ─────────────────────────────────────────────────────────────
 export function EguaGestanteDetalheScreen({
-  id, setScreen, cavalos, updateCavalo, proprietarios, insumos, addAviso, addAtividade, currentUser,
+  id, setScreen, setSelected, cavalos, updateCavalo, proprietarios, insumos, addAviso, addAtividade, currentUser,
+  partos = [],
   protocolosVacinacao = [], vacinacoesAnimais = [], upsertVacinacaoAnimal,
   protocolosVermifugacao = [], vermifugacoesAnimais = [], addVermifugacaoAnimal,
   addRegistro, servicos = [], addProcedimento,
@@ -979,7 +980,7 @@ export function EguaGestanteDetalheScreen({
         />
       </div>
       <div style={{ paddingBottom:90 }}>
-        {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} />}
+        {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} partos={partos} cavalos={cavalos} setScreen={setScreen} setSelected={setSelected} />}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
         {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />}
         {subTab === 'vacverm' && (
@@ -1017,11 +1018,12 @@ const AlimentacaoRow = ({ label, value, sub }) => (
 );
 
 // ── Aba Gestação ──────────────────────────────────────────────
-function GestacaoTab({ c, updateCavalo, mes }) {
+function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScreen, setSelected }) {
   const g = c.gestacao || {};
   const [dataCobricao, setDataCobricao] = useState(g.dataCobricao || '');
   const [pai, setPai] = useState(g.pai || '');
   const [saved, setSaved] = useState(false);
+  const [histExpandido, setHistExpandido] = useState(null); // index do card aberto
 
   const previsao = previsaoParto(dataCobricao);
   const dias = diasAteParto(dataCobricao);
@@ -1124,23 +1126,198 @@ function GestacaoTab({ c, updateCavalo, mes }) {
         {saved ? '✓ Salvo!' : 'Salvar dados de gestação'}
       </button>
 
-      {/* Histórico gestacional */}
+      {/* Histórico gestacional — cada card expande com acompanhamento + parto */}
       {c.historicoGestacional?.length > 0 && (
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>Histórico gestacional</div>
-          {c.historicoGestacional.map((h, i) => (
-            <div key={i} style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:12, padding:'12px 14px', marginBottom:8 }}>
-              <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>
-                Gestação {i+1} · Cobrição {fmtDate(h.dataCobricao)}
+          {c.historicoGestacional.map((h, i) => {
+            const aberto = histExpandido === i;
+            const potroExistente = h.potroId ? cavalos.find(cv => cv.id === h.potroId) : null;
+            const partoRel = partos.find(pt => (h.potroId && pt.potroId === h.potroId) || (pt.eguaId === c.id && pt.data === h.dataParto));
+            return (
+              <div key={i} style={{ background:'var(--card)', border:`1px solid ${aberto ? 'var(--accent)' : 'var(--line)'}`, borderRadius:12, marginBottom:8, overflow:'hidden' }}>
+                <button
+                  onClick={() => setHistExpandido(aberto ? null : i)}
+                  style={{
+                    width:'100%', background: aberto ? 'var(--accent-soft)' : 'transparent',
+                    border:'none', padding:'12px 14px', cursor:'pointer', textAlign:'left',
+                    display:'flex', alignItems:'center', gap:10, fontFamily:'var(--sans)',
+                  }}
+                >
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ fontSize:13, fontWeight:600, color:'var(--ink)' }}>
+                      Gestação {i+1} · Cobrição {fmtDate(h.dataCobricao)}
+                    </div>
+                    <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:3 }}>
+                      {h.dataParto ? `Parto ${fmtDate(h.dataParto)}` : `Previsão ${fmtDate(h.dataPrevisao)}`}
+                      {h.pai ? ` · Pai: ${h.pai}` : ''}
+                      {h.sexagem ? ` · ${SEXAGEM_OPTIONS.find(o=>o.value===h.sexagem)?.label}` : ''}
+                      {potroExistente ? ` · Potro: ${potroExistente.nome}` : ''}
+                    </div>
+                  </div>
+                  <Icon name={aberto ? 'chevron-down' : 'chevron-right'} size={14} color="var(--ink-3)" />
+                </button>
+                {aberto && (
+                  <HistoricoGestacaoDetalhe
+                    entry={h}
+                    potroExistente={potroExistente}
+                    partoRel={partoRel}
+                    setScreen={setScreen}
+                    setSelected={setSelected}
+                  />
+                )}
               </div>
-              <div style={{ fontSize:12, color:'var(--ink-3)', marginTop:3 }}>
-                Previsão: {fmtDate(h.dataPrevisao)} · {h.pai ? `Pai: ${h.pai}` : ''}
-                {h.sexagem ? ` · ${SEXAGEM_OPTIONS.find(o=>o.value===h.sexagem)?.label}` : ''}
-              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Detalhe expansível de um item do histórico gestacional ──────
+// Mostra acompanhamento mês a mês (read-only) + link pro parto associado.
+function HistoricoGestacaoDetalhe({ entry, potroExistente, partoRel, setScreen, setSelected }) {
+  const gc = entry?.gestacaoCompleta || {};
+  const acomp = gc.acompanhamento || {};
+  const mesesComDados = Object.keys(acomp)
+    .map(k => parseInt(k, 10))
+    .filter(k => Number.isFinite(k))
+    .sort((a, b) => a - b);
+  const abrirParto = () => {
+    if (!partoRel || !setScreen || !setSelected) return;
+    setSelected(partoRel.id);
+    setScreen('partoDetalhe');
+  };
+  const abrirPotro = () => {
+    if (!potroExistente || !setScreen || !setSelected) return;
+    setSelected(potroExistente.id);
+    setScreen('cavaloDetalhe');
+  };
+  return (
+    <div style={{ padding:'0 14px 14px', borderTop:'1px solid var(--line)' }}>
+      {/* Resumo da gestação */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10, padding:'12px 0', borderBottom:'1px solid var(--line)' }}>
+        <ResumoItem label="Cobrição" valor={fmtDate(entry.dataCobricao)} />
+        <ResumoItem label="Previsão" valor={fmtDate(entry.dataPrevisao)} />
+        <ResumoItem label="Data do parto" valor={entry.dataParto ? fmtDate(entry.dataParto) : '—'} />
+        <ResumoItem label="Pai" valor={entry.pai || '—'} />
+        {gc.mae && <ResumoItem label="Mãe biológica" valor={gc.mae} />}
+        {entry.sexagem && <ResumoItem label="Sexagem" valor={SEXAGEM_OPTIONS.find(o=>o.value===entry.sexagem)?.label || entry.sexagem} />}
+      </div>
+
+      {/* Links pro potro e parto */}
+      {(potroExistente || partoRel) && (
+        <div style={{ display:'flex', gap:8, padding:'10px 0', borderBottom:'1px solid var(--line)' }}>
+          {potroExistente && (
+            <button onClick={abrirPotro} style={{
+              flex:1, padding:'10px 12px', borderRadius:10,
+              background:'var(--card)', border:'1px solid var(--line)', color:'var(--ink)',
+              fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)',
+              display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+            }}>
+              🐴 Ver potro · {potroExistente.nome}
+            </button>
+          )}
+          {partoRel && (
+            <button onClick={abrirParto} style={{
+              flex:1, padding:'10px 12px', borderRadius:10,
+              background:'var(--accent)', border:'none', color:'#fff',
+              fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)',
+              display:'flex', alignItems:'center', justifyContent:'center', gap:6,
+            }}>
+              🍼 Abrir registro do parto
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Acompanhamento mês a mês (read-only) */}
+      <div style={{ padding:'12px 0 0' }}>
+        <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>
+          Acompanhamento mensal
+        </div>
+        {mesesComDados.length === 0 ? (
+          <div style={{ fontSize:12, color:'var(--ink-3)', fontStyle:'italic', padding:'8px 0' }}>
+            Nenhum dado de acompanhamento foi registrado nesta gestação.
+          </div>
+        ) : (
+          mesesComDados.map(mesNum => (
+            <MesHistoricoView key={mesNum} mes={mesNum} dados={acomp[mesNum]} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+const ResumoItem = ({ label, valor }) => (
+  <div>
+    <div style={{ fontSize:10, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.06em', fontWeight:700, marginBottom:2 }}>{label}</div>
+    <div style={{ fontSize:13, color:'var(--ink)', fontWeight:500 }}>{valor}</div>
+  </div>
+);
+
+// Renderiza os dados de UM mês do acompanhamento (read-only). Suporta tanto
+// meses de palpação (0-2, dados.palpacoes[]) quanto meses de ultrassom (3-11).
+function MesHistoricoView({ mes, dados }) {
+  if (!dados) return null;
+  const isPalpacao = MESES_PALPACAO.has(mes);
+  const linhas = [];
+  if (isPalpacao) {
+    const paps = Array.isArray(dados.palpacoes) ? dados.palpacoes : [];
+    if (paps.length === 0) return null;
+    paps.forEach((p, idx) => {
+      const itens = [];
+      if (p.data) itens.push(['Data', fmtDate(p.data)]);
+      if (p.tamanhoVesicula) itens.push(['Tamanho vesícula', p.tamanhoVesicula]);
+      if (p.aspectoUterino) itens.push(['Aspecto uterino', p.aspectoUterino]);
+      if (p.presencaCL) itens.push(['CL', p.presencaCL]);
+      if (p.iniciarProgesterona) itens.push(['Iniciar progesterona', 'Sim']);
+      if (p.batimentoCardiaco) itens.push(['Batimento cardíaco', p.batimentoCardiaco]);
+      if (p.obs) itens.push(['Observações', p.obs]);
+      if (itens.length > 0) linhas.push({ subtitulo: `Palpação ${idx + 1}`, itens });
+    });
+  } else {
+    const itens = [];
+    const push = (label, val, unidade) => {
+      if (val === '' || val == null) return;
+      itens.push([label, unidade ? `${val} ${unidade}` : String(val)]);
+    };
+    push('Líquido amniótico', dados.liquidoAmniotico);
+    push('Líquido alantoideano', dados.liquidoAlantoideano);
+    if (dados.orbitaLargura || dados.orbitaAltura || dados.orbitaVolume) {
+      const partes = [];
+      if (dados.orbitaLargura) partes.push(`L ${dados.orbitaLargura}`);
+      if (dados.orbitaAltura) partes.push(`A ${dados.orbitaAltura}`);
+      if (dados.orbitaVolume) partes.push(`V ${dados.orbitaVolume}`);
+      itens.push(['Órbita ocular (mm)', partes.join(' · ')]);
+    }
+    push('Aorta (mm)', dados.aorta);
+    push('Freq. cardíaca (bpm)', dados.freqCardiaca);
+    push('Biparietal (mm)', dados.biparietal);
+    push('JUP (mm)', dados.jup);
+    push('Estática fetal', dados.estaticaFetal);
+    push('Observações', dados.obs);
+    if (itens.length > 0) linhas.push({ subtitulo: null, itens });
+  }
+  if (linhas.length === 0) return null;
+  return (
+    <div style={{ background:'var(--soft)', border:'1px solid var(--line)', borderRadius:10, padding:'10px 12px', marginBottom:6 }}>
+      <div style={{ fontSize:12, fontWeight:700, color:'var(--ink)', marginBottom:6 }}>{mes}º Mês</div>
+      {linhas.map((bloco, i) => (
+        <div key={i} style={{ marginTop: i > 0 ? 8 : 0, paddingTop: i > 0 ? 8 : 0, borderTop: i > 0 ? '1px dashed var(--line)' : 'none' }}>
+          {bloco.subtitulo && (
+            <div style={{ fontSize:11, fontWeight:600, color:'var(--ink-2)', marginBottom:4 }}>{bloco.subtitulo}</div>
+          )}
+          {bloco.itens.map(([label, val], j) => (
+            <div key={j} style={{ display:'flex', justifyContent:'space-between', gap:8, fontSize:12, padding:'2px 0' }}>
+              <span style={{ color:'var(--ink-3)' }}>{label}</span>
+              <span style={{ color:'var(--ink)', fontWeight:500, textAlign:'right' }}>{val}</span>
             </div>
           ))}
         </div>
-      )}
+      ))}
     </div>
   );
 }

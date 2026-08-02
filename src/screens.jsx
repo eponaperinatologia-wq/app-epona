@@ -1987,6 +1987,14 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     (c.nutricao?.suplementos || []).filter(s => !_salKromiumIns || s.insumoId !== _salKromiumIns.id)
   );
   const [periodicos, setPeriodicos] = useState(c.nutricao?.periodicos || []);
+  // Refs sincronizados com o state — garantem que handleSave sempre leia o
+  // valor mais recente mesmo se o usuário clicar Adicionar/Remover e Salvar
+  // no mesmo tick (antes do React re-renderizar) — o Save otherwise pegava a
+  // closure antiga e persistia sem o item recém-adicionado.
+  const suplementosRef = useRef(suplementos);
+  suplementosRef.current = suplementos;
+  const periodicosRef = useRef(periodicos);
+  periodicosRef.current = periodicos;
   const [novoPerInsumoId, setNovoPerInsumoId] = useState('');
   const [novoPerQtd, setNovoPerQtd] = useState('');
   const [novoPerFreq, setNovoPerFreq] = useState('semanal');
@@ -2012,17 +2020,23 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     { value: 'ambos', label: 'Ambos' },
   ];
 
+  // Helpers para atualizar suplementos/periodicos sincronizando o ref + state.
+  // Sempre operar em cima do ref (não do state em closure) — evita race quando
+  // o usuário faz add + salvar antes do React re-renderizar.
+  const setSupList = (next) => { suplementosRef.current = next; setSuplementos(next); };
+  const setPerList = (next) => { periodicosRef.current = next; setPeriodicos(next); };
+
   const handleAddSuplemento = (insumoId) => {
-    if (!suplementos.find(s => s.insumoId === insumoId))
-      setSuplementos(prev => [...prev, { insumoId, qtdDia: 1, manha: true, tarde: false }]);
+    if (suplementosRef.current.find(s => s.insumoId === insumoId)) return;
+    setSupList([...suplementosRef.current, { insumoId, qtdDia: 1, manha: true, tarde: false }]);
   };
-  const handleRemoveSuplemento = (insumoId) => setSuplementos(prev => prev.filter(s => s.insumoId !== insumoId));
+  const handleRemoveSuplemento = (insumoId) => setSupList(suplementosRef.current.filter(s => s.insumoId !== insumoId));
   const handleUpdateSuplementoQtd = (insumoId, qtd) =>
-    setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtd) || 1 } : s));
+    setSupList(suplementosRef.current.map(s => s.insumoId === insumoId ? { ...s, qtdDia: parseFloat(qtd) || 1 } : s));
   const handleToggleSupTurno = (insumoId, turno) =>
-    setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
+    setSupList(suplementosRef.current.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
   const handleUpdateSuplementoDatas = (insumoId, field, value) =>
-    setSuplementos(prev => prev.map(s => s.insumoId === insumoId ? { ...s, [field]: value || undefined } : s));
+    setSupList(suplementosRef.current.map(s => s.insumoId === insumoId ? { ...s, [field]: value || undefined } : s));
 
   const handleAddPeriodico = () => {
     if (!novoPerInsumoId || !novoPerQtd) return;
@@ -2035,14 +2049,14 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     };
     if (novoPerDataInicio) entry.dataInicio = novoPerDataInicio;
     if (novoPerDataFim) entry.dataFim = novoPerDataFim;
-    setPeriodicos(prev => [...prev, entry]);
+    setPerList([...periodicosRef.current, entry]);
     setNovoPerInsumoId('');
     setNovoPerQtd('');
     setNovoPerDataInicio('');
     setNovoPerDataFim('');
     setShowPerForm(false);
   };
-  const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
+  const handleRemovePeriodico = (idx) => setPerList(periodicosRef.current.filter((_, i) => i !== idx));
 
   const handleSave = () => {
     const manha = parseFloat(racaoKgManha) || 0;
@@ -2059,8 +2073,10 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       salKromiumGManha: parseFloat(salKromiumGManha) || 0,
       salKromiumGTarde: parseFloat(salKromiumGTarde) || 0,
       fenoKgDia: parseFloat(fenoKgDia) || 0,
-      suplementos,
-      periodicos,
+      // Lê dos refs — garante o valor mais recente mesmo se o usuário clicar
+      // Adicionar/Remover periódico e depois Salvar antes do React re-renderizar.
+      suplementos: suplementosRef.current,
+      periodicos: periodicosRef.current,
       ...(c.nutricao?.racaoBlock ? { racaoBlock: c.nutricao.racaoBlock } : {}),
     };
     const nutricaoChanged = JSON.stringify(c.nutricao || {}) !== JSON.stringify(newNutricao);
