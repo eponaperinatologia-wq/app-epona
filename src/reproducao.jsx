@@ -439,15 +439,18 @@ function RegistroCard({ registro, cavalos, insumos, isAdmin, onDelete }) {
   };
 
   const dias = registro.dataRetorno ? diffDays(registro.dataRetorno) : null;
+  const egua = cavalos.find(c => c.id === registro.eguaId);
+  const nomeEgua = egua?.nome || '—';
 
   return (
     <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, marginBottom: 10, overflow: 'hidden', borderLeft: `3px solid ${meta.cor}` }}>
       <button onClick={() => setExpanded(e => !e)} style={{ width: '100%', padding: '12px 14px', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
           <span style={{ background: meta.bg, color: meta.cor, borderRadius: 6, padding: '2px 8px', fontSize: 11, fontWeight: 700 }}>{meta.label}</span>
           <span style={{ fontSize: 12, color: 'var(--ink-3)' }}>{fmtDate(registro.data)}</span>
           <span style={{ marginLeft: 'auto', fontSize: 16, color: 'var(--ink-3)' }}>{expanded ? '▲' : '▼'}</span>
         </div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)', marginBottom: 3 }}>{nomeEgua}</div>
         <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>{resumo()}</div>
         {registro.dataRetorno && (
           <div style={{ fontSize: 11, color: dias !== null && dias <= 2 ? '#dc2626' : '#b45309', marginTop: 3 }}>
