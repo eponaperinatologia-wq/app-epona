@@ -3,6 +3,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Icon, CATEGORIA_ICONS } from './icons';
 import { getEmpresa, saveEmpresa, isProprietarioProprio, getProprietarioProprioId } from './utils/empresa';
 import { gerarPdfFatura, nomePdfFatura } from './utils/pdfFatura';
+import { criarCredencialProprietario } from './auth-proprietario';
 import {
   CAVALOS, PROPRIETARIOS, INSUMOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS,
   AVISOS, ATIVIDADES, CATEGORIAS_SERVICOS, SERVICOS,
@@ -3418,7 +3419,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
 // ─────────────────────────────────────────────────────────────
 // PROPRIETÁRIO DETALHE
 // ─────────────────────────────────────────────────────────────
-const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, updateProprietario }) => {
+const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, updateProprietario, refetchProprietario }) => {
   const p = proprietarios.find(prop => prop.id === id);
   const ownedCavalos = p ? cavalos.filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id) : [];
 
@@ -3427,12 +3428,47 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
   const [email, setEmail] = useState(p?.email || '');
   const [savedMessage, setSavedMessage] = useState(false);
 
+  // Estado do form "Criar/Resetar credencial"
+  const [showCredForm, setShowCredForm] = useState(false);
+  const [credLogin, setCredLogin] = useState('');
+  const [credSenha, setCredSenha] = useState('');
+  const [credErro, setCredErro] = useState('');
+  const [credOk, setCredOk] = useState(false);
+  const [credLoading, setCredLoading] = useState(false);
+
   if (!p) return null;
 
   const handleSave = () => {
     updateProprietario(id, { nome, telefone, email });
     setSavedMessage(true);
     setTimeout(() => setSavedMessage(false), 2000);
+  };
+
+  const abrirFormCred = () => {
+    setCredLogin(p.login || (p.nome || '').toLowerCase().trim().split(/\s+/)[0] || '');
+    setCredSenha('');
+    setCredErro('');
+    setCredOk(false);
+    setShowCredForm(true);
+  };
+
+  const salvarCredencial = async () => {
+    setCredErro('');
+    if (!credLogin.trim()) { setCredErro('Login não pode ser vazio'); return; }
+    if (credSenha.length < 4) { setCredErro('Senha precisa ter ao menos 4 caracteres'); return; }
+    setCredLoading(true);
+    try {
+      await criarCredencialProprietario(id, credLogin.trim(), credSenha);
+      setCredOk(true);
+      setShowCredForm(false);
+      // Recarrega os dados do proprietário do banco pra refletir login/senhaProvisoria.
+      if (refetchProprietario) await refetchProprietario(id);
+      setTimeout(() => setCredOk(false), 2500);
+    } catch (e) {
+      setCredErro(e.message || 'Erro ao salvar credencial');
+    } finally {
+      setCredLoading(false);
+    }
   };
 
   return (
@@ -3509,6 +3545,71 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Acesso do proprietário (login no app) */}
+      <div style={{ padding: '18px 20px 0' }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>Acesso ao app</div>
+            {p.temAcesso && !p.senhaProvisoria && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#dcfce7', color: '#166534', border: '1px solid #86efac', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Ativo</span>
+            )}
+            {p.temAcesso && p.senhaProvisoria && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Aguardando 1º login</span>
+            )}
+            {!p.temAcesso && (
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: 'var(--soft)', color: 'var(--ink-3)', border: '1px solid var(--line)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Sem acesso</span>
+            )}
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 12, lineHeight: 1.4 }}>
+            {p.temAcesso
+              ? <>Login <strong style={{ color: 'var(--ink-2)' }}>{p.login}</strong>. Ao trocar a senha aqui, o proprietário será obrigado a definir uma nova senha no próximo acesso.</>
+              : 'Crie um login e senha padrão. O proprietário será obrigado a trocar a senha no primeiro acesso.'}
+          </div>
+          {credOk && (
+            <div style={{ background: 'var(--accent-soft)', border: '1px solid var(--accent)', borderRadius: 10, padding: '10px 12px', marginBottom: 10, fontSize: 12, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="check" size={14} /> Credencial salva. Passe login e senha ao proprietário.
+            </div>
+          )}
+          {!showCredForm ? (
+            <button onClick={abrirFormCred} style={{
+              width: '100%', background: p.temAcesso ? 'var(--card)' : 'var(--accent)',
+              color: p.temAcesso ? 'var(--ink)' : '#fff',
+              border: `1px solid ${p.temAcesso ? 'var(--line)' : 'var(--accent)'}`,
+              borderRadius: 10, padding: '10px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>
+              {p.temAcesso ? 'Resetar senha' : 'Criar credencial'}
+            </button>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, fontWeight: 700 }}>Login</div>
+                <input value={credLogin} onChange={e => setCredLogin(e.target.value)} placeholder="ex: joao.silva"
+                  disabled={p.temAcesso}
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: p.temAcesso ? 'var(--soft)' : 'var(--bg)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none' }} />
+                {p.temAcesso && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3 }}>Login não pode ser alterado — só a senha.</div>}
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, fontWeight: 700 }}>Senha padrão</div>
+                <input type="text" value={credSenha} onChange={e => setCredSenha(e.target.value)} placeholder="mín. 4 caracteres"
+                  style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none' }} />
+              </div>
+              {credErro && <div style={{ fontSize: 12, color: '#dc2626' }}>{credErro}</div>}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => setShowCredForm(false)} disabled={credLoading} style={{
+                  flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+                  padding: '10px', fontSize: 13, color: 'var(--ink-2)', cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>Cancelar</button>
+                <button onClick={salvarCredencial} disabled={credLoading} style={{
+                  flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '10px', fontSize: 13, fontWeight: 600, cursor: credLoading ? 'default' : 'pointer', fontFamily: 'var(--sans)',
+                  opacity: credLoading ? 0.6 : 1,
+                }}>{credLoading ? 'Salvando…' : (p.temAcesso ? 'Resetar senha' : 'Criar credencial')}</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

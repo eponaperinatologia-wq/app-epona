@@ -1,6 +1,7 @@
 // auth.jsx — Login screen, users config, and role definitions
 import React, { useState } from 'react';
 import logoEpona from './assets/logo-epona.png';
+import { loginProprietario } from './auth-proprietario';
 
 export const USERS = [
   { id: 'u1', nome: 'Carolina', role: 'admin', senha: '1234', iniciais: 'CA' },
@@ -13,26 +14,33 @@ export const ROLE_LABELS = {
   admin: 'Administrador',
   vet: 'Veterinário',
   operacional: 'Operacional',
+  proprietario: 'Proprietário',
 };
 
 export const ROLE_COLORS = {
   admin: '#3d6043',
   vet: '#0f766e',
   operacional: '#1e40af',
+  proprietario: '#7c2d8c',
 };
 
 export function LoginScreen({ onLogin, usuarios }) {
   const lista = (usuarios && usuarios.length > 0) ? usuarios : USERS;
-  const [step, setStep] = useState('select');
+  // Modos: 'perfil' (seleção equipe vs proprietário) | 'equipe-select' | 'equipe-senha' | 'proprietario-form'
+  const [modo, setModo] = useState('perfil');
   const [selectedUser, setSelectedUser] = useState(null);
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
+  // Proprietário
+  const [propLogin, setPropLogin] = useState('');
+  const [propSenha, setPropSenha] = useState('');
+  const [propLoading, setPropLoading] = useState(false);
 
   const handleSelect = (user) => {
     setSelectedUser(user);
     setSenha('');
     setErro('');
-    setStep('senha');
+    setModo('equipe-senha');
   };
 
   const handleLogin = () => {
@@ -40,6 +48,35 @@ export function LoginScreen({ onLogin, usuarios }) {
       onLogin(selectedUser);
     } else {
       setErro('Senha incorreta');
+    }
+  };
+
+  const handleLoginProprietario = async () => {
+    setErro('');
+    if (!propLogin.trim() || !propSenha) { setErro('Preencha login e senha'); return; }
+    setPropLoading(true);
+    try {
+      const dados = await loginProprietario(propLogin.trim(), propSenha);
+      if (!dados) {
+        setErro('Login ou senha incorretos');
+        return;
+      }
+      // Monta objeto currentUser no mesmo formato que o app já espera,
+      // com role='proprietario' e flags dos gates de onboarding.
+      onLogin({
+        id: dados.id,
+        nome: dados.nome,
+        role: 'proprietario',
+        login: dados.login,
+        iniciais: (dados.nome || '').split(/\s+/).map(n => n[0]).slice(0, 2).join('').toUpperCase(),
+        senhaProvisoria: dados.senhaProvisoria,
+        cadastroCompleto: dados.cadastroCompleto,
+        contratoStatus: dados.contratoStatus,
+      });
+    } catch (e) {
+      setErro(e.message || 'Erro no login');
+    } finally {
+      setPropLoading(false);
     }
   };
 
@@ -62,7 +99,83 @@ export function LoginScreen({ onLogin, usuarios }) {
         </div>
       </div>
 
-      {step === 'select' ? (
+      {modo === 'perfil' && (
+        <div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Como você acessa?
+          </div>
+          <button onClick={() => setModo('equipe-select')} style={{
+            width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 14, padding: '18px 18px', marginBottom: 12, textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12, background: ROLE_COLORS.admin, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
+            }}>👥</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Sou da equipe</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Admin, veterinário ou operacional</div>
+            </div>
+            <div style={{ fontSize: 20, color: 'var(--ink-3)' }}>›</div>
+          </button>
+          <button onClick={() => setModo('proprietario-form')} style={{
+            width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 14, padding: '18px 18px', textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 14,
+          }}>
+            <div style={{
+              width: 44, height: 44, borderRadius: 12, background: ROLE_COLORS.proprietario, color: '#fff',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
+            }}>🐴</div>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Sou proprietário</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Acompanhar meus animais e fatura</div>
+            </div>
+            <div style={{ fontSize: 20, color: 'var(--ink-3)' }}>›</div>
+          </button>
+        </div>
+      )}
+
+      {modo === 'proprietario-form' && (
+        <div>
+          <button onClick={() => setModo('perfil')} style={{
+            background: 'none', border: 'none', fontSize: 13, color: 'var(--accent)',
+            padding: 0, marginBottom: 22, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>‹ Voltar</button>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+            Acesso do proprietário
+          </div>
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6, fontWeight: 600 }}>Login</div>
+            <input value={propLogin} onChange={e => { setPropLogin(e.target.value); setErro(''); }}
+              autoCapitalize="none" autoCorrect="off" placeholder="seu.login"
+              style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid var(--line)', background: 'var(--card)', fontSize: 16, color: 'var(--ink)', outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--sans)' }} />
+          </div>
+          <div style={{ marginBottom: 6 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6, fontWeight: 600 }}>Senha</div>
+            <input type="password" value={propSenha} onChange={e => { setPropSenha(e.target.value); setErro(''); }}
+              onKeyDown={e => e.key === 'Enter' && !propLoading && handleLoginProprietario()}
+              placeholder="Sua senha"
+              style={{ width: '100%', padding: '14px', borderRadius: 12, border: '1px solid ' + (erro ? '#ef4444' : 'var(--line)'), background: 'var(--card)', fontSize: 16, color: 'var(--ink)', outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--sans)' }} />
+            {erro && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 6 }}>{erro}</div>}
+          </div>
+          <button onClick={handleLoginProprietario} disabled={propLoading} style={{
+            width: '100%', background: ROLE_COLORS.proprietario, color: '#fff',
+            border: 'none', borderRadius: 14, padding: '16px', marginTop: 16,
+            fontSize: 16, fontWeight: 700, cursor: propLoading ? 'default' : 'pointer',
+            fontFamily: 'var(--sans)', opacity: propLoading ? 0.6 : 1,
+            boxShadow: '0 8px 20px rgba(124,45,140,0.25)',
+          }}>
+            {propLoading ? 'Entrando…' : 'Entrar'}
+          </button>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 14, textAlign: 'center' }}>
+            Não tem acesso? Fale com o administrador do haras.
+          </div>
+        </div>
+      )}
+
+      {modo === 'equipe-select' && (
         <div>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
             Selecione seu perfil
@@ -92,10 +205,16 @@ export function LoginScreen({ onLogin, usuarios }) {
               <div style={{ fontSize: 20, color: 'var(--ink-3)', lineHeight: 1 }}>›</div>
             </button>
           ))}
+          <button onClick={() => setModo('perfil')} style={{
+            width: '100%', background: 'none', border: 'none', color: 'var(--ink-3)',
+            padding: '10px 0', marginTop: 6, fontSize: 12, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>‹ Voltar</button>
         </div>
-      ) : (
+      )}
+
+      {modo === 'equipe-senha' && selectedUser && (
         <div>
-          <button onClick={() => setStep('select')} style={{
+          <button onClick={() => setModo('equipe-select')} style={{
             background: 'none', border: 'none', fontSize: 13, color: 'var(--accent)',
             padding: 0, marginBottom: 22, display: 'flex', alignItems: 'center', gap: 5,
             cursor: 'pointer', fontFamily: 'var(--sans)',

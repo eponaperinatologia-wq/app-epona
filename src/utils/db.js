@@ -20,6 +20,22 @@ export const fromDbCavalo = r => ({
 
 export const fromDbProprietario = r => ({
   id: r.id, nome: r.nome, telefone: r.telefone || '', email: r.email || '',
+  // Acesso do proprietário — nunca trafega senha_hash pro cliente
+  login: r.login || null,
+  temAcesso: !!r.login && !!r.senha_hash,
+  senhaProvisoria: !!r.senha_provisoria,
+  // Cadastro completo
+  nomeCompleto: r.nome_completo || '',
+  rg: r.rg || '', cpf: r.cpf || '', profissao: r.profissao || '',
+  cep: r.cep || '', rua: r.rua || '', numero: r.numero || '',
+  complemento: r.complemento || '', bairro: r.bairro || '',
+  cidade: r.cidade || '', estado: r.estado || '',
+  cadastroCompleto: !!r.cadastro_completo,
+  // Contrato
+  contratoStatus: r.contrato_status || 'pendente',
+  contratoDocumentId: r.contrato_document_id || null,
+  contratoUrl: r.contrato_url || null,
+  contratoAssinadoEm: r.contrato_assinado_em || null,
 });
 
 export const fromDbInsumo = r => ({
@@ -144,6 +160,17 @@ export const toDbCavalo = c => ({
 
 export const toDbProprietario = p => ({
   id: p.id, nome: p.nome, telefone: p.telefone || '', email: p.email || '',
+  // Campos de cadastro completo (senha_hash NUNCA vai por aqui — só via RPC)
+  nome_completo: p.nomeCompleto || null,
+  rg: p.rg || null, cpf: p.cpf || null, profissao: p.profissao || null,
+  cep: p.cep || null, rua: p.rua || null, numero: p.numero || null,
+  complemento: p.complemento || null, bairro: p.bairro || null,
+  cidade: p.cidade || null, estado: p.estado || null,
+  cadastro_completo: !!p.cadastroCompleto,
+  contrato_status: p.contratoStatus || 'pendente',
+  contrato_document_id: p.contratoDocumentId || null,
+  contrato_url: p.contratoUrl || null,
+  contrato_assinado_em: p.contratoAssinadoEm || null,
 });
 
 export const toDbInsumo = i => ({
@@ -671,6 +698,7 @@ export const toDbProgesteronaAplicacao = a => ({
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
+const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
@@ -700,7 +728,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, PROG_PROG_MAP, PROG_APL_MAP };
+export { CAVALO_MAP, PROPRIETARIO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, PROG_PROG_MAP, PROG_APL_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 

@@ -26,6 +26,8 @@ import { NutricionalScreen } from './nutricional';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
+import { TrocarSenhaScreen, CadastroCompletoScreen, AssinaturaContratoScreen } from './proprietario-onboarding';
+import { ProprietarioApp } from './proprietario-app';
 import { VeterinariaScreen } from './veterinaria';
 import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
@@ -1112,6 +1114,12 @@ const loadAllData = async () => {
     setProprietarios(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
     dbUpdate('proprietarios', id, toDbProprietario({ ...proprietarios.find(p => p.id === id), ...updatedData }));
   };
+  // Recarrega um proprietário do banco — usado após RPC (criar credencial,
+  // trocar senha) que muda campos fora do fluxo normal do setState.
+  const refetchProprietario = async (id) => {
+    const { data } = await supabase.from('proprietarios').select('*').eq('id', id).single();
+    if (data) setProprietarios(prev => prev.map(p => p.id === id ? fromDbProprietario(data) : p));
+  };
   const deleteProprietario = (id) => {
     setProprietarios(prev => prev.filter(p => p.id !== id));
     dbDelete('proprietarios', id);
@@ -1546,6 +1554,8 @@ const loadAllData = async () => {
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
     if (!currentUser) return;
+    // Proprietário roda no shell próprio (ProprietarioApp) e ignora este sync.
+    if (currentUser.role === 'proprietario') return;
     if (tab === 'home' && !['historico'].includes(screen)) setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
@@ -1592,7 +1602,65 @@ const loadAllData = async () => {
     );
   } else if (!currentUser) {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
-  } else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
+  }
+  // ─── Gates de onboarding do proprietário ────────────────────
+  // ORDEM RÍGIDA: senha → cadastro → contrato. Cada gate só chama
+  // onComplete quando sua etapa está DE FATO gravada no banco (Optimistic
+  // update no currentUser). Sem useEffect, sem setScreen — o próximo
+  // if do gate simplesmente assume no re-render. Isso elimina o risco
+  // de loop de redirect que o usuário mencionou.
+  else if (currentUser.role === 'proprietario' && currentUser.senhaProvisoria) {
+    content = <TrocarSenhaScreen
+      currentUser={currentUser}
+      onComplete={(patch) => setCurrentUser(u => ({ ...u, ...patch }))}
+      onLogout={handleLogout}
+    />;
+  }
+  else if (currentUser.role === 'proprietario' && !currentUser.cadastroCompleto) {
+    const propAtual = proprietarios.find(p => p.id === currentUser.id);
+    content = <CadastroCompletoScreen
+      currentUser={currentUser}
+      proprietarioAtual={propAtual}
+      onComplete={async (patch) => {
+        // Grava no banco antes de avançar o gate — assim se falhar, gate segura.
+        await updateProprietario(currentUser.id, patch);
+        setCurrentUser(u => ({ ...u, cadastroCompleto: true }));
+      }}
+      onLogout={handleLogout}
+    />;
+  }
+  else if (currentUser.role === 'proprietario' && currentUser.contratoStatus !== 'assinado') {
+    const propAtual = proprietarios.find(p => p.id === currentUser.id);
+    content = <AssinaturaContratoScreen
+      currentUser={currentUser}
+      proprietarioAtual={propAtual}
+      onComplete={async (patch) => {
+        await updateProprietario(currentUser.id, patch);
+        setCurrentUser(u => ({ ...u, contratoStatus: patch.contratoStatus }));
+      }}
+      onLogout={handleLogout}
+    />;
+  }
+  // Todos os gates passaram → app read-only do proprietário
+  else if (currentUser.role === 'proprietario') {
+    content = <ProprietarioApp
+      currentUser={currentUser}
+      proprietarios={proprietarios}
+      cavalos={cavalos}
+      registros={registros}
+      procedimentos={procedimentos}
+      servicos={servicos}
+      insumos={insumos}
+      movimentacoes={movimentacoes}
+      custosFixos={custosFixos}
+      faturasFechadas={faturasFechadas}
+      partos={partos}
+      faturaRef={faturaRef}
+      setFaturaRef={setFaturaRef}
+      onLogout={handleLogout}
+    />;
+  }
+  else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalos} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
@@ -1601,7 +1669,7 @@ const loadAllData = async () => {
   else if (screen === 'addCavalo') content = <AddCavaloScreen setScreen={goScreen} addCavalo={addCavalo} cavalos={cavalos} setNovoCavaloPendente={setNovoCavaloPendente} pendingEntradaCavalo={pendingEntradaCavalo} setPendingEntradaCavalo={setPendingEntradaCavalo} proprietarios={proprietarios} addProprietario={addProprietario} insumos={insumos} />;
   else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registros} procedimentos={procedimentos} setSelected={setSelected} cavalos={cavalos} servicos={servicos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} insumos={insumos} />;
   else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietarios} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} insumos={insumos} />;
-  else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietarios} cavalos={cavalos} updateProprietario={updateProprietario} />;
+  else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietarios} cavalos={cavalos} updateProprietario={updateProprietario} refetchProprietario={refetchProprietario} />;
   else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;
   else if (screen === 'cadProprietarios') content = <CadProprietariosScreen setScreen={goScreen} setSelected={setSelected} proprietarios={proprietarios} cavalos={cavalos} addProprietario={addProprietario} deleteProprietario={deleteProprietario} />;
   else if (screen === 'cadCavalos') content = <CadCavalosScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} deleteCavalo={deleteCavalo} proprietarios={proprietarios} />;
