@@ -9,6 +9,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trocarSenhaProprietario } from './auth-proprietario';
 import { supabase } from './utils/supabase';
+import { gerarPdfContrato } from './utils/pdfContrato';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -264,13 +265,16 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
           setErro('Sessão expirada. Faça login novamente para assinar o contrato.');
           return;
         }
+        // Gera o PDF do contrato client-side com todos os dados do proprietário.
+        // O Assinafy recebe o PDF já preenchido — signer só coloca a assinatura.
+        const pdfBase64 = gerarPdfContrato(proprietarioAtual);
         const res = await fetch(`${SUPABASE_URL}/functions/v1/assinafy-criar-assinatura`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_KEY || ''}`,
           },
-          body: JSON.stringify({ proprietarioId: currentUser.id, senha }),
+          body: JSON.stringify({ proprietarioId: currentUser.id, senha, pdfBase64 }),
         });
         const data = await res.json();
         if (cancelado) return;
@@ -366,23 +370,35 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
         <>
           <div style={{
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-            overflow: 'hidden', marginBottom: 12,
+            padding: 18, marginBottom: 12,
           }}>
-            <iframe
-              src={signingUrl}
-              title="Assinatura do contrato"
-              style={{ width: '100%', height: 620, border: 'none', display: 'block' }}
-              allow="camera; microphone; geolocation"
-            />
+            <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5, marginBottom: 14 }}>
+              Seu contrato está pronto para assinatura. Toque no botão abaixo para
+              abrir o Assinafy em uma nova aba, revisar o documento e assinar
+              digitalmente.
+            </div>
+            <a
+              href={signingUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'block', textAlign: 'center', textDecoration: 'none',
+                background: '#7c2d8c', color: '#fff',
+                borderRadius: 12, padding: '16px', fontWeight: 700, fontSize: 15,
+                fontFamily: 'var(--sans)', letterSpacing: '0.01em',
+              }}
+            >
+              📄 Abrir contrato para assinar
+            </a>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', marginTop: 10 }}>
+              Ao terminar de assinar, volte para esta aba — vamos detectar automaticamente.
+            </div>
           </div>
           <button onClick={checarAgora} style={{
-            width: '100%', background: '#7c2d8c', color: '#fff',
-            border: 'none', borderRadius: 14, padding: '13px',
-            fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            width: '100%', background: 'var(--card)', color: 'var(--ink)',
+            border: '1px solid var(--line)', borderRadius: 12, padding: '12px',
+            fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
           }}>Já assinei — verificar agora</button>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', marginTop: 10 }}>
-            Quando você concluir a assinatura, o app libera automaticamente.
-          </div>
         </>
       )}
     </Frame>
