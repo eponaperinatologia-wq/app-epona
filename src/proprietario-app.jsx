@@ -40,24 +40,12 @@ function ProprietarioHome({ currentUser, cavalos, faturaTotal, setScreen, setSel
         {presentes.length} {presentes.length === 1 ? 'animal' : 'animais'} no haras
       </div>
 
-      {/* Fatura em tempo real */}
-      <button onClick={() => setScreen('proprietario-fatura')} style={{
-        width: '100%', textAlign: 'left', border: '1px solid var(--line)',
-        background: 'linear-gradient(135deg, #7c2d8c, #591e6a)', color: '#fff',
-        borderRadius: 16, padding: 18, marginBottom: 12,
-        boxShadow: '0 8px 20px rgba(124,45,140,0.2)', cursor: 'pointer',
-      }}>
-        <div style={{ fontSize: 11, opacity: 0.85, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Fatura do mês (em tempo real)</div>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 30, letterSpacing: '-0.02em' }}>{formatBRL(faturaTotal)}</div>
-        <div style={{ fontSize: 12, opacity: 0.85, marginTop: 6 }}>Toque para ver o detalhamento →</div>
-      </button>
-
-      {/* Lista de cavalos */}
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, margin: '20px 4px 10px' }}>
+      {/* Meus animais — foco principal */}
+      <div style={{ fontSize: 12, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, margin: '0 4px 10px' }}>
         Meus animais
       </div>
       {meus.length === 0 && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13, marginBottom: 12 }}>
           Nenhum animal registrado.
         </div>
       )}
@@ -82,6 +70,27 @@ function ProprietarioHome({ currentUser, cavalos, faturaTotal, setScreen, setSel
           <Icon name="chevron-right" size={16} color="var(--ink-3)" />
         </button>
       ))}
+
+      {/* Fatura do mês — resumo discreto no fim, com link pro detalhamento */}
+      <button onClick={() => setScreen('proprietario-fatura')} style={{
+        width: '100%', textAlign: 'left', border: '1px solid var(--line)',
+        background: 'var(--card)', color: 'var(--ink)',
+        borderRadius: 14, padding: '14px 16px', marginTop: 20, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 12,
+      }}>
+        <div style={{
+          width: 38, height: 38, borderRadius: 10,
+          background: 'var(--accent-soft)', color: 'var(--accent)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        }}>
+          <Icon name="doc" size={18} />
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Fatura do mês</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)', marginTop: 1 }}>{formatBRL(faturaTotal)}</div>
+        </div>
+        <Icon name="chevron-right" size={16} color="var(--ink-3)" />
+      </button>
     </div>
   );
 }
@@ -98,10 +107,9 @@ function TabBar({ tab, setTab, setScreen }) {
   ];
   return (
     <div style={{
-      position: 'absolute', bottom: 0, left: 0, right: 0,
       background: 'var(--bg)', borderTop: '1px solid var(--line)',
       paddingTop: 8, paddingBottom: 28,
-      display: 'grid', gridTemplateColumns: `repeat(${abas.length}, 1fr)`, gap: 0, zIndex: 5,
+      display: 'grid', gridTemplateColumns: `repeat(${abas.length}, 1fr)`, gap: 0,
     }}>
       {abas.map(t => (
         <button
@@ -164,10 +172,13 @@ function ProprietarioCavalos({ currentUser, cavalos, setScreen, setSelected }) {
 // ─────────────────────────────────────────────────────────────
 function ProprietarioConta({ currentUser, proprietarioAtual, onLogout }) {
   const p = proprietarioAtual || {};
+  const confirmarSair = () => {
+    if (window.confirm('Deseja realmente sair da sua conta?')) onLogout();
+  };
   return (
     <div>
       <TopBar title="Minha conta" />
-      <div style={{ padding: '14px 20px 0' }}>
+      <div style={{ padding: '14px 20px 24px' }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 4 }}>Nome</div>
           <div style={{ fontSize: 15, color: 'var(--ink)', marginBottom: 12 }}>{p.nomeCompleto || currentUser.nome}</div>
@@ -183,10 +194,10 @@ function ProprietarioConta({ currentUser, proprietarioAtual, onLogout }) {
           </>}
         </div>
 
-        <button onClick={onLogout} style={{
-          width: '100%', background: 'var(--card)', border: '1px solid #dc2626', color: '#dc2626',
-          borderRadius: 14, padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
-        }}>Sair</button>
+        <button onClick={confirmarSair} style={{
+          width: '100%', background: '#fee2e2', border: '1px solid #dc2626', color: '#dc2626',
+          borderRadius: 14, padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+        }}>Sair da conta</button>
       </div>
     </div>
   );
@@ -375,9 +386,15 @@ export function ProprietarioApp({
   }
 
   return (
-    <div style={{ position: 'relative', height: '100%', overflow: 'auto' }}>
-      {content}
-      <TabBar tab={tab} setTab={setTab} setScreen={setScreen} />
+    // Flex column: content rola, TabBar fica fixa no rodapé — nunca cobre
+    // botões do form (foi o bug do Sair ficando atrás da barra).
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+        {content}
+      </div>
+      <div style={{ flexShrink: 0 }}>
+        <TabBar tab={tab} setTab={setTab} setScreen={setScreen} />
+      </div>
     </div>
   );
 }
