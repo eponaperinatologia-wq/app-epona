@@ -72,6 +72,10 @@ export function LoginScreen({ onLogin, usuarios }) {
         senhaProvisoria: dados.senhaProvisoria,
         cadastroCompleto: dados.cadastroCompleto,
         contratoStatus: dados.contratoStatus,
+        // Senha em memória para reautenticar em chamadas server-side (Edge
+        // Functions do Assinafy). NÃO persiste em localStorage — se o user
+        // der refresh precisa logar de novo, o que é aceitável.
+        _sessionPassword: propSenha,
       });
     } catch (e) {
       setErro(e.message || 'Erro no login');

@@ -27,6 +27,8 @@ export const fromDbProprietario = r => ({
   // Cadastro completo
   nomeCompleto: r.nome_completo || '',
   rg: r.rg || '', cpf: r.cpf || '', profissao: r.profissao || '',
+  nacionalidade: r.nacionalidade || '',
+  estadoCivil: r.estado_civil || '',
   cep: r.cep || '', rua: r.rua || '', numero: r.numero || '',
   complemento: r.complemento || '', bairro: r.bairro || '',
   cidade: r.cidade || '', estado: r.estado || '',
@@ -163,6 +165,8 @@ export const toDbProprietario = p => ({
   // Campos de cadastro completo (senha_hash NUNCA vai por aqui — só via RPC)
   nome_completo: p.nomeCompleto || null,
   rg: p.rg || null, cpf: p.cpf || null, profissao: p.profissao || null,
+  nacionalidade: p.nacionalidade || null,
+  estado_civil: p.estadoCivil || null,
   cep: p.cep || null, rua: p.rua || null, numero: p.numero || null,
   complemento: p.complemento || null, bairro: p.bairro || null,
   cidade: p.cidade || null, estado: p.estado || null,
@@ -698,7 +702,7 @@ export const toDbProgesteronaAplicacao = a => ({
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
-const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em' };
+const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };

@@ -6,8 +6,11 @@
 //   - Ao concluir cada etapa, o gate chama onComplete(patch) — o App atualiza
 //     currentUser e o próximo render escolhe o próximo gate.
 //   - Não há setScreen dentro dos gates: eles são mutuamente exclusivos.
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { trocarSenhaProprietario } from './auth-proprietario';
+import { supabase } from './utils/supabase';
+
+const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
 // ─────────────────────────────────────────────────────────────
 // Layout compartilhado
@@ -65,7 +68,8 @@ export function TrocarSenhaScreen({ currentUser, onComplete, onLogout }) {
       if (!ok) { setErro('Senha atual incorreta'); return; }
       // Avança o gate: senhaProvisoria vira false. Nenhum redirect —
       // o App re-renderiza e o próximo if do gate assume.
-      onComplete({ senhaProvisoria: false });
+      // Também atualiza a senha em memória (usada pelas Edge Functions).
+      onComplete({ senhaProvisoria: false, _sessionPassword: nova });
     } catch (e) {
       setErro(e.message || 'Erro ao trocar senha');
     } finally {
@@ -132,6 +136,8 @@ export function CadastroCompletoScreen({ currentUser, proprietarioAtual, onCompl
     rg: p.rg || '',
     cpf: p.cpf || '',
     profissao: p.profissao || '',
+    nacionalidade: p.nacionalidade || 'Brasileira',
+    estadoCivil: p.estadoCivil || '',
     email: p.email || '',
     telefone: p.telefone || '',
     cep: p.cep || '', rua: p.rua || '', numero: p.numero || '',
@@ -149,7 +155,7 @@ export function CadastroCompletoScreen({ currentUser, proprietarioAtual, onCompl
 
   const handleSubmit = async () => {
     setErro('');
-    const obrigatorios = { nomeCompleto: 'nome completo', cpf: 'CPF', rg: 'RG', profissao: 'profissão', cep: 'CEP', rua: 'rua', numero: 'número', bairro: 'bairro', cidade: 'cidade', estado: 'estado', email: 'email', telefone: 'telefone' };
+    const obrigatorios = { nomeCompleto: 'nome completo', cpf: 'CPF', rg: 'RG', profissao: 'profissão', nacionalidade: 'nacionalidade', estadoCivil: 'estado civil', cep: 'CEP', rua: 'rua', numero: 'número', bairro: 'bairro', cidade: 'cidade', estado: 'estado', email: 'email', telefone: 'telefone' };
     for (const [k, label] of Object.entries(obrigatorios)) {
       if (!String(form[k] || '').trim()) { setErro(`Preencha ${label}`); return; }
     }
@@ -175,6 +181,19 @@ export function CadastroCompletoScreen({ currentUser, proprietarioAtual, onCompl
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <Field label="CPF"><input value={form.cpf} onChange={e => set('cpf', maskCpf(e.target.value))} style={inputStyle} placeholder="000.000.000-00" /></Field>
         <Field label="RG"><input value={form.rg} onChange={e => set('rg', e.target.value)} style={inputStyle} /></Field>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <Field label="Nacionalidade"><input value={form.nacionalidade} onChange={e => set('nacionalidade', e.target.value)} style={inputStyle} placeholder="Brasileira" /></Field>
+        <Field label="Estado civil">
+          <select value={form.estadoCivil} onChange={e => set('estadoCivil', e.target.value)} style={{ ...inputStyle, appearance: 'auto' }}>
+            <option value="">Selecionar…</option>
+            <option value="Solteiro(a)">Solteiro(a)</option>
+            <option value="Casado(a)">Casado(a)</option>
+            <option value="Divorciado(a)">Divorciado(a)</option>
+            <option value="Viúvo(a)">Viúvo(a)</option>
+            <option value="União estável">União estável</option>
+          </select>
+        </Field>
       </div>
       <Field label="Profissão">
         <input value={form.profissao} onChange={e => set('profissao', e.target.value)} style={inputStyle} />
@@ -211,75 +230,159 @@ export function CadastroCompletoScreen({ currentUser, proprietarioAtual, onCompl
 }
 
 // ─────────────────────────────────────────────────────────────
-// GATE 3 — Assinatura do contrato (Assinafy)
+// GATE 3 — Assinatura do contrato (Assinafy embed)
 // ─────────────────────────────────────────────────────────────
-// Placeholder até a integração real com o Assinafy chegar.
-// Estrutura pronta pra plugar:
-//   1. Um efeito/handler cria o documento na Assinafy com os dados do
-//      proprietário e recebe url + document_id.
-//   2. Iframe renderiza a url de assinatura embed.
-//   3. Webhook do Assinafy avisa que assinou → marca contratoStatus='assinado'.
-// Por enquanto: mostra info do contrato e um botão dev "Marcar como assinado".
+// Fluxo:
+//   1. Ao montar, chama Edge Function assinafy-criar-assinatura que gera
+//      (ou reaproveita) o documento e devolve signing_url.
+//   2. Renderiza o signing_url num iframe.
+//   3. Enquanto o iframe está aberto, poll a cada 4s no proprietario_status:
+//      quando o webhook chegar e mudar pra 'assinado', o gate avança.
+//
+// Segurança:
+//   - Autenticação é feita pela senha em memória (_sessionPassword). Nunca
+//     enviamos senha por localStorage nem em query string.
+//   - Toda comunicação com Assinafy passa pela Edge Function; a API key
+//     nunca chega ao cliente.
+
 export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onComplete, onLogout }) {
   const p = proprietarioAtual || {};
-  const [loading, setLoading] = useState(false);
+  const [signingUrl, setSigningUrl] = useState(p.contratoUrl || null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState('');
+  const pollRef = useRef(null);
 
-  const marcarComoAssinado = async () => {
-    setLoading(true);
-    try {
-      await onComplete({
-        contratoStatus: 'assinado',
-        contratoAssinadoEm: new Date().toISOString(),
-      });
-    } finally {
-      setLoading(false);
+  // Cria/recupera o signing_url quando a tela abre.
+  useEffect(() => {
+    let cancelado = false;
+    async function preparar() {
+      setCarregando(true);
+      setErro('');
+      try {
+        const senha = currentUser?._sessionPassword;
+        if (!senha) {
+          setErro('Sessão expirada. Faça login novamente para assinar o contrato.');
+          return;
+        }
+        const res = await fetch(`${SUPABASE_URL}/functions/v1/assinafy-criar-assinatura`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_ANON_KEY || ''}`,
+          },
+          body: JSON.stringify({ proprietarioId: currentUser.id, senha }),
+        });
+        const data = await res.json();
+        if (cancelado) return;
+        if (data.status === 'assinado') {
+          onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: new Date().toISOString() });
+          return;
+        }
+        if (!res.ok || !data.signing_url) {
+          setErro(data.error || 'Não foi possível gerar o contrato. Fale com o administrador.');
+          return;
+        }
+        setSigningUrl(data.signing_url);
+      } catch (e) {
+        if (!cancelado) setErro('Erro de conexão. Tente novamente em instantes.');
+      } finally {
+        if (!cancelado) setCarregando(false);
+      }
+    }
+    preparar();
+    return () => { cancelado = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Poll: verifica no banco se o webhook do Assinafy já chegou e marcou como
+  // assinado. Roda a cada 4s enquanto o iframe está aberto. Interrompe
+  // sozinho quando detecta assinatura.
+  useEffect(() => {
+    if (!signingUrl) return;
+    const checar = async () => {
+      const { data } = await supabase
+        .from('proprietarios')
+        .select('contrato_status, contrato_assinado_em')
+        .eq('id', currentUser.id)
+        .maybeSingle();
+      if (data?.contrato_status === 'assinado') {
+        clearInterval(pollRef.current);
+        onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: data.contrato_assinado_em || new Date().toISOString() });
+      }
+    };
+    pollRef.current = setInterval(checar, 4000);
+    return () => clearInterval(pollRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signingUrl]);
+
+  // Botão "Já assinei" força uma checagem imediata (caso o webhook demore).
+  const checarAgora = async () => {
+    const { data } = await supabase
+      .from('proprietarios')
+      .select('contrato_status, contrato_assinado_em')
+      .eq('id', currentUser.id)
+      .maybeSingle();
+    if (data?.contrato_status === 'assinado') {
+      onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: data.contrato_assinado_em || new Date().toISOString() });
+    } else {
+      setErro('Ainda não recebemos a confirmação. Aguarde alguns segundos.');
+      setTimeout(() => setErro(''), 4000);
     }
   };
 
   return (
     <Frame
       title="Assinatura do contrato"
-      subtitle="Última etapa: assinar o contrato de prestação de serviços."
+      subtitle="Última etapa: assine o contrato de prestação de serviços."
       onLogout={onLogout}
     >
       <div style={{
         background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-        padding: 20, marginBottom: 18,
+        padding: 16, marginBottom: 14,
       }}>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>Contratante</div>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>Contratante</div>
         <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 600 }}>{p.nomeCompleto || p.nome}</div>
         {p.cpf && <div style={{ fontSize: 13, color: 'var(--ink-2)', marginTop: 4 }}>CPF {p.cpf}</div>}
         {p.email && <div style={{ fontSize: 13, color: 'var(--ink-2)' }}>{p.email}</div>}
       </div>
 
-      {/* Placeholder do embed Assinafy — trocar por iframe da URL de assinatura */}
-      <div style={{
-        background: 'var(--soft)', border: '2px dashed var(--line)', borderRadius: 14,
-        padding: '40px 20px', textAlign: 'center', marginBottom: 18,
-      }}>
-        <div style={{ fontSize: 40, marginBottom: 8 }}>📄</div>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)', marginBottom: 4 }}>
-          Contrato em preparação
-        </div>
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5 }}>
-          A integração com o Assinafy será habilitada aqui.<br />
-          Quando ativada, o contrato aparecerá abaixo para assinatura direta no app.
-        </div>
-      </div>
+      {carregando && (
+        <div style={{
+          background: 'var(--soft)', border: '1px dashed var(--line)', borderRadius: 14,
+          padding: '30px 20px', textAlign: 'center', marginBottom: 14, fontSize: 13, color: 'var(--ink-3)',
+        }}>Preparando seu contrato…</div>
+      )}
 
-      <div style={{
-        background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 12,
-        padding: '10px 14px', marginBottom: 14, fontSize: 12, color: '#92400e',
-      }}>
-        <strong>Modo desenvolvimento:</strong> botão abaixo simula assinatura para testar o fluxo. Remover quando Assinafy estiver ativo.
-      </div>
+      {!carregando && erro && (
+        <div style={{
+          background: '#fef2f2', border: '1px solid #fca5a5', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#b91c1c',
+        }}>{erro}</div>
+      )}
 
-      <button onClick={marcarComoAssinado} disabled={loading} style={{
-        width: '100%', background: '#7c2d8c', color: '#fff',
-        border: 'none', borderRadius: 14, padding: '15px',
-        fontSize: 15, fontWeight: 700, cursor: loading ? 'default' : 'pointer',
-        fontFamily: 'var(--sans)', opacity: loading ? 0.6 : 1,
-      }}>{loading ? 'Registrando…' : 'Marcar contrato como assinado (dev)'}</button>
+      {!carregando && signingUrl && (
+        <>
+          <div style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            overflow: 'hidden', marginBottom: 12,
+          }}>
+            <iframe
+              src={signingUrl}
+              title="Assinatura do contrato"
+              style={{ width: '100%', height: 620, border: 'none', display: 'block' }}
+              allow="camera; microphone; geolocation"
+            />
+          </div>
+          <button onClick={checarAgora} style={{
+            width: '100%', background: '#7c2d8c', color: '#fff',
+            border: 'none', borderRadius: 14, padding: '13px',
+            fontSize: 14, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>Já assinei — verificar agora</button>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textAlign: 'center', marginTop: 10 }}>
+            Quando você concluir a assinatura, o app libera automaticamente.
+          </div>
+        </>
+      )}
     </Frame>
   );
 }

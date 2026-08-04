@@ -995,7 +995,9 @@ const loadAllData = async () => {
   // ── Auth ──────────────────────────────────────────────────────
       const handleLogin = async (user) => {
     setCurrentUser(user);
-    localStorage.setItem('epona_user', JSON.stringify(user));
+    // NUNCA persistir _sessionPassword no localStorage — só vive em memória.
+    const { _sessionPassword, ...userSafe } = user;
+    localStorage.setItem('epona_user', JSON.stringify(userSafe));
     await loadAllData();
     subscribeToPush(user.login || user.nome, user.role);
     if (user.role === 'operacional') {
