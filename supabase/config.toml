@@ -1,0 +1,11 @@
+# Supabase local config — controla behavior das Edge Functions e CLI.
+# Só documentamos o que difere do padrão.
+project_id = "edqfyzlryfrgojezpwyr"
+
+# Webhook do Assinafy é chamado por servidor externo sem JWT — desativa a
+# validação padrão. A segurança fica no HMAC do body (ASSINAFY_WEBHOOK_SECRET).
+[functions.assinafy-webhook]
+verify_jwt = false
+
+# assinafy-criar-assinatura é chamada só pelo cliente autenticado (anon key
+# + validação de senha via RPC no próprio código). Deixa o padrão verify_jwt=true.
