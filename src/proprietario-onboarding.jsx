@@ -19,19 +19,23 @@ const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 const Frame = ({ title, subtitle, children, onLogout }) => (
   <div style={{
     minHeight: '100%', background: 'var(--bg)',
-    padding: '32px 20px 40px', display: 'flex', flexDirection: 'column',
+    padding: '20px 20px 40px', display: 'flex', flexDirection: 'column',
   }}>
+    {/* Botão Sair no topo — sempre visível pra usuário não ficar preso */}
+    {onLogout && (
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 12 }}>
+        <button onClick={onLogout} style={{
+          background: 'var(--card)', border: '1px solid var(--line)', color: 'var(--ink-2)',
+          fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+          padding: '6px 12px', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 4,
+        }}>← Voltar ao login</button>
+      </div>
+    )}
     <div style={{ marginBottom: 22 }}>
       <div style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--ink)', letterSpacing: '-0.01em' }}>{title}</div>
       {subtitle && <div style={{ fontSize: 13, color: 'var(--ink-3)', marginTop: 4 }}>{subtitle}</div>}
     </div>
     <div style={{ flex: 1 }}>{children}</div>
-    {onLogout && (
-      <button onClick={onLogout} style={{
-        marginTop: 20, background: 'none', border: 'none', color: 'var(--ink-3)',
-        fontSize: 12, cursor: 'pointer', fontFamily: 'var(--sans)',
-      }}>Sair</button>
-    )}
   </div>
 );
 
@@ -300,20 +304,33 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Poll: verifica no banco se o webhook do Assinafy já chegou e marcou como
-  // assinado. Roda a cada 4s enquanto o iframe está aberto. Interrompe
-  // sozinho quando detecta assinatura.
+  // Consulta STATUS no Assinafy via Edge Function (não depende de webhook).
+  // Se o Assinafy disser certificated, atualiza banco e retorna 'assinado'.
+  const consultarAssinafy = async () => {
+    const senha = currentUser?._sessionPassword;
+    if (!senha) return null;
+    try {
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/assinafy-checar-status`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_KEY || ''}`,
+        },
+        body: JSON.stringify({ proprietarioId: currentUser.id, senha }),
+      });
+      return await res.json();
+    } catch { return null; }
+  };
+
+  // Poll: a cada 4s, primeiro consulta a Assinafy (rede de segurança se
+  // o webhook falhar), depois checa o banco. Roda enquanto a tela está aberta.
   useEffect(() => {
     if (!signingUrl) return;
     const checar = async () => {
-      const { data } = await supabase
-        .from('proprietarios')
-        .select('contrato_status, contrato_assinado_em')
-        .eq('id', currentUser.id)
-        .maybeSingle();
-      if (data?.contrato_status === 'assinado') {
+      const res = await consultarAssinafy();
+      if (res?.status === 'assinado') {
         clearInterval(pollRef.current);
-        onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: data.contrato_assinado_em || new Date().toISOString() });
+        onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: res.contrato_assinado_em || new Date().toISOString() });
       }
     };
     pollRef.current = setInterval(checar, 4000);
@@ -321,19 +338,42 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [signingUrl]);
 
-  // Botão "Já assinei" força uma checagem imediata (caso o webhook demore).
+  // Quando o usuário volta pra aba do app (após assinar na aba do Assinafy),
+  // checa imediatamente — sem esperar o próximo tick de 4s.
+  useEffect(() => {
+    if (!signingUrl) return;
+    const onFocus = async () => {
+      const res = await consultarAssinafy();
+      if (res?.status === 'assinado') {
+        onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: res.contrato_assinado_em || new Date().toISOString() });
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signingUrl]);
+
+  // Botão "Já assinei — verificar" faz o mesmo, mas com feedback pro usuário.
+  const [checando, setChecando] = useState(false);
   const checarAgora = async () => {
-    const { data } = await supabase
-      .from('proprietarios')
-      .select('contrato_status, contrato_assinado_em')
-      .eq('id', currentUser.id)
-      .maybeSingle();
-    if (data?.contrato_status === 'assinado') {
-      onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: data.contrato_assinado_em || new Date().toISOString() });
-    } else {
-      setErro('Ainda não recebemos a confirmação. Aguarde alguns segundos.');
-      setTimeout(() => setErro(''), 4000);
+    setChecando(true);
+    setErro('');
+    const res = await consultarAssinafy();
+    setChecando(false);
+    if (res?.status === 'assinado') {
+      onComplete({ contratoStatus: 'assinado', contratoAssinadoEm: res.contrato_assinado_em || new Date().toISOString() });
+      return;
     }
+    if (res?.status === 'aguardando') {
+      setErro(`Ainda faltam assinaturas (${res.completed || 0}/${res.total || 1}). Se você acabou de assinar, aguarde alguns segundos e tente de novo.`);
+    } else {
+      setErro('Ainda não recebemos a confirmação. Aguarde alguns segundos e tente de novo.');
+    }
+    setTimeout(() => setErro(''), 6000);
   };
 
   return (
@@ -394,11 +434,12 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
               Ao terminar de assinar, volte para esta aba — vamos detectar automaticamente.
             </div>
           </div>
-          <button onClick={checarAgora} style={{
+          <button onClick={checarAgora} disabled={checando} style={{
             width: '100%', background: 'var(--card)', color: 'var(--ink)',
             border: '1px solid var(--line)', borderRadius: 12, padding: '12px',
-            fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
-          }}>Já assinei — verificar agora</button>
+            fontSize: 13, fontWeight: 600, cursor: checando ? 'default' : 'pointer', fontFamily: 'var(--sans)',
+            opacity: checando ? 0.6 : 1,
+          }}>{checando ? 'Verificando…' : 'Já assinei — verificar agora'}</button>
         </>
       )}
     </Frame>
