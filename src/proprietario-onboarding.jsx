@@ -279,7 +279,9 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
           return;
         }
         if (!res.ok || !data.signing_url) {
-          setErro(data.error || 'Não foi possível gerar o contrato. Fale com o administrador.');
+          const msgErro = data.error || 'Não foi possível gerar o contrato. Fale com o administrador.';
+          const detalhe = data.detail ? ` (${typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail).slice(0, 200)})` : '';
+          setErro(msgErro + detalhe);
           return;
         }
         setSigningUrl(data.signing_url);

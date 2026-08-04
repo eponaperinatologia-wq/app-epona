@@ -27,20 +27,13 @@ const ASSINAFY_ACCOUNT_ID = Deno.env.get("ASSINAFY_ACCOUNT_ID")!;
 const ASSINAFY_TEMPLATE_ID = Deno.env.get("ASSINAFY_TEMPLATE_ID")!;
 const ASSINAFY_ROLE_ID = Deno.env.get("ASSINAFY_ROLE_ID")!; // "Contratante"
 
-// Mapeamento fixo: cada label do template → field_id do Assinafy.
-// Extraído da API do template Proprietários Epona Stud em 2026-08-04.
-const FIELD_MAP: Record<string, string> = {
-  nome: "103ddd20b352a82981f0d1335096",
-  nacionalidade: "103de60ee4ee129d427e0db79be3",
-  profissao: "103de62cb844afc0ac3f016907c6",
-  estado_civil: "103de61520ae0b80ae6b38ff6732",
-  rg: "103de610fcb1dd9e64001aca981b",
-  cpf: "103ddd20b35ca7308ccc7d736440",
-  endereco: "103de618a4651c1553f6b198ad29",
-  cep: "103ddd20b3942babd4d1a8c85afa",
-  telefone: "103ddd20b383d8c596a40d26b45a",
-  email: "103ddd20b3a103444b0c80bb795e",
-};
+// Nota importante sobre o Assinafy:
+// Templates NÃO permitem pré-preencher campos custom via API. O signer
+// preenche tudo na tela deles. Só o `full_name`, `email` e `cpf` do signer
+// profile são passados adiante — os campos custom (Nacionalidade, Profissão,
+// Estado Civil, RG, Endereço) o signer digita manualmente ao assinar.
+// Se quiser TODOS os campos pré-preenchidos, precisa gerar o PDF localmente
+// e usar POST /accounts/:id/documents (upload) em vez de create-from-template.
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -107,66 +100,65 @@ serve(async (req) => {
       });
     }
 
-    // Monta endereço completo a partir dos campos separados
-    const endereco = [
-      propRow.rua,
-      propRow.numero,
-      propRow.complemento,
-      propRow.bairro,
-      propRow.cidade,
-      propRow.estado,
-    ].filter(Boolean).join(", ");
+    // Passo 1: criar/reusar o signer com os dados que temos (nome + email + cpf).
+    // A API é idempotente por email — se já existir, devolve o mesmo id.
+    const cpfLimpo = (propRow.cpf || "").replace(/\D/g, "");
+    const signerPayload = {
+      full_name: propRow.nome_completo || propRow.nome,
+      email: propRow.email,
+      ...(cpfLimpo ? { cpf: cpfLimpo } : {}),
+    };
+    let signerResp = await assinafyFetch(
+      `/accounts/${ASSINAFY_ACCOUNT_ID}/signers`,
+      { method: "POST", body: JSON.stringify(signerPayload) },
+    );
+    let signer = signerResp.data?.data || signerResp.data;
+    if (!signerResp.ok) {
+      // Se falhou por "já existe", busca por email
+      const search = await assinafyFetch(
+        `/accounts/${ASSINAFY_ACCOUNT_ID}/signers?search=${encodeURIComponent(propRow.email || "")}`,
+      );
+      const list = search.data?.data || [];
+      signer = Array.isArray(list) ? list.find((s: any) => s.email === propRow.email) : null;
+      if (!signer) {
+        return json({ error: "assinafy_signer_failed", detail: signerResp.data }, 500);
+      }
+    }
+    const signerId = signer?.id;
+    if (!signerId) return json({ error: "assinafy_signer_no_id" }, 500);
 
-    const field_values: Record<string, string> = {};
-    field_values[FIELD_MAP.nome] = propRow.nome_completo || propRow.nome || "";
-    field_values[FIELD_MAP.nacionalidade] = propRow.nacionalidade || "";
-    field_values[FIELD_MAP.profissao] = propRow.profissao || "";
-    field_values[FIELD_MAP.estado_civil] = propRow.estado_civil || "";
-    field_values[FIELD_MAP.rg] = propRow.rg || "";
-    field_values[FIELD_MAP.cpf] = propRow.cpf || "";
-    field_values[FIELD_MAP.endereco] = endereco;
-    field_values[FIELD_MAP.cep] = propRow.cep || "";
-    field_values[FIELD_MAP.telefone] = propRow.telefone || "";
-    field_values[FIELD_MAP.email] = propRow.email || "";
-
-    const payload = {
+    // Passo 2: criar o documento a partir do template com o signer.
+    // Assinafy NÃO aceita pré-preencher os campos aqui — o signer preenche na tela deles.
+    const createPayload = {
       signers: [{
         role_id: ASSINAFY_ROLE_ID,
-        full_name: propRow.nome_completo || propRow.nome,
-        email: propRow.email,
-        cpf: (propRow.cpf || "").replace(/\D/g, ""),
-        field_values,
+        id: signerId,
+        verification_method: "Email",
+        notification_methods: ["Email"],
       }],
     };
-
     const created = await assinafyFetch(
       `/accounts/${ASSINAFY_ACCOUNT_ID}/templates/${ASSINAFY_TEMPLATE_ID}/documents`,
-      { method: "POST", body: JSON.stringify(payload) },
+      { method: "POST", body: JSON.stringify(createPayload) },
     );
     if (!created.ok) return json({ error: "assinafy_create_failed", detail: created.data }, 500);
 
-    // Formato típico do Assinafy: data.id (documento) e data.assignments[0].signers[0].signing_url
     const doc = created.data?.data || created.data;
     const documentId = doc?.id;
-    let signingUrl: string | null =
-      doc?.signing_url ??
-      doc?.assignments?.[0]?.signers?.[0]?.signing_url ??
-      doc?.signers?.[0]?.signing_url ??
-      null;
-
-    // Se o create-from-template não devolveu o signing_url, criamos o
-    // assignment manualmente pra obter (fallback).
+    // signing_url vem no create OU precisamos ir buscar em GET /documents/{id} (depois
+    // do processing async terminar). A url é sempre https://app.assinafy.com.br/sign/{docId}
+    let signingUrl: string | null = doc?.signing_url || null;
     if (documentId && !signingUrl) {
-      const assign = await assinafyFetch(
-        `/documents/${documentId}/assignments`,
-        {
-          method: "POST",
-          body: JSON.stringify({ signer_ids: doc?.signers?.map((s: any) => s.id) ?? [] }),
-        },
-      );
-      if (assign.ok) {
-        const a = assign.data?.data || assign.data;
-        signingUrl = a?.signers?.[0]?.signing_url ?? a?.signing_urls?.[0] ?? null;
+      // Poll rápido (até 3s) até a URL de assinatura estar pronta
+      for (let i = 0; i < 6; i++) {
+        await new Promise(r => setTimeout(r, 500));
+        const detail = await assinafyFetch(`/documents/${documentId}`);
+        const d = detail.data?.data || detail.data;
+        if (d?.signing_url) { signingUrl = d.signing_url; break; }
+        if (d?.assignment?.signing_urls?.[0]?.url) {
+          signingUrl = d.assignment.signing_urls[0].url;
+          break;
+        }
       }
     }
 
