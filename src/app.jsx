@@ -1704,7 +1704,11 @@ const loadAllData = async () => {
   }
 
   const isOperacional = currentUser?.role === 'operacional';
-  const showMainTabs = !loading && currentUser && !isOperacional && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
+  const isProprietario = currentUser?.role === 'proprietario';
+  // Proprietário nunca vê a TabBar do admin — ele tem shell próprio
+  // (ProprietarioApp) OU está num gate de onboarding (troca senha, cadastro,
+  // contrato) que NÃO deve mostrar tab bar por cima do form.
+  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (
@@ -1734,7 +1738,7 @@ const loadAllData = async () => {
         display: 'flex', flexDirection: 'column',
         maxWidth: 480, margin: '0 auto',
       }}>
-          {currentUser && !loading && (
+          {currentUser && !loading && !isProprietario && (
             <div style={{
               display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
               padding: '4px 12px 4px',
