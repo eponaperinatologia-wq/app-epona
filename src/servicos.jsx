@@ -15,6 +15,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const [catFilter, setCatFilter] = useState('all');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
+  const [busca, setBusca] = useState('');
 
   const [nome, setNome] = useState('');
   const [valor, setValor] = useState('');
@@ -23,7 +24,10 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const [descSearch, setDescSearch] = useState('');
 
   const insumosBase = insumosProp.length > 0 ? insumosProp : INSUMOS;
-  const lista = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter));
+  const lista = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter))
+    .filter(s => !busca.trim() || norm(s.nome || '').includes(norm(busca.trim())))
+    .slice()
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
   const descartaveisDisp = insumosBase.filter(i => i.categoria === 'descartavel')
     .filter(i => !descSearch || norm(i.nome).includes(norm(descSearch)))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
@@ -222,14 +226,41 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
         }
       />
 
+      {/* Busca */}
+      <div style={{ padding: '12px 20px 4px' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 10,
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 12, padding: '9px 14px',
+        }}>
+          <Icon name="search" size={16} color="var(--ink-3)" />
+          <input
+            value={busca}
+            onChange={e => setBusca(e.target.value)}
+            placeholder="Buscar serviço…"
+            style={{
+              flex: 1, border: 'none', outline: 'none', background: 'transparent',
+              fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)',
+            }}
+          />
+          {busca && (
+            <button onClick={() => setBusca('')} style={{
+              background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+              color: 'var(--ink-3)', fontSize: 16, lineHeight: 1,
+            }}>×</button>
+          )}
+        </div>
+      </div>
+
       {/* Category filter */}
-      <div style={{ padding: '12px 20px 4px', display: 'flex', gap: 6 }}>
+      <div style={{ padding: '8px 20px 4px', display: 'flex', gap: 6, overflowX: 'auto', scrollbarWidth: 'none' }}>
         {[{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_SERVICOS].map(c => (
           <button key={c.id} onClick={() => setCatFilter(c.id)} style={{
             padding: '7px 14px', borderRadius: 999, fontSize: 12, fontWeight: 500,
             border: `1px solid ${catFilter === c.id ? c.cor : 'var(--line)'}`,
             background: catFilter === c.id ? c.cor : 'var(--card)',
             color: catFilter === c.id ? '#fff' : 'var(--ink-2)',
+            whiteSpace: 'nowrap', flexShrink: 0,
           }}>{c.nome}</button>
         ))}
       </div>
@@ -237,7 +268,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
       <div style={{ padding: '8px 20px 0' }}>
         {lista.length === 0 && (
           <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--ink-3)', fontSize: 14 }}>
-            Nenhum serviço cadastrado ainda.
+            {busca ? 'Nenhum serviço encontrado.' : 'Nenhum serviço cadastrado ainda.'}
           </div>
         )}
         {lista.map(sv => {

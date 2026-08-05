@@ -1579,8 +1579,36 @@ const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietari
 // ─────────────────────────────────────────────────────────────
 // CADASTRO · Proprietários
 // ─────────────────────────────────────────────────────────────
+// Barra de busca reutilizável — usada nas telas de cadastro e faturas.
+// Estilo consistente com o resto do app (card + borda).
+const SearchBar = ({ value, onChange, placeholder = 'Buscar…' }) => (
+  <div style={{
+    display: 'flex', alignItems: 'center', gap: 10,
+    background: 'var(--card)', border: '1px solid var(--line)',
+    borderRadius: 12, padding: '9px 14px',
+  }}>
+    <Icon name="search" size={16} color="var(--ink-3)" />
+    <input
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder={placeholder}
+      style={{
+        flex: 1, border: 'none', outline: 'none', background: 'transparent',
+        fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)',
+      }}
+    />
+    {value && (
+      <button onClick={() => onChange('')} style={{
+        background: 'none', border: 'none', padding: 0, cursor: 'pointer',
+        color: 'var(--ink-3)', fontSize: 16, lineHeight: 1,
+      }}>×</button>
+    )}
+  </div>
+);
+
 const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRIETARIOS, cavalos = CAVALOS, addProprietario, deleteProprietario }) => {
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [busca, setBusca] = useState('');
   const getCavalosDoProprietario = (propId) => cavalos.filter(c => (c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId);
 
   const handleCreateProprietario = () => {
@@ -1595,6 +1623,16 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
     setScreen('proprietarioDetalhe');
   };
 
+  // Ordem alfabética + filtro por busca (nome ou CPF ou email).
+  const lista = [...proprietarios]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(p => {
+      const q = busca.trim();
+      if (!q) return true;
+      const alvo = `${p.nome || ''} ${p.nomeCompleto || ''} ${p.email || ''} ${p.cpf || ''} ${p.telefone || ''}`;
+      return norm(alvo).includes(norm(q));
+    });
+
   return (
     <div style={{ paddingBottom: 90 }}>
       <TopBar title="Proprietários" onBack={() => setScreen('cadastros')} action={
@@ -1605,8 +1643,16 @@ const CadProprietariosScreen = ({ setScreen, setSelected, proprietarios = PROPRI
           <Icon name="plus" size={18} color="#fff" />
         </button>
       } />
-      <div style={{ padding: '14px 20px 0' }}>
-        {proprietarios.map(p => {
+      <div style={{ padding: '12px 20px 0' }}>
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar por nome, CPF, email…" />
+      </div>
+      <div style={{ padding: '12px 20px 0' }}>
+        {lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {busca ? 'Nenhum proprietário encontrado.' : 'Nenhum proprietário cadastrado.'}
+          </div>
+        )}
+        {lista.map(p => {
           const ownedCavalos = getCavalosDoProprietario(p.id);
           return (
             <div key={p.id} style={{
@@ -1718,27 +1764,10 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
           }}>{c.nome}</button>
         ))}
       </div>
-      <div style={{ padding: '8px 20px', display: 'flex', alignItems: 'center', gap: 8,
-        background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-        margin: '4px 20px 8px',
-      }}>
-        <Icon name="search" size={16} color="var(--ink-3)" />
-        <input
-          value={busca}
-          onChange={e => setBusca(e.target.value)}
-          placeholder="Buscar insumo…"
-          style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent',
-            fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: '9px 0',
-          }}
-        />
-        {busca && (
-          <button onClick={() => setBusca('')} style={{
-            background: 'none', border: 'none', padding: 0, cursor: 'pointer',
-            color: 'var(--ink-3)', fontSize: 16, lineHeight: 1,
-          }}>×</button>
-        )}
+      <div style={{ padding: '8px 20px 4px' }}>
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar insumo…" />
       </div>
-      <div style={{ padding: '0 20px' }}>
+      <div style={{ padding: '8px 20px 0' }}>
         {filtered.map(i => {
           const cat = getCategoria(i.categoria);
           const temDescartaveis = i.descartaveis?.length > 0;
@@ -1799,52 +1828,75 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
 // ─────────────────────────────────────────────────────────────
 // CADASTRO · Mensalidades (por cavalo)
 // ─────────────────────────────────────────────────────────────
-const CadMensalidadesScreen = ({ setScreen }) => (
-  <div style={{ paddingBottom: 90 }}>
-    <TopBar title="Mensalidades" onBack={() => setScreen('cadastros')} subtitle="Valor por cavalo" />
-    <div style={{ padding: '14px 20px 0' }}>
-      <div style={{
-        background: 'var(--accent-soft)', border: '1px solid #b8c8b0', borderRadius: 12,
-        padding: '12px 14px', marginBottom: 12, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
-      }}>
-        A mensalidade <strong style={{ color: 'var(--ink)' }}>já inclui Nutrição Base (ração, feno, sal mineral)</strong>. Óleo, suplementos e insumos avulsos são cobrados à parte.
+const CadMensalidadesScreen = ({ setScreen, cavalos = CAVALOS }) => {
+  const [busca, setBusca] = useState('');
+  const lista = [...cavalos]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(c => {
+      const q = busca.trim();
+      if (!q) return true;
+      return norm(`${c.nome || ''} ${c.baia || ''} ${c.categoria || ''}`).includes(norm(q));
+    });
+  return (
+    <div style={{ paddingBottom: 90 }}>
+      <TopBar title="Mensalidades" onBack={() => setScreen('cadastros')} subtitle="Valor por cavalo" />
+      <div style={{ padding: '12px 20px 0' }}>
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar cavalo…" />
       </div>
-      {CAVALOS.map(c => (
-        <div key={c.id} style={{
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-          padding: '12px', marginBottom: 6,
-          display: 'flex', alignItems: 'center', gap: 12,
+      <div style={{ padding: '14px 20px 0' }}>
+        <div style={{
+          background: 'var(--accent-soft)', border: '1px solid #b8c8b0', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 12, fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.5,
         }}>
-          <HorseAvatar cavalo={c} size={40} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{c.nome}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-              {c.categoria} · {c.baia}
+          A mensalidade <strong style={{ color: 'var(--ink)' }}>já inclui Nutrição Base (ração, feno, sal mineral)</strong>. Óleo, suplementos e insumos avulsos são cobrados à parte.
+        </div>
+        {lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {busca ? 'Nenhum cavalo encontrado.' : 'Nenhum cavalo cadastrado.'}
+          </div>
+        )}
+        {lista.map(c => (
+          <div key={c.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '12px', marginBottom: 6,
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <HorseAvatar cavalo={c} size={40} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{c.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                {c.categoria} · {c.baia}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)', letterSpacing: '-0.01em' }}>{formatBRL(c.mensalidade)}</div>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>por mês</div>
             </div>
           </div>
-          <div style={{ textAlign: 'right' }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)', letterSpacing: '-0.01em' }}>{formatBRL(c.mensalidade)}</div>
-            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>por mês</div>
-          </div>
-          <button style={{
-            width: 30, height: 30, borderRadius: 10, border: '1px solid var(--line)',
-            background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)',
-          }}>
-            <Icon name="edit" size={13} />
-          </button>
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 // ─────────────────────────────────────────────────────────────
 // CADASTRO · Cavalos (placeholder simples)
 // ─────────────────────────────────────────────────────────────
 const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCavalo, proprietarios = PROPRIETARIOS }) => {
+  const [busca, setBusca] = useState('');
   const getProprietarioLocal = (id) => proprietarios.find(p => p.id === id);
-  const presentes = cavalos.filter(c => c.presente);
-  const ausentes = cavalos.filter(c => !c.presente);
+  // Ordem alfabética + filtro (nome, baia, categoria, proprietário)
+  const filtrarEordenar = (arr) => [...arr]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(c => {
+      const q = busca.trim();
+      if (!q) return true;
+      const prop = getProprietarioLocal(c.proprietarioId);
+      const alvo = `${c.nome || ''} ${c.baia || ''} ${c.categoria || ''} ${prop?.nome || ''}`;
+      return norm(alvo).includes(norm(q));
+    });
+  const presentes = filtrarEordenar(cavalos.filter(c => c.presente));
+  const ausentes = filtrarEordenar(cavalos.filter(c => !c.presente));
   const renderCavalo = (c) => {
     const prop = getProprietarioLocal(c.proprietarioId);
     return (
@@ -1896,7 +1948,10 @@ const CadCavalosScreen = ({ setScreen, setSelected, cavalos = CAVALOS, deleteCav
         <Icon name="plus" size={18} color="#fff" />
       </button>
     } />
-    <div style={{ padding: '14px 20px 0'}}>
+    <div style={{ padding: '12px 20px 0'}}>
+      <SearchBar value={busca} onChange={setBusca} placeholder="Buscar por nome, baia, proprietário…" />
+    </div>
+    <div style={{ padding: '12px 20px 0'}}>
       <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, padding: '4px 4px 8px' }}>
         No haras · {presentes.length}
       </div>
@@ -3548,6 +3603,54 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
         </div>
       </div>
 
+      {/* Dados cadastrais fornecidos pelo próprio proprietário no 1º acesso */}
+      {p.cadastroCompleto && (
+        <div style={{ padding: '18px 20px 0' }}>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>Dados cadastrais</div>
+              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6, background: '#dcfce7', color: '#166534', border: '1px solid #86efac', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Preenchido</span>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 16px' }}>
+              {[
+                ['Nome completo', p.nomeCompleto],
+                ['CPF', p.cpf],
+                ['RG', p.rg],
+                ['Nacionalidade', p.nacionalidade],
+                ['Estado civil', p.estadoCivil],
+                ['Profissão', p.profissao],
+              ].filter(([, v]) => v).map(([label, valor]) => (
+                <div key={label}>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink)' }}>{valor}</div>
+                </div>
+              ))}
+            </div>
+            {(p.cep || p.rua || p.cidade) && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 4 }}>Endereço</div>
+                <div style={{ fontSize: 13, color: 'var(--ink)', lineHeight: 1.5 }}>
+                  {[p.rua, p.numero].filter(Boolean).join(', ')}
+                  {p.complemento ? ` — ${p.complemento}` : ''}
+                  {p.bairro ? <><br />{p.bairro}</> : null}
+                  {(p.cidade || p.estado) ? <><br />{[p.cidade, p.estado].filter(Boolean).join(' / ')}</> : null}
+                  {p.cep ? <><br />CEP {p.cep}</> : null}
+                </div>
+              </div>
+            )}
+            {p.contratoStatus === 'assinado' && p.contratoAssinadoEm && (
+              <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+                <div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 2 }}>Contrato</div>
+                  <div style={{ fontSize: 13, color: 'var(--ink)' }}>Assinado em {new Date(p.contratoAssinadoEm).toLocaleDateString('pt-BR')}</div>
+                </div>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 6, background: '#dcfce7', color: '#166534', border: '1px solid #86efac', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Assinado ✓</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Acesso do proprietário (login no app) */}
       <div style={{ padding: '18px 20px 0' }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16 }}>
@@ -3632,6 +3735,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
 const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [] }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
+  const [busca, setBusca] = useState('');
   const findInsumo = (id) => insumos.find(i => i.id === id);
   const isCurrentMonth = hoje.getFullYear() === ref.ano && hoje.getMonth() + 1 === ref.mes;
 
@@ -3707,7 +3811,15 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
 
       <div style={{ padding: '14px 20px 0' }}>
         <h2 style={{ fontFamily: 'var(--serif)', fontSize: 16, fontWeight: 400, margin: '0 0 8px', color: 'var(--ink-2)' }}>Por proprietário</h2>
-        {faturas.map(f => (
+        <div style={{ marginBottom: 10 }}>
+          <SearchBar value={busca} onChange={setBusca} placeholder="Buscar proprietário…" />
+        </div>
+        {faturas.filter(f => !busca.trim() || norm(f.nome || '').includes(norm(busca.trim()))).length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {busca ? 'Nenhum proprietário encontrado.' : 'Nenhuma fatura neste mês.'}
+          </div>
+        )}
+        {faturas.filter(f => !busca.trim() || norm(f.nome || '').includes(norm(busca.trim()))).map(f => (
           <button key={f.id} onClick={() => { setFaturaRef(ref); setSelected(f.id); setScreen('faturaDetalhe'); }} style={{
             width: '100%', background: 'var(--card)', border: `1px solid ${f.fechada ? 'var(--accent)' : 'var(--line)'}`,
             borderRadius: 14, padding: '14px', marginBottom: 8,
