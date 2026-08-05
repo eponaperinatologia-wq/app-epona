@@ -482,15 +482,20 @@ export function ProprietarioApp({
     );
   } else if (screen === 'proprietario-parto') {
     if (!meusPartos.find(p => p.id === selected)) {
-      content = <NaoAutorizado onBack={() => setScreen('proprietario-home')} />;
+      content = <NaoAutorizado onBack={() => setScreen('proprietario-cuidados')} />;
     } else {
       content = (
         <PartoDetalheScreen
           id={selected}
-          setScreen={(s) => s === 'partos' ? setScreen('proprietario-home') : setScreen(s)}
+          setScreen={(s) => {
+            if (s === 'partos') return setScreen('proprietario-cuidados');
+            if (s === 'cavaloDetalhe') return setScreen('proprietario-cavalo');
+            if (s === 'eguaGestanteDetalhe') return setScreen('proprietario-egua');
+            setScreen(s);
+          }}
           partos={meusPartos}
-          updateParto={() => {}} deleteParto={() => {}}
-          cavalos={cavalos} updateCavalo={() => {}} deleteCavalo={() => {}}
+          updateParto={null} deleteParto={null}
+          cavalos={cavalos} updateCavalo={null} deleteCavalo={null}
           proprietarios={proprietarios} insumos={insumos}
         />
       );
@@ -499,19 +504,24 @@ export function ProprietarioApp({
     if (!meusIds.has(selected)) {
       content = <NaoAutorizado onBack={() => setScreen('proprietario-cavalos')} />;
     } else {
+      // Translator idêntico ao do hub: EguaGestante chama setScreen com nomes
+      // do admin ('partos' pro back, 'partoDetalhe' pra abrir parto,
+      // 'cavaloDetalhe' pra abrir potro). Traduzimos pra rotas do shell.
       content = (
         <EguaGestanteDetalheScreen
           id={selected}
           setScreen={(s) => {
-            if (s === 'partos') return setScreen('proprietario-cavalos');
+            if (s === 'partos') return setScreen('proprietario-cuidados');
             if (s === 'partoDetalhe') return setScreen('proprietario-parto');
+            if (s === 'cavaloDetalhe') return setScreen('proprietario-cavalo');
+            if (s === 'eguaGestanteDetalhe') return setScreen('proprietario-egua');
             setScreen(s);
           }}
           setSelected={setSelected}
           cavalos={cavalos} proprietarios={proprietarios}
-          updateCavalo={() => {}}
+          updateCavalo={null} /* read-only: null esconde botões de edição */
           insumos={insumos}
-          addAviso={() => {}} addAtividade={() => {}}
+          addAviso={null} addAtividade={null}
           currentUser={{ ...currentUser, role: 'proprietario' }}
           partos={meusPartos}
         />
@@ -531,9 +541,23 @@ export function ProprietarioApp({
     const vermifugacoesDosMeus = (vetData.vermifugacoesAnimais || []).filter(v => meusIds.has(v.cavaloId));
     const opgsDosMeus = (vetData.opgs || []).filter(o => meusIds.has(o.cavaloId));
 
+    // O hub e suas sub-telas foram feitos pro admin — chamam setScreen com
+    // nomes como 'eguaGestanteDetalhe', 'partoDetalhe', 'cavaloDetalhe' etc.
+    // Traduzimos pra rotas do shell do proprietário. Sem esse translator, o
+    // clique numa égua deixava a tela em branco (nenhum case matchava).
+    const hubSetScreen = (s) => {
+      if (s === 'eguaGestanteDetalhe') return setScreen('proprietario-egua');
+      if (s === 'partoDetalhe') return setScreen('proprietario-parto');
+      if (s === 'cavaloDetalhe') return setScreen('proprietario-cavalo');
+      if (s === 'editarCavalo') return; // proprietário não edita
+      if (s === 'registrarParto') return; // idem
+      // Tudo mais mantém o comportamento default do hub.
+      setScreen(s);
+    };
+
     content = (
       <VeterinariaScreen
-        setScreen={setScreen} setSelected={setSelected}
+        setScreen={hubSetScreen} setSelected={setSelected}
         partos={meusPartos} cavalos={meus}
         proprietarios={proprietarios} movimentacoes={meusMovimentacoes}
         insumos={insumos} servicos={servicos}

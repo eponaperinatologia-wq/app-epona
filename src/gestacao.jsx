@@ -1024,11 +1024,14 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
   const [pai, setPai] = useState(g.pai || '');
   const [saved, setSaved] = useState(false);
   const [histExpandido, setHistExpandido] = useState(null); // index do card aberto
+  // Sem updateCavalo → tela é read-only (proprietário só visualiza).
+  const readOnly = !updateCavalo;
 
   const previsao = previsaoParto(dataCobricao);
   const dias = diasAteParto(dataCobricao);
 
   const handleSave = () => {
+    if (readOnly) return;
     updateCavalo(c.id, { gestacao: { ...g, dataCobricao, pai } });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -1083,13 +1086,13 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
         <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:12 }}>Filiação e cobrição</div>
         <div style={{ marginBottom:12 }}>
           <GestacaoLabel t="Data de cobrição" />
-          <input type="date" value={dataCobricao} onChange={e => setDataCobricao(e.target.value)} style={inputStyle} />
+          <input type="date" value={dataCobricao} onChange={e => setDataCobricao(e.target.value)} disabled={readOnly} style={inputStyle} />
         </div>
         <div style={{ marginBottom:12 }}>
           <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>Garanhão (pai)</div>
-              <input value={pai} onChange={e => setPai(e.target.value)} placeholder="Nome do garanhão…" style={{ ...inputStyle, textAlign:'center' }} />
+              <input value={pai} onChange={e => setPai(e.target.value)} disabled={readOnly} placeholder="Nome do garanhão…" style={{ ...inputStyle, textAlign:'center' }} />
             </div>
             <div style={{ fontSize:22, fontWeight:900, color:'var(--ink-3)', flexShrink:0, marginTop:24 }}>×</div>
             <div style={{ flex:1 }}>
@@ -1117,14 +1120,16 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
       {/* Desenvolvimento fetal — muda só com a idade gestacional */}
       <BoxDesenvolvimentoFetal dataCobricao={dataCobricao} cavalo={c} />
 
-      <button onClick={handleSave} style={{
-        width:'100%', padding:'13px', borderRadius:12, border:'none',
-        background: saved ? '#16a34a' : 'var(--accent)',
-        color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
-        transition:'background 0.2s', marginBottom:14,
-      }}>
-        {saved ? '✓ Salvo!' : 'Salvar dados de gestação'}
-      </button>
+      {!readOnly && (
+        <button onClick={handleSave} style={{
+          width:'100%', padding:'13px', borderRadius:12, border:'none',
+          background: saved ? '#16a34a' : 'var(--accent)',
+          color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+          transition:'background 0.2s', marginBottom:14,
+        }}>
+          {saved ? '✓ Salvo!' : 'Salvar dados de gestação'}
+        </button>
+      )}
 
       {/* Histórico gestacional — cada card expande com acompanhamento + parto */}
       {c.historicoGestacional?.length > 0 && (
@@ -1384,8 +1389,10 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   const [expandido, setExpandido] = useState(mesAtual);
   const g = c.gestacao || {};
   const acomp = g.acompanhamento || {};
+  const readOnly = !updateCavalo;
 
   const salvarMes = (mes, dados, sexagem) => {
+    if (readOnly) return;
     const novoAcomp = { ...acomp, [mes]: dados };
     const novaGestacao = { ...g, acompanhamento: novoAcomp };
     if (mes === 4 && sexagem !== undefined) novaGestacao.sexagem = sexagem;
@@ -1428,6 +1435,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
             dados={acomp[mes] || { palpacoes: [] }}
             expandido={expandido === mes}
             temDados={temDados(mes)}
+            readOnly={readOnly}
             onToggle={() => setExpandido(expandido === mes ? null : mes)}
             onSalvar={(dados) => salvarMes(mes, dados)}
           />
@@ -1440,6 +1448,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
             sexagemAtual={g.sexagem || ''}
             expandido={expandido === mes}
             temDados={temDados(mes)}
+            readOnly={readOnly}
             onToggle={() => setExpandido(expandido === mes ? null : mes)}
             onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
           />
@@ -1449,7 +1458,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   );
 }
 
-function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar }) {
+function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar, readOnly = false }) {
   const [form, setForm] = useState(() => {
     const base = { ...ACOMP_VAZIO, ...dados };
     // Backward compat: até o refactor, o campo era só "orbitaOcular" e
@@ -1758,14 +1767,16 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
             );
           })}
 
-          <button onClick={handleSalvar} style={{
-            width:'100%', padding:'10px', borderRadius:10, border:'none',
-            background: saved ? '#16a34a' : 'var(--accent)',
-            color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
-            transition:'background 0.2s',
-          }}>
-            {saved ? '✓ Salvo!' : `Salvar ${mes}º mês`}
-          </button>
+          {!readOnly && (
+            <button onClick={handleSalvar} style={{
+              width:'100%', padding:'10px', borderRadius:10, border:'none',
+              background: saved ? '#16a34a' : 'var(--accent)',
+              color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+              transition:'background 0.2s',
+            }}>
+              {saved ? '✓ Salvo!' : `Salvar ${mes}º mês`}
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -1774,7 +1785,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
 // Componente pros meses 0-2, que aceitam MÚLTIPLAS palpações.
 // Estrutura: dados = { palpacoes: [ { data, ...campos }, ... ] }
-function MesPalpacoes({ mes, mesAtual, dados, expandido, temDados, onToggle, onSalvar }) {
+function MesPalpacoes({ mes, mesAtual, dados, expandido, temDados, onToggle, onSalvar, readOnly = false }) {
   const [palpacoes, setPalpacoes] = useState(() => {
     const p = dados?.palpacoes;
     return Array.isArray(p) && p.length > 0 ? p.map(x => ({ ...PALPACAO_VAZIA, ...x })) : [{ ...PALPACAO_VAZIA, data: '' }];
@@ -1885,20 +1896,24 @@ function MesPalpacoes({ mes, mesAtual, dados, expandido, temDados, onToggle, onS
             </div>
           ))}
 
-          <button onClick={adicionarPalpacao} style={{
-            width:'100%', padding:'10px', borderRadius:10, border:'1px dashed var(--accent)',
-            background:'var(--accent-soft)', color:'var(--accent)',
-            fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', marginBottom:10,
-          }}>+ Adicionar palpação</button>
+          {!readOnly && (
+            <button onClick={adicionarPalpacao} style={{
+              width:'100%', padding:'10px', borderRadius:10, border:'1px dashed var(--accent)',
+              background:'var(--accent-soft)', color:'var(--accent)',
+              fontSize:13, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)', marginBottom:10,
+            }}>+ Adicionar palpação</button>
+          )}
 
-          <button onClick={handleSalvar} style={{
-            width:'100%', padding:'10px', borderRadius:10, border:'none',
-            background: saved ? '#16a34a' : 'var(--accent)',
-            color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
-            transition:'background 0.2s',
-          }}>
-            {saved ? '✓ Salvo!' : `Salvar ${mes}º mês`}
-          </button>
+          {!readOnly && (
+            <button onClick={handleSalvar} style={{
+              width:'100%', padding:'10px', borderRadius:10, border:'none',
+              background: saved ? '#16a34a' : 'var(--accent)',
+              color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+              transition:'background 0.2s',
+            }}>
+              {saved ? '✓ Salvo!' : `Salvar ${mes}º mês`}
+            </button>
+          )}
         </div>
       )}
     </div>
