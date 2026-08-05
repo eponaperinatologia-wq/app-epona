@@ -13,6 +13,7 @@ import { TopBar, FaturaDetalheScreen, CavaloDetalheScreen, calcFaturaProprietari
 import { EguaGestanteDetalheScreen } from './gestacao';
 import { PartoDetalheScreen } from './partos';
 import { VeterinariaScreen } from './veterinaria';
+import { NutricionalScreen } from './nutricional';
 
 // ─────────────────────────────────────────────────────────────
 // Filtro central: só cavalos que o proprietário logado possui.
@@ -26,57 +27,179 @@ function meusCavalos(cavalos, propId) {
 // ─────────────────────────────────────────────────────────────
 // Home — resumo do mês corrente
 // ─────────────────────────────────────────────────────────────
-function ProprietarioHome({ currentUser, cavalos, faturaTotal, setScreen, setSelected }) {
+function ProprietarioHome({
+  currentUser, cavalos, faturaTotal, avisos, atividades, registros,
+  setScreen, setTab,
+}) {
   const meus = meusCavalos(cavalos, currentUser.id);
+  const meusIds = new Set(meus.map(c => c.id));
   const presentes = meus.filter(c => c.presente !== false);
   const nome = (currentUser.nome || '').split(/\s+/)[0];
-  const saudacao = new Date().getHours() < 12 ? 'Bom dia' : new Date().getHours() < 18 ? 'Boa tarde' : 'Boa noite';
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
+  const dataFmt = (() => {
+    const d = new Date();
+    const dias = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+    const meses = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+    return `${dias[d.getDay()]}, ${d.getDate()} de ${meses[d.getMonth()]}`;
+  })();
+
+  // Stats do dia — só do escopo do proprietário
+  const hojeStr = new Date().toLocaleDateString('sv-SE');
+  const avisosMeus = (avisos || []).filter(a => !a.cavaloId || meusIds.has(a.cavaloId));
+  const atividadesMinhas = (atividades || []).filter(a => !a.cavaloId || meusIds.has(a.cavaloId));
+  const registrosMeus = (registros || []).filter(r => meusIds.has(r.cavaloId));
+  const avisosHoje = avisosMeus.filter(a =>
+    a.data_entrada === hojeStr || ((a.urgente || a.tipo === 'gta_pendente') && !a.resolvido)
+  ).length;
+  const registrosHoje = registrosMeus.filter(r => r.data === hojeStr).length;
+
+  const ultimosAvisos = [...avisosMeus]
+    .sort((a, b) => {
+      const aUrg = a.urgente && !a.resolvido ? 0 : 1;
+      const bUrg = b.urgente && !b.resolvido ? 0 : 1;
+      if (aUrg !== bUrg) return aUrg - bUrg;
+      return ((b.data_entrada || '') + 'T' + (b.tempo || '')).localeCompare((a.data_entrada || '') + 'T' + (a.tempo || ''));
+    })
+    .slice(0, 4);
+  const atividadesRecentes = [...atividadesMinhas]
+    .sort((a, b) => ((b.data || '') + 'T' + (b.hora || '')).localeCompare((a.data || '') + 'T' + (a.hora || '')))
+    .slice(0, 5);
+
+  const goToTab = (t, s) => { setTab(t); setScreen(s); };
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 26, color: 'var(--ink)', letterSpacing: '-0.01em', marginBottom: 4 }}>
+      {/* Saudação + data */}
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+        {dataFmt}
+      </div>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--ink)', letterSpacing: '-0.01em', lineHeight: 1.1, marginBottom: 22 }}>
         {saudacao}, {nome}.
       </div>
-      <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 22 }}>
-        {presentes.length} {presentes.length === 1 ? 'animal' : 'animais'} no haras
+
+      {/* Stats do dia */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 16 }}>
+        {[
+          { label: 'Avisos hoje', value: avisosHoje },
+          { label: 'Registros hoje', value: registrosHoje },
+          { label: 'Cavalos no haras', value: presentes.length, onClick: () => goToTab('cavalos', 'proprietario-cavalos') },
+        ].map(s => (
+          <button key={s.label} onClick={s.onClick} disabled={!s.onClick} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '12px 12px', textAlign: 'left', color: 'var(--ink)', cursor: s.onClick ? 'pointer' : 'default',
+          }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', letterSpacing: '-0.02em' }}>{s.value}</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{s.label}</div>
+          </button>
+        ))}
       </div>
 
-      {/* Meus animais — foco principal */}
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, margin: '0 4px 10px' }}>
-        Meus animais
-      </div>
-      {meus.length === 0 && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 20, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13, marginBottom: 12 }}>
-          Nenhum animal registrado.
-        </div>
-      )}
-      {meus.map(c => (
-        <button key={c.id} onClick={() => { setSelected(c.id); setScreen('proprietario-cavalo'); }} style={{
-          width: '100%', textAlign: 'left', background: 'var(--card)', border: '1px solid var(--line)',
-          borderRadius: 14, padding: '14px 16px', marginBottom: 8, cursor: 'pointer',
-          display: 'flex', alignItems: 'center', gap: 12, color: 'var(--ink)',
+      {/* CTAs grandes: Cuidados + Nutrição */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 20 }}>
+        <button onClick={() => goToTab('cuidados', 'proprietario-cuidados')} style={{
+          background: 'linear-gradient(135deg, #0f766e, #0d5c56)', color: '#fff',
+          border: 'none', borderRadius: 16, padding: '18px 14px',
+          display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left',
+          boxShadow: '0 6px 16px rgba(15,118,110,0.22)', cursor: 'pointer',
         }}>
           <div style={{
-            width: 42, height: 42, borderRadius: 12,
-            background: c.presente === false ? '#e5e7eb' : 'var(--soft)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0,
-          }}>🐴</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{c.nome}</div>
-            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
-              {c.categoria}{c.baia ? ` · ${c.baia}` : ''}
-              {c.presente === false && ' · fora do haras'}
-            </div>
+            width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.18)',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Icon name="stethoscope" size={20} color="#fff" />
           </div>
-          <Icon name="chevron-right" size={16} color="var(--ink-3)" />
+          <div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 17, lineHeight: 1.1 }}>Cuidados Veterinários</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Vacinação, exames, relatórios…</div>
+          </div>
         </button>
-      ))}
+        <button onClick={() => goToTab('nutricao', 'proprietario-nutricao')} style={{
+          background: 'linear-gradient(135deg, #b45309, #854d0e)', color: '#fff',
+          border: 'none', borderRadius: 16, padding: '18px 14px',
+          display: 'flex', flexDirection: 'column', gap: 10, textAlign: 'left',
+          boxShadow: '0 6px 16px rgba(180,83,9,0.22)', cursor: 'pointer',
+        }}>
+          <div style={{
+            width: 38, height: 38, borderRadius: 12, background: 'rgba(255,255,255,0.18)',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Icon name="wheat" size={20} color="#fff" />
+          </div>
+          <div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 17, lineHeight: 1.1 }}>Nutrição</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Ração, suplementos por piquete</div>
+          </div>
+        </button>
+      </div>
 
-      {/* Fatura do mês — resumo discreto no fim, com link pro detalhamento */}
-      <button onClick={() => setScreen('proprietario-fatura')} style={{
+      {/* Mural de avisos */}
+      {ultimosAvisos.length > 0 && (
+        <>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 8 }}>
+            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Mural de avisos</h2>
+          </div>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
+            {ultimosAvisos.map((a, i) => (
+              <div key={a.id} style={{
+                padding: '10px 14px', borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                display: 'flex', gap: 10,
+              }}>
+                <div style={{
+                  width: 28, height: 28, borderRadius: 28, flexShrink: 0,
+                  background: a.urgente ? '#fef2e8' : 'var(--soft)',
+                  display: 'grid', placeItems: 'center', fontSize: 14,
+                }}>{a.avatar || '📌'}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{a.autor || 'Sistema'}</span>
+                    <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>{a.tempo}</span>
+                    {a.urgente && !a.resolvido && (
+                      <span style={{ fontSize: 9, background: '#c0392b', color: '#fff', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>URGENTE</span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--ink-2)', lineHeight: 1.35 }}>{a.texto}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Atividade recente */}
+      {atividadesRecentes.length > 0 && (
+        <>
+          <h2 style={{ fontFamily: 'var(--serif)', fontSize: 17, fontWeight: 400, margin: '0 0 8px', color: 'var(--ink)' }}>Atividade recente</h2>
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 20 }}>
+            {atividadesRecentes.map((a, i) => {
+              const cav = a.cavaloId ? cavalos.find(c => c.id === a.cavaloId) : null;
+              return (
+                <div key={a.id} style={{
+                  padding: '10px 14px', borderTop: i === 0 ? 'none' : '1px solid var(--line)',
+                  display: 'flex', gap: 10,
+                }}>
+                  <div style={{ width: 6, background: 'var(--accent)', borderRadius: 3, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, color: 'var(--ink-2)', whiteSpace: 'pre-wrap', lineHeight: 1.35 }}>
+                      {(cav?.nome ? cav.nome + ': ' : '') + (a.texto || '')}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 3 }}>
+                      {a.data ? new Date(a.data + 'T12:00:00').toLocaleDateString('pt-BR') : ''}
+                      {a.hora ? ` · ${a.hora}` : ''}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+
+      {/* Fatura Hoje — proporcional até hoje, muda amanhã */}
+      <button onClick={() => goToTab('fatura', 'proprietario-fatura')} style={{
         width: '100%', textAlign: 'left', border: '1px solid var(--line)',
         background: 'var(--card)', color: 'var(--ink)',
-        borderRadius: 14, padding: '14px 16px', marginTop: 20, cursor: 'pointer',
+        borderRadius: 14, padding: '14px 16px', cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 12,
       }}>
         <div style={{
@@ -87,8 +210,9 @@ function ProprietarioHome({ currentUser, cavalos, faturaTotal, setScreen, setSel
           <Icon name="doc" size={18} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Fatura do mês</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Fatura hoje</div>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)', marginTop: 1 }}>{formatBRL(faturaTotal)}</div>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>Proporcional até hoje — amanhã o valor é outro</div>
         </div>
         <Icon name="chevron-right" size={16} color="var(--ink-3)" />
       </button>
@@ -104,6 +228,7 @@ function TabBar({ tab, setTab, setScreen }) {
     { id: 'home', label: 'Início', icon: 'home' },
     { id: 'cavalos', label: 'Animais', icon: 'horse' },
     { id: 'cuidados', label: 'Cuidados', icon: 'stethoscope' },
+    { id: 'nutricao', label: 'Nutrição', icon: 'wheat' },
     { id: 'fatura', label: 'Fatura', icon: 'doc' },
     { id: 'conta', label: 'Conta', icon: 'user' },
   ];
@@ -121,17 +246,18 @@ function TabBar({ tab, setTab, setScreen }) {
             if (t.id === 'home') setScreen('proprietario-home');
             if (t.id === 'cavalos') setScreen('proprietario-cavalos');
             if (t.id === 'cuidados') setScreen('proprietario-cuidados');
+            if (t.id === 'nutricao') setScreen('proprietario-nutricao');
             if (t.id === 'fatura') setScreen('proprietario-fatura');
             if (t.id === 'conta') setScreen('proprietario-conta');
           }}
           style={{
             background: 'none', border: 'none', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', gap: 3, padding: '6px 0',
+            alignItems: 'center', gap: 2, padding: '6px 0',
             color: tab === t.id ? '#7c2d8c' : 'var(--ink-3)',
-            fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 500, cursor: 'pointer',
+            fontFamily: 'var(--sans)', fontSize: 10, fontWeight: 500, cursor: 'pointer',
           }}
         >
-          <Icon name={t.icon} size={22} />
+          <Icon name={t.icon} size={20} />
           <span>{t.label}</span>
         </button>
       ))}
@@ -213,6 +339,8 @@ export function ProprietarioApp({
   currentUser, proprietarios, cavalos, registros, procedimentos,
   servicos, insumos, movimentacoes, custosFixos, faturasFechadas, partos,
   faturaRef, setFaturaRef, empresaInfo,
+  avisos = [], atividades = [],
+  nutricaoOrdem = [],
   // Bundle de dados veterinários pra alimentar a aba "Cuidados". Repassados
   // do app.jsx pra evitar 40 props sem sentido no shell.
   vetData = {},
@@ -265,8 +393,25 @@ export function ProprietarioApp({
         currentUser={currentUser}
         cavalos={cavalos}
         faturaTotal={faturaTotalEstimada}
+        avisos={avisos}
+        atividades={atividades}
+        registros={registros}
         setScreen={setScreen}
-        setSelected={setSelected}
+        setTab={setTab}
+      />
+    );
+  } else if (screen === 'proprietario-nutricao') {
+    // Nutrição read-only, filtrada pros cavalos do proprietário.
+    // NutricionalScreen já checa currentUser.role — pra 'proprietario' o
+    // podeEditar interno é false. Mesmo assim, passamos os handlers como
+    // null pra garantir que nenhuma mutação escape.
+    content = (
+      <NutricionalScreen
+        setScreen={setScreen} setSelected={setSelected}
+        cavalos={meus} insumos={insumos}
+        currentUser={{ ...currentUser, role: 'proprietario' }}
+        updateCavalo={null} addAviso={null} removeAviso={null}
+        nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={null}
       />
     );
   } else if (screen === 'proprietario-cavalos') {

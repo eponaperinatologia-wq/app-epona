@@ -450,7 +450,7 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
       <TopBar
         title="Nutrição"
         subtitle={`${cavalos.length} animais · ${groups.length} grupos`}
-        onBack={currentUser?.role === 'operacional' ? undefined : () => setScreen('home')}
+        onBack={(currentUser?.role === 'operacional' || currentUser?.role === 'proprietario') ? undefined : () => setScreen('home')}
       />
 
       {/* Banner do trato atual */}

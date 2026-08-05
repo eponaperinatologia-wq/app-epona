@@ -1669,6 +1669,9 @@ const loadAllData = async () => {
       faturaRef={faturaRef}
       setFaturaRef={setFaturaRef}
       empresaInfo={empresaInfo}
+      avisos={avisos}
+      atividades={atividades}
+      nutricaoOrdem={nutricaoOrdem}
       vetData={{
         anotacoesClinicas, medicoes, exames, registrosReproducao,
         protocolosVacinacao, vacinacoesAnimais,
