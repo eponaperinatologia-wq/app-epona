@@ -9,9 +9,10 @@
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
 import { formatBRL } from './data';
-import { TopBar, FaturaDetalheScreen, CavaloDetalheScreen } from './screens';
+import { TopBar, FaturaDetalheScreen, CavaloDetalheScreen, calcFaturaProprietario } from './screens';
 import { EguaGestanteDetalheScreen } from './gestacao';
 import { PartoDetalheScreen } from './partos';
+import { VeterinariaScreen } from './veterinaria';
 
 // ─────────────────────────────────────────────────────────────
 // Filtro central: só cavalos que o proprietário logado possui.
@@ -102,6 +103,7 @@ function TabBar({ tab, setTab, setScreen }) {
   const abas = [
     { id: 'home', label: 'Início', icon: 'home' },
     { id: 'cavalos', label: 'Animais', icon: 'horse' },
+    { id: 'cuidados', label: 'Cuidados', icon: 'stethoscope' },
     { id: 'fatura', label: 'Fatura', icon: 'doc' },
     { id: 'conta', label: 'Conta', icon: 'user' },
   ];
@@ -118,6 +120,7 @@ function TabBar({ tab, setTab, setScreen }) {
             setTab(t.id);
             if (t.id === 'home') setScreen('proprietario-home');
             if (t.id === 'cavalos') setScreen('proprietario-cavalos');
+            if (t.id === 'cuidados') setScreen('proprietario-cuidados');
             if (t.id === 'fatura') setScreen('proprietario-fatura');
             if (t.id === 'conta') setScreen('proprietario-conta');
           }}
@@ -209,12 +212,20 @@ function ProprietarioConta({ currentUser, proprietarioAtual, onLogout }) {
 export function ProprietarioApp({
   currentUser, proprietarios, cavalos, registros, procedimentos,
   servicos, insumos, movimentacoes, custosFixos, faturasFechadas, partos,
-  faturaRef, setFaturaRef,
+  faturaRef, setFaturaRef, empresaInfo,
+  // Bundle de dados veterinários pra alimentar a aba "Cuidados". Repassados
+  // do app.jsx pra evitar 40 props sem sentido no shell.
+  vetData = {},
   onLogout,
 }) {
   const [screen, setScreen] = useState('proprietario-home');
   const [tab, setTab] = useState('home');
   const [selected, setSelected] = useState(null);
+  // faturaRefLocal: mês em visualização na tela de fatura do proprietário.
+  // Independente do faturaRef global (usado pelo admin) — proprietário navega
+  // meses só localmente sem afetar o resto do app.
+  const hojeInicio = new Date();
+  const [faturaRefLocal, setFaturaRefLocal] = useState({ ano: hojeInicio.getFullYear(), mes: hojeInicio.getMonth() + 1 });
 
   const proprietarioAtual = proprietarios.find(p => p.id === currentUser.id) || {};
   const meus = useMemo(() => meusCavalos(cavalos, currentUser.id), [cavalos, currentUser.id]);
@@ -233,32 +244,17 @@ export function ProprietarioApp({
     f.proprietarioId === currentUser.id && f.ano === refAtual.ano && f.mes === refAtual.mes
   );
 
-  // Estima o total da fatura em tempo real. Reutiliza a fórmula "grosseira"
-  // do FaturaDetalheScreen mas de forma simplificada (o cálculo completo
-  // acontece dentro da própria tela quando o proprietário clica).
+  // Total da fatura em tempo real — usa a MESMA função do FaturaDetalheScreen,
+  // não uma estimativa. Isso garante que o valor no home bate com o valor no
+  // detalhamento (incluindo mensalidade proporcional, pagarOCusto, perfil
+  // nutricional, custo fixo rateado, etc.).
   const faturaTotalEstimada = useMemo(() => {
     if (faturaFechadaAtual) return faturaFechadaAtual.total || 0;
-    // Só marcamos a estimativa como "insumos avulsos + procedimentos do mês"
-    // pra evitar duplicar toda a lógica aqui. A tela de fatura tem o total
-    // exato — este número é só um "aviso" no home.
-    const dentroDoMes = (data) => {
-      if (!data) return false;
-      const d = new Date(data + 'T12:00:00');
-      return d.getFullYear() === refAtual.ano && d.getMonth() + 1 === refAtual.mes;
-    };
-    let total = 0;
-    meus.filter(c => c.presente !== false).forEach(c => {
-      total += Number(c.mensalidade) || 0;
+    const r = calcFaturaProprietario(currentUser.id, refAtual, {
+      cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos,
     });
-    meusRegistros.filter(r => dentroDoMes(r.data)).forEach(r => {
-      const ins = insumos.find(i => i.id === r.insumoId);
-      total += (Number(ins?.valorVenda) || 0) * (Number(r.qtd) || 0);
-    });
-    meusProcedimentos.filter(p => dentroDoMes(p.data)).forEach(p => {
-      total += Number(p.total) || 0;
-    });
-    return total;
-  }, [faturaFechadaAtual, meus, meusRegistros, meusProcedimentos, insumos, refAtual]);
+    return r.total || 0;
+  }, [faturaFechadaAtual, currentUser.id, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, refAtual]);
 
   const goHome = () => { setScreen('proprietario-home'); setTab('home'); };
 
@@ -303,9 +299,9 @@ export function ProprietarioApp({
           <EguaGestanteDetalheScreen
             id={selected} setScreen={shellSetScreen} setSelected={setSelected}
             cavalos={cavalos} proprietarios={proprietarios}
-            updateCavalo={() => {}} /* read-only */
+            updateCavalo={null} /* read-only: null esconde botões de edição */
             insumos={insumos}
-            addAviso={() => {}} addAtividade={() => {}}
+            addAviso={null} addAtividade={null}
             currentUser={{ ...currentUser, role: 'proprietario' }}
             partos={meusPartos}
           />
@@ -316,7 +312,7 @@ export function ProprietarioApp({
             id={selected} setScreen={shellSetScreen} setSelected={setSelected}
             registros={meusRegistros} procedimentos={meusProcedimentos}
             cavalos={cavalos} servicos={servicos}
-            updateCavalo={() => {}} deleteCavalo={() => {}}
+            updateCavalo={null} deleteCavalo={null} /* null → botões editar/excluir escondidos */
             proprietarios={proprietarios}
             deleteRegistro={null} updateRegistro={null} deleteProcedimento={null}
             insumos={insumos}
@@ -330,7 +326,8 @@ export function ProprietarioApp({
         id={currentUser.id} setScreen={goHome} setSelected={setSelected}
         registros={meusRegistros} proprietarios={proprietarios} cavalos={cavalos}
         insumos={insumos} movimentacoes={meusMovimentacoes}
-        faturaRef={refAtual} faturasFechadas={faturasFechadas}
+        faturaRef={faturaRefLocal} setFaturaRef={setFaturaRefLocal}
+        faturasFechadas={faturasFechadas}
         addFaturaFechada={null} removeFaturaFechada={null}
         currentUser={{ ...currentUser, role: 'proprietario' }}
         procedimentos={meusProcedimentos} servicos={servicos}
@@ -375,6 +372,56 @@ export function ProprietarioApp({
         />
       );
     }
+  } else if (screen === 'proprietario-cuidados') {
+    // Hub veterinário só com áreas permitidas ao proprietário — sem cronograma,
+    // sem emergências. Todos os handlers de escrita ficam null (read-only).
+    // O VeterinariaScreen filtra internamente pelos cavalos que recebe, então
+    // basta passar `meus` (só os do proprietário) — todo o resto (agendas,
+    // gestantes, etc.) fica automaticamente filtrado.
+    const anotacoesDosMeus = (vetData.anotacoesClinicas || []).filter(a => meusIds.has(a.cavaloId));
+    const medicoesDosMeus = (vetData.medicoes || []).filter(m => meusIds.has(m.cavaloId));
+    const examesDosMeus = (vetData.exames || []).filter(e => meusIds.has(e.cavaloId));
+    const reproDosMeus = (vetData.registrosReproducao || []).filter(r => meusIds.has(r.eguaId));
+    const vacinacoesDosMeus = (vetData.vacinacoesAnimais || []).filter(v => meusIds.has(v.cavaloId));
+    const vermifugacoesDosMeus = (vetData.vermifugacoesAnimais || []).filter(v => meusIds.has(v.cavaloId));
+    const opgsDosMeus = (vetData.opgs || []).filter(o => meusIds.has(o.cavaloId));
+
+    content = (
+      <VeterinariaScreen
+        setScreen={setScreen} setSelected={setSelected}
+        partos={meusPartos} cavalos={meus}
+        proprietarios={proprietarios} movimentacoes={meusMovimentacoes}
+        insumos={insumos} servicos={servicos}
+        registros={meusRegistros} procedimentos={meusProcedimentos}
+        empresaInfo={empresaInfo || {}}
+        currentUser={{ ...currentUser, role: 'proprietario' }}
+        // Todos os add/update/delete = null → sub-telas escondem UI de escrita
+        addRegistro={null} addAtividade={null} addProcedimento={null} addAviso={null}
+        deleteRegistro={null} deleteProcedimento={null}
+        protocolosVacinacao={vetData.protocolosVacinacao || []} vacinacoesAnimais={vacinacoesDosMeus}
+        addProtocoloVacinacao={null} updateProtocoloVacinacao={null} deleteProtocoloVacinacao={null}
+        upsertVacinacaoAnimal={null}
+        protocolosVermifugacao={vetData.protocolosVermifugacao || []} vermifugacoesAnimais={vermifugacoesDosMeus}
+        opgs={opgsDosMeus}
+        addProtocoloVermifugacao={null} updateProtocoloVermifugacao={null} deleteProtocoloVermifugacao={null}
+        addVermifugacaoAnimal={null} addOpg={null} updateOpg={null} deleteOpg={null}
+        medicoes={medicoesDosMeus}
+        addMedicao={null} updateMedicao={null} deleteMedicao={null}
+        anotacoesClinicas={anotacoesDosMeus}
+        addAnotacaoClinica={null} updateAnotacaoClinica={null} deleteAnotacaoClinica={null}
+        exames={examesDosMeus}
+        uploadExame={null} deleteExame={null}
+        registrosReproducao={reproDosMeus}
+        addRegistroReproducao={null} deleteRegistroReproducao={null}
+        // Emergências: passamos arrays vazios pois a seção não é permitida
+        emergencias={[]} emergMedicacoes={[]} emergAgendas={[]}
+        emergParametros={[]} emergNotas={[]} emergExames={[]}
+        frascosAbertos={[]}
+        progProgramas={vetData.progProgramas || []} progAplicacoes={vetData.progAplicacoes || []}
+        // sectionsAllowed limita o hub — sem cronograma, sem emergências
+        sectionsAllowed={['anotacoes', 'reproducao', 'gestacao', 'vacinacao', 'vermifugacao', 'desenvolvimento', 'exames', 'relatorio']}
+      />
+    );
   } else if (screen === 'proprietario-conta') {
     content = (
       <ProprietarioConta

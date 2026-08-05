@@ -1606,32 +1606,41 @@ const loadAllData = async () => {
     content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
   }
   // ─── Gates de onboarding do proprietário ────────────────────
-  // ORDEM RÍGIDA: senha → cadastro → contrato. Cada gate só chama
-  // onComplete quando sua etapa está DE FATO gravada no banco (Optimistic
-  // update no currentUser). Sem useEffect, sem setScreen — o próximo
-  // if do gate simplesmente assume no re-render. Isso elimina o risco
-  // de loop de redirect que o usuário mencionou.
-  else if (currentUser.role === 'proprietario' && currentUser.senhaProvisoria) {
+  // ORDEM RÍGIDA: senha → cadastro → contrato.
+  // Lê o estado direto do BANCO (proprietarios array vem do DB) em vez do
+  // snapshot do currentUser em localStorage — que fica desatualizado após
+  // refresh de página. Assim, se o banco já diz contrato_status='assinado',
+  // o gate é pulado mesmo que o localStorage esteja com valor antigo.
+  else if (currentUser.role === 'proprietario' && (() => {
+    const p = proprietarios.find(x => x.id === currentUser.id);
+    return p ? p.senhaProvisoria : currentUser.senhaProvisoria;
+  })()) {
     content = <TrocarSenhaScreen
       currentUser={currentUser}
       onComplete={(patch) => setCurrentUser(u => ({ ...u, ...patch }))}
       onLogout={handleLogout}
     />;
   }
-  else if (currentUser.role === 'proprietario' && !currentUser.cadastroCompleto) {
+  else if (currentUser.role === 'proprietario' && (() => {
+    const p = proprietarios.find(x => x.id === currentUser.id);
+    return p ? !p.cadastroCompleto : !currentUser.cadastroCompleto;
+  })()) {
     const propAtual = proprietarios.find(p => p.id === currentUser.id);
     content = <CadastroCompletoScreen
       currentUser={currentUser}
       proprietarioAtual={propAtual}
       onComplete={async (patch) => {
-        // Grava no banco antes de avançar o gate — assim se falhar, gate segura.
         await updateProprietario(currentUser.id, patch);
         setCurrentUser(u => ({ ...u, cadastroCompleto: true }));
       }}
       onLogout={handleLogout}
     />;
   }
-  else if (currentUser.role === 'proprietario' && currentUser.contratoStatus !== 'assinado') {
+  else if (currentUser.role === 'proprietario' && (() => {
+    const p = proprietarios.find(x => x.id === currentUser.id);
+    const status = p ? p.contratoStatus : currentUser.contratoStatus;
+    return status !== 'assinado';
+  })()) {
     const propAtual = proprietarios.find(p => p.id === currentUser.id);
     content = <AssinaturaContratoScreen
       currentUser={currentUser}
@@ -1659,6 +1668,13 @@ const loadAllData = async () => {
       partos={partos}
       faturaRef={faturaRef}
       setFaturaRef={setFaturaRef}
+      empresaInfo={empresaInfo}
+      vetData={{
+        anotacoesClinicas, medicoes, exames, registrosReproducao,
+        protocolosVacinacao, vacinacoesAnimais,
+        protocolosVermifugacao, vermifugacoesAnimais, opgs,
+        progProgramas, progAplicacoes,
+      }}
       onLogout={handleLogout}
     />;
   }

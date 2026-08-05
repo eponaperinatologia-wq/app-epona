@@ -583,6 +583,9 @@ export function VeterinariaScreen({
   addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
   updateProgesteronaAplicacao,
   initialSecao = null,
+  // Se fornecido, filtra o hub para mostrar apenas essas seções
+  // (uso: proprietário só vê áreas permitidas — sem emergências/cronograma).
+  sectionsAllowed = null,
 }) {
   const [secao, setSecao] = useState(initialSecao);
 
@@ -835,6 +838,11 @@ export function VeterinariaScreen({
     },
   ];
 
+  // Filtra os cards se veio uma lista permitida (uso pelo shell do proprietário)
+  const cardsMostrados = sectionsAllowed
+    ? CARDS.filter(c => sectionsAllowed.includes(c.id))
+    : CARDS;
+
   return (
     <div style={{ paddingBottom: 90, overflowY: 'auto', height: '100%' }}>
       <div style={{ padding: '20px 20px 8px' }}>
@@ -843,7 +851,7 @@ export function VeterinariaScreen({
           {cavalos.filter(c => c.presente).length} animais presentes
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-          {CARDS.map(card => (
+          {cardsMostrados.map(card => (
             <button key={card.id} onClick={() => !card.emBreve && setSecao(card.id)} style={{
               background: card.emBreve ? 'var(--soft)' : 'var(--card)',
               border: `1.5px solid ${card.emBreve ? 'var(--line)' : card.bg}`,

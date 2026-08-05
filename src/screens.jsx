@@ -5566,7 +5566,8 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [], setMesRegistroDestino }) => {
+const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [], setMesRegistroDestino }) => {
+  const isProprietarioView = currentUser?.role === 'proprietario';
   const [shareOpen, setShareOpen] = useState(false);
   const [editRegId, setEditRegId] = useState(null);
   const [editQtd, setEditQtd] = useState('');
@@ -5743,6 +5744,17 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const idxAtual = faturasOrdenadas.findIndex(pr => pr.id === id);
   const proxProp = idxAtual >= 0 && idxAtual < faturasOrdenadas.length - 1 ? faturasOrdenadas[idxAtual + 1] : null;
 
+  // Navegação entre meses da fatura. Nunca deixa passar do mês atual
+  // pra frente — não faz sentido faturar futuro.
+  const isCurrentMonth = ref.ano === hoje.getFullYear() && ref.mes === (hoje.getMonth() + 1);
+  const navMes = (delta) => {
+    if (!setFaturaRef) return;
+    let m = ref.mes + delta, a = ref.ano;
+    if (m < 1) { m = 12; a--; }
+    if (m > 12) { m = 1; a++; }
+    setFaturaRef({ ano: a, mes: m });
+  };
+
   return (
     <div style={{ paddingBottom: 110, background: 'var(--soft)', minHeight: '100%' }}>
       <TopBar title="Fatura" subtitle={`${p.nome} · ${mesNome} ${ref.ano}`} onBack={() => setScreen('faturas')} action={
@@ -5754,6 +5766,34 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
           <Icon name="share" size={14} color="#fff" /> PDF
         </button>
       } />
+
+      {/* Navegação horizontal entre meses — precisa de setFaturaRef */}
+      {setFaturaRef && (
+        <div style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 16px 0', background: 'var(--soft)',
+        }}>
+          <button onClick={() => navMes(-1)} style={{
+            background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 10, padding: '6px 14px', fontSize: 18, color: 'var(--ink-2)',
+            cursor: 'pointer', lineHeight: 1,
+          }}>‹</button>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
+              {mesNome} · {ref.ano}
+            </div>
+            {isCurrentMonth && (
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>mês atual · em tempo real</div>
+            )}
+          </div>
+          <button onClick={() => navMes(1)} disabled={isCurrentMonth} style={{
+            background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 10, padding: '6px 14px', fontSize: 18, color: 'var(--ink-2)',
+            cursor: isCurrentMonth ? 'default' : 'pointer', lineHeight: 1,
+            opacity: isCurrentMonth ? 0.3 : 1,
+          }}>›</button>
+        </div>
+      )}
 
       {/* "Folha" da fatura */}
       <div style={{ padding: '16px 16px 0' }}>
@@ -6006,7 +6046,8 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
         )}
       </div>
 
-      {proxProp && setSelected && (
+      {/* Próxima fatura só faz sentido pro admin (navegação entre proprietários). */}
+      {proxProp && setSelected && !isProprietarioView && (
         <div style={{ padding: '10px 16px 0' }}>
           <button
             onClick={() => { setSelected(proxProp.id); setScreen('faturaDetalhe'); window.scrollTo({ top: 0, behavior: 'instant' }); }}
