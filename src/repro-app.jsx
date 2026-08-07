@@ -1,7 +1,7 @@
 // repro-app.jsx — Shell do Epona Repro Team.
 // Fase 1: Home + Locais + Proprietários (workspace='repro') + Éguas + Caderno + Conta.
 // Fase 2 (depois): DG, dashboard, cores no calendário, faturamento km.
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Icon } from './icons';
 import { norm, formatBRL } from './data';
 import { TopBar } from './screens';
