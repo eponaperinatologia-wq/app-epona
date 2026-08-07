@@ -87,10 +87,9 @@ export function TrocarSenhaVetScreen({ currentUser, onComplete, onLogout }) {
 function TabBar({ tab, setTab, setScreen }) {
   const abas = [
     { id: 'home', label: 'Início', icon: 'home', screen: 'repro-home' },
-    { id: 'locais', label: 'Locais', icon: 'building', screen: 'repro-locais' },
-    { id: 'proprietarios', label: 'Prop.', icon: 'user', screen: 'repro-proprietarios' },
-    { id: 'eguas', label: 'Éguas', icon: 'horse', screen: 'repro-eguas' },
     { id: 'caderno', label: 'Caderno', icon: 'edit', screen: 'repro-caderno' },
+    { id: 'cadastros', label: 'Cadastros', icon: 'menu', screen: 'repro-cadastros' },
+    { id: 'cobrancas', label: 'Cobranças', icon: 'doc', screen: 'repro-cobrancas' },
     { id: 'conta', label: 'Conta', icon: 'user', screen: 'repro-conta' },
   ];
   return (
@@ -117,21 +116,23 @@ function TabBar({ tab, setTab, setScreen }) {
 // ─────────────────────────────────────────────────────────────
 // Home
 // ─────────────────────────────────────────────────────────────
-function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosRepro, setScreen, setTab }) {
+function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosRepro, setScreen, setTab, goCadastros }) {
   const nome = (currentUser.nome || '').split(/\s+/)[0];
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
   const hojeStr = new Date().toLocaleDateString('sv-SE');
   const meusRegistrosHoje = (registrosRepro || []).filter(r => r.data === hojeStr && r.vetId === currentUser.id).length;
 
-  const goToTab = (t, s) => { setTab(t); setScreen(s); };
-
   const stats = [
-    { label: 'Locais', value: locaisRepro.length, tab: 'locais', screen: 'repro-locais' },
-    { label: 'Proprietários', value: propRepro.length, tab: 'proprietarios', screen: 'repro-proprietarios' },
-    { label: 'Éguas', value: eguasRepro.length, tab: 'eguas', screen: 'repro-eguas' },
-    { label: 'Meus regs hoje', value: meusRegistrosHoje, tab: 'caderno', screen: 'repro-caderno' },
+    { label: 'Locais', value: locaisRepro.length, cadSub: 'locais' },
+    { label: 'Proprietários', value: propRepro.length, cadSub: 'proprietarios' },
+    { label: 'Éguas', value: eguasRepro.length, cadSub: 'eguas' },
+    { label: 'Meus regs hoje', value: meusRegistrosHoje, screen: 'repro-caderno', tab: 'caderno' },
   ];
+  const abrirStat = (s) => {
+    if (s.cadSub) goCadastros(s.cadSub);
+    else { setTab(s.tab); setScreen(s.screen); }
+  };
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
@@ -144,9 +145,9 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 20 }}>Epona Repro Team</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 20 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 16 }}>
         {stats.map(s => (
-          <button key={s.label} onClick={() => goToTab(s.tab, s.screen)} style={{
+          <button key={s.label} onClick={() => abrirStat(s)} style={{
             background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
             padding: '14px 14px', textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
           }}>
@@ -156,10 +157,11 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
         ))}
       </div>
 
-      <button onClick={() => goToTab('caderno', 'repro-caderno')} style={{
+      <button onClick={() => { setTab('caderno'); setScreen('repro-caderno'); }} style={{
         width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
         border: 'none', borderRadius: 16, padding: '20px 18px', cursor: 'pointer',
         display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+        marginBottom: 12,
         boxShadow: '0 8px 20px rgba(124,45,140,0.22)',
       }}>
         <div style={{
@@ -173,6 +175,21 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
           <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Nova IA / TE / diagnóstico</div>
         </div>
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
+      </button>
+
+      <button onClick={() => goCadastros('locais')} style={{
+        width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+        padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
+        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+      }}>
+        <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center' }}>
+          <Icon name="menu" size={18} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 15 }}>Cadastros</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Locais · Proprietários · Éguas · Insumos · Serviços</div>
+        </div>
+        <span style={{ fontSize: 18, opacity: 0.6 }}>›</span>
       </button>
     </div>
   );
@@ -215,7 +232,7 @@ function ReproConta({ currentUser, onLogout }) {
 // ─────────────────────────────────────────────────────────────
 // Locais (CRUD)
 // ─────────────────────────────────────────────────────────────
-function ReproLocais({ locaisRepro, addLocalRepro, updateLocalRepro, deleteLocalRepro }) {
+function ReproLocais({ locaisRepro, vetsExternos = [], vetKmLocais = [], addLocalRepro, updateLocalRepro, deleteLocalRepro, onOpen }) {
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -267,32 +284,57 @@ function ReproLocais({ locaisRepro, addLocalRepro, updateLocalRepro, deleteLocal
             {busca ? 'Nenhum local encontrado.' : 'Nenhum local cadastrado. Toque em + para criar.'}
           </div>
         )}
-        {lista.map(l => (
-          <div key={l.id} style={{
-            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-            padding: '14px 16px', marginBottom: 8,
-            display: 'flex', alignItems: 'center', gap: 12,
-          }}>
-            <div style={{
-              width: 38, height: 38, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)',
-              display: 'grid', placeItems: 'center', flexShrink: 0,
-            }}>
-              <Icon name="building" size={18} />
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{l.nome}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
-                {[l.cidade, l.estado].filter(Boolean).join(' / ') || l.endereco || '—'}
+        {lista.map(l => {
+          // Cores dos vets que já cadastraram km neste local
+          const vetsCadastrados = vetKmLocais
+            .filter(k => k.localId === l.id)
+            .map(k => vetsExternos.find(v => v.id === k.vetId))
+            .filter(Boolean);
+          const clickable = !!onOpen;
+          return (
+            <div
+              key={l.id}
+              onClick={clickable ? () => onOpen(l) : undefined}
+              style={{
+                background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+                padding: '14px 16px', marginBottom: 8,
+                display: 'flex', alignItems: 'center', gap: 12,
+                cursor: clickable ? 'pointer' : 'default',
+              }}
+            >
+              <div style={{
+                width: 38, height: 38, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)',
+                display: 'grid', placeItems: 'center', flexShrink: 0,
+              }}>
+                <Icon name="building" size={18} />
               </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{l.nome}</div>
+                <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                  {[l.cidade, l.estado].filter(Boolean).join(' / ') || l.endereco || '—'}
+                </div>
+                {vetsCadastrados.length > 0 && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6, flexWrap: 'wrap' }}>
+                    {vetsCadastrados.map(v => (
+                      <div key={v.id} title={v.nome} style={{
+                        width: 8, height: 8, borderRadius: 8, background: v.cor || '#7c2d8c',
+                      }} />
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); abrirEditar(l); }}
+                style={{
+                  width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
+                  background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
+                }}
+              >
+                <Icon name="edit" size={14} />
+              </button>
             </div>
-            <button onClick={() => abrirEditar(l)} style={{
-              width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
-              background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
-            }}>
-              <Icon name="edit" size={14} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {showForm && (
@@ -327,7 +369,7 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ nome: '', telefone: '', email: '' });
+  const [form, setForm] = useState({ nome: '', telefone: '', email: '', valorResultadoRepro: '' });
 
   const lista = [...propRepro]
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
@@ -335,24 +377,29 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
 
   const abrirNovo = () => {
     setEditId(null);
-    setForm({ nome: '', telefone: '', email: '' });
+    setForm({ nome: '', telefone: '', email: '', valorResultadoRepro: '' });
     setShowForm(true);
   };
   const abrirEditar = (p) => {
     setEditId(p.id);
-    setForm({ nome: p.nome, telefone: p.telefone || '', email: p.email || '' });
+    setForm({
+      nome: p.nome, telefone: p.telefone || '', email: p.email || '',
+      valorResultadoRepro: p.valorResultadoRepro ? String(p.valorResultadoRepro) : '',
+    });
     setShowForm(true);
   };
   const salvar = () => {
     if (!form.nome.trim()) return;
+    const valorRR = parseFloat(String(form.valorResultadoRepro).replace(',', '.')) || 0;
+    const patch = {
+      nome: form.nome.trim(), telefone: form.telefone, email: form.email,
+      valorResultadoRepro: valorRR, workspaceId: 'repro',
+    };
     if (editId) {
-      updateProprietario(editId, { ...form, workspaceId: 'repro' });
+      updateProprietario(editId, patch);
     } else {
-      // addProprietario apenas cria com nome; depois updateProprietario com resto
       const id = addProprietario(form.nome.trim(), 'repro');
-      if (id && (form.telefone || form.email)) {
-        updateProprietario(id, { ...form, workspaceId: 'repro' });
-      }
+      if (id) updateProprietario(id, patch);
     }
     setShowForm(false);
   };
@@ -416,6 +463,9 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
           <FormField label="Nome"><input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} autoFocus /></FormField>
           <FormField label="Telefone"><input value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} style={inputStyle} placeholder="(11) 99999-9999" /></FormField>
           <FormField label="Email"><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></FormField>
+          <FormField label="Valor do resultado reprodutivo (R$) — cobrado quando DG30+">
+            <input type="number" min="0" step="0.01" value={form.valorResultadoRepro} onChange={e => setForm(f => ({ ...f, valorResultadoRepro: e.target.value }))} style={inputStyle} placeholder="0,00" />
+          </FormField>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {editId && deleteProprietario && (
               <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteProprietario(editId); setShowForm(false); } }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640', background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Excluir</button>
@@ -1137,24 +1187,448 @@ const DetalheLinha = ({ label, valor }) => {
 };
 
 // ─────────────────────────────────────────────────────────────
+// Cadastros — wrapper com 5 sub-abas: Locais / Proprietários /
+// Éguas / Insumos / Serviços. Substitui as antigas telas soltas.
+// ─────────────────────────────────────────────────────────────
+function ReproCadastros({
+  currentUser, vetsExternos, locaisRepro, propRepro, eguasRepro,
+  insumos, servicos,
+  addLocalRepro, updateLocalRepro, deleteLocalRepro,
+  addProprietario, updateProprietario, deleteProprietario,
+  addCavalo, updateCavalo, deleteCavalo,
+  addInsumo, updateInsumo, deleteInsumo,
+  addServico, updateServico, deleteServico,
+  vetKmLocais,
+  subInicial = 'locais',
+  onOpenLocal,
+}) {
+  const [sub, setSub] = useState(subInicial);
+
+  const abas = [
+    ['locais', 'Locais'],
+    ['proprietarios', 'Proprietários'],
+    ['eguas', 'Éguas'],
+    ['insumos', 'Insumos'],
+    ['servicos', 'Serviços'],
+  ];
+
+  return (
+    <div>
+      <TopBar title="Cadastros" subtitle="Locais · Propr · Éguas · Insumos · Serv" />
+      <div style={{
+        display: 'flex', overflowX: 'auto', borderBottom: '1px solid var(--line)', background: 'var(--bg)',
+      }}>
+        {abas.map(([id, lbl]) => (
+          <button key={id} onClick={() => setSub(id)} style={{
+            flex: '1 0 auto', minWidth: 90, padding: '10px 8px', border: 'none', background: 'none',
+            borderBottom: `2px solid ${sub === id ? CORES_TAB_ATIVA : 'transparent'}`,
+            color: sub === id ? CORES_TAB_ATIVA : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)', whiteSpace: 'nowrap',
+          }}>{lbl}</button>
+        ))}
+      </div>
+
+      {sub === 'locais' && (
+        <ReproLocais
+          locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
+          vetKmLocais={vetKmLocais}
+          addLocalRepro={addLocalRepro}
+          updateLocalRepro={updateLocalRepro}
+          deleteLocalRepro={deleteLocalRepro}
+          onOpen={onOpenLocal}
+        />
+      )}
+      {sub === 'proprietarios' && (
+        <ReproProprietarios
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          addProprietario={addProprietario}
+          updateProprietario={updateProprietario}
+          deleteProprietario={deleteProprietario}
+        />
+      )}
+      {sub === 'eguas' && (
+        <ReproEguas
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          addCavalo={addCavalo}
+          updateCavalo={updateCavalo}
+          deleteCavalo={deleteCavalo}
+        />
+      )}
+      {sub === 'insumos' && (
+        <ReproCobCatalogo
+          tipo="insumos"
+          itens={insumos}
+          addItem={addInsumo}
+          updateItem={updateInsumo}
+          deleteItem={deleteInsumo}
+        />
+      )}
+      {sub === 'servicos' && (
+        <ReproCobCatalogo
+          tipo="servicos"
+          itens={servicos}
+          addItem={addServico}
+          updateItem={updateServico}
+          deleteItem={deleteServico}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Detalhe do local — mostra dados + km cadastrado por cada vet
+// (colorido). Qualquer vet pode ver a lista, cada um só edita
+// seu próprio valor via aba Cobranças.
+// ─────────────────────────────────────────────────────────────
+function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit }) {
+  const kmDoLocal = vetKmLocais.filter(k => k.localId === local.id);
+  const linhas = vetsExternos.map(v => {
+    const k = kmDoLocal.find(x => x.vetId === v.id);
+    return { vet: v, valor: k ? Number(k.valor) : null };
+  });
+
+  return (
+    <div>
+      <TopBar title={local.nome} subtitle="Local atendido" action={
+        <button onClick={onEdit} style={{
+          width: 36, height: 36, borderRadius: 12, border: '1px solid var(--line)', background: 'var(--card)',
+          display: 'grid', placeItems: 'center', cursor: 'pointer', color: 'var(--ink-2)',
+        }}>
+          <Icon name="edit" size={16} />
+        </button>
+      } />
+      <div style={{ padding: '4px 20px 0' }}>
+        <button onClick={onBack} style={{
+          background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
+          padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="arrow-left" size={14} /> Voltar
+        </button>
+      </div>
+      <div style={{ padding: '10px 20px' }}>
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+          padding: 14, marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8 }}>Dados do local</div>
+          <DetalheLinha label="Endereço" valor={local.endereco || '—'} />
+          <DetalheLinha label="Cidade" valor={[local.cidade, local.estado].filter(Boolean).join(' / ') || '—'} />
+          {local.observacoes && <DetalheLinha label="Observações" valor={local.observacoes} />}
+        </div>
+
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>Km por veterinário</div>
+          {linhas.length === 0 && (
+            <div style={{ color: 'var(--ink-3)', fontSize: 13, padding: '6px 0' }}>Sem vets cadastrados.</div>
+          )}
+          {linhas.map(({ vet, valor }) => (
+            <div key={vet.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '8px 0',
+              borderTop: '1px solid var(--line-soft, var(--line))',
+            }}>
+              <div style={{
+                width: 10, height: 10, borderRadius: 10, background: vet.cor || '#7c2d8c', flexShrink: 0,
+              }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)' }}>{vet.nome}</div>
+              </div>
+              <div style={{
+                fontFamily: 'var(--serif)', fontSize: 14,
+                color: valor === null ? 'var(--ink-3)' : 'var(--ink)',
+              }}>
+                {valor === null ? '—' : formatBRL(valor)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Cobranças — apenas Km por local do vet logado (insumos e
+// serviços agora vivem em Cadastros).
+// ─────────────────────────────────────────────────────────────
+function ReproCobrancas({ currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal }) {
+  return (
+    <div>
+      <TopBar title="Cobranças" subtitle="Km por local — sua tabela" />
+      <ReproCobKm
+        currentUser={currentUser}
+        locaisRepro={locaisRepro}
+        vetKmLocais={vetKmLocais}
+        upsertVetKmLocal={upsertVetKmLocal}
+      />
+    </div>
+  );
+}
+
+// ── Sub-tela: km por local (só do vet logado) ──────────────
+function ReproCobKm({ currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal }) {
+  const [busca, setBusca] = useState('');
+  // Estado local do input (edição incremental) — sincroniza com o banco no blur.
+  const [rascunho, setRascunho] = useState({});
+
+  const lista = [...locaisRepro]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(l => !busca.trim() || norm(`${l.nome} ${l.cidade || ''}`).includes(norm(busca.trim())));
+
+  const valorAtual = (localId) => {
+    if (rascunho[localId] !== undefined) return rascunho[localId];
+    const k = vetKmLocais.find(x => x.vetId === currentUser.id && x.localId === localId);
+    return k ? String(k.valor) : '';
+  };
+
+  const salvar = (localId) => {
+    const v = rascunho[localId];
+    if (v === undefined) return;
+    const num = parseFloat(String(v).replace(',', '.')) || 0;
+    upsertVetKmLocal(currentUser.id, localId, num);
+    setRascunho(r => { const cp = { ...r }; delete cp[localId]; return cp; });
+  };
+
+  return (
+    <div>
+      <div style={{ padding: '12px 20px 0' }}>
+        <div style={{
+          background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 12, fontSize: 12, color: '#6b21a8', lineHeight: 1.5,
+        }}>
+          Valor cobrado por <strong>visita</strong> em cada local (kilometragem). Se você atende
+          animais de vários proprietários no mesmo dia+local, o valor é rateado entre eles.
+        </div>
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar local…" />
+      </div>
+      <div style={{ padding: '12px 20px 20px' }}>
+        {locaisRepro.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            Cadastre locais antes (aba Início → Locais).
+          </div>
+        )}
+        {lista.map(l => {
+          const v = valorAtual(l.id);
+          const dirty = rascunho[l.id] !== undefined;
+          return (
+            <div key={l.id} style={{
+              background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+              padding: '12px 14px', marginBottom: 8,
+              display: 'flex', alignItems: 'center', gap: 10,
+            }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{l.nome}</div>
+                {(l.cidade || l.estado) && (
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{[l.cidade, l.estado].filter(Boolean).join(' / ')}</div>
+                )}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>R$</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={v}
+                  onChange={e => setRascunho(r => ({ ...r, [l.id]: e.target.value }))}
+                  onBlur={() => salvar(l.id)}
+                  placeholder="0,00"
+                  style={{
+                    width: 90, textAlign: 'right', padding: '8px 10px', borderRadius: 8,
+                    border: `1px solid ${dirty ? CORES_TAB_ATIVA : 'var(--line)'}`,
+                    background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', outline: 'none',
+                    fontFamily: 'var(--sans)',
+                  }}
+                />
+                {dirty && (
+                  <button onClick={() => salvar(l.id)} style={{
+                    padding: '8px 10px', borderRadius: 8, border: 'none', background: CORES_TAB_ATIVA, color: '#fff',
+                    fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>OK</button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Sub-tela: catálogo (insumos ou serviços) do workspace repro ──
+function ReproCobCatalogo({ tipo, itens, addItem, updateItem, deleteItem }) {
+  const [busca, setBusca] = useState('');
+  const [importando, setImportando] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState({ nome: '', valor: '' });
+
+  const doHaras = itens.filter(i => (i.workspaceId || 'haras') === 'haras');
+  const doRepro = itens.filter(i => i.workspaceId === 'repro');
+
+  const lista = [...doRepro]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(i => !busca.trim() || norm(i.nome || '').includes(norm(busca.trim())));
+
+  const importarDoHaras = async () => {
+    if (doHaras.length === 0) return;
+    if (!window.confirm(`Importar ${doHaras.length} ${tipo === 'insumos' ? 'insumo(s)' : 'serviço(s)'} do haras? Você poderá editar os valores sem afetar o haras.`)) return;
+    setImportando(true);
+    try {
+      // Clona cada item com id novo e workspace='repro'
+      const jaImportadosNomes = new Set(doRepro.map(i => (i.nome || '').toLowerCase()));
+      for (const item of doHaras) {
+        if (jaImportadosNomes.has((item.nome || '').toLowerCase())) continue;
+        const clone = {
+          ...item,
+          id: (tipo === 'insumos' ? 'i_r_' : 's_r_') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+          workspaceId: 'repro',
+        };
+        // eslint-disable-next-line no-await-in-loop
+        await addItem(clone);
+      }
+    } finally { setImportando(false); }
+  };
+
+  const abrirNovo = () => {
+    setEditId(null);
+    setForm({ nome: '', valor: '' });
+    setShowForm(true);
+  };
+  const abrirEditar = (i) => {
+    setEditId(i.id);
+    setForm({ nome: i.nome, valor: String(tipo === 'insumos' ? (i.valorVenda ?? 0) : (i.valor ?? 0)) });
+    setShowForm(true);
+  };
+  const salvar = () => {
+    if (!form.nome.trim()) return;
+    const valorNum = parseFloat(String(form.valor).replace(',', '.')) || 0;
+    if (editId) {
+      const patch = tipo === 'insumos' ? { nome: form.nome.trim(), valorVenda: valorNum } : { nome: form.nome.trim(), valor: valorNum };
+      updateItem(editId, patch);
+    } else {
+      const base = tipo === 'insumos'
+        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, workspaceId: 'repro' }
+        : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro' };
+      addItem(base);
+    }
+    setShowForm(false);
+  };
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+    border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <div>
+      <div style={{ padding: '12px 20px 0' }}>
+        <SearchBar value={busca} onChange={setBusca} placeholder={`Buscar ${tipo === 'insumos' ? 'insumo' : 'serviço'}…`} />
+      </div>
+      <div style={{ padding: '10px 20px 0', display: 'flex', gap: 8 }}>
+        <button onClick={abrirNovo} style={{
+          flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff',
+          fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+        }}>+ Novo</button>
+        {doHaras.length > 0 && (
+          <button onClick={importarDoHaras} disabled={importando} style={{
+            flex: 2, padding: '10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
+            fontSize: 12, fontWeight: 600, cursor: importando ? 'default' : 'pointer', fontFamily: 'var(--sans)', opacity: importando ? 0.6 : 1,
+          }}>{importando ? 'Importando…' : `Importar catálogo do haras (${doHaras.length})`}</button>
+        )}
+      </div>
+      <div style={{ padding: '12px 20px 20px' }}>
+        {lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {busca ? 'Nada encontrado.' : `Sem ${tipo === 'insumos' ? 'insumos' : 'serviços'} cadastrados. Toque "Importar catálogo do haras" pra clonar tudo.`}
+          </div>
+        )}
+        {lista.map(i => (
+          <div key={i.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+            padding: '12px 14px', marginBottom: 8,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{i.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                {tipo === 'insumos' ? `${i.categoria || '—'} · ${i.unidade || 'un'}` : (i.categoria || '—')}
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
+                {formatBRL(tipo === 'insumos' ? (i.valorVenda || 0) : (i.valor || 0))}
+              </div>
+              {tipo === 'insumos' && <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>por {i.unidade || 'un'}</div>}
+            </div>
+            <button onClick={() => abrirEditar(i)} style={{
+              width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
+              background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
+            }}>
+              <Icon name="edit" size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <Modal onClose={() => setShowForm(false)}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 14 }}>
+            {editId ? `Editar ${tipo === 'insumos' ? 'insumo' : 'serviço'}` : `Novo ${tipo === 'insumos' ? 'insumo' : 'serviço'}`}
+          </div>
+          <FormField label="Nome">
+            <input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} autoFocus />
+          </FormField>
+          <FormField label={tipo === 'insumos' ? 'Valor de venda (R$)' : 'Valor (R$)'}>
+            <input type="number" min="0" step="0.01" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} style={inputStyle} placeholder="0,00" />
+          </FormField>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            {editId && deleteItem && (
+              <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteItem(editId); setShowForm(false); } }} style={{
+                padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640', background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>Excluir</button>
+            )}
+            <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+            <button onClick={salvar} disabled={!form.nome.trim()} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: form.nome.trim() ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: form.nome.trim() ? 1 : 0.5 }}>{editId ? 'Salvar' : 'Criar'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Shell principal — decide qual tela renderizar
 // ─────────────────────────────────────────────────────────────
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
   insumos = [], servicos = [],
+  vetKmLocais = [], upsertVetKmLocal,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
   addCavalo, updateCavalo, deleteCavalo,
+  addInsumo, updateInsumo, deleteInsumo,
+  addServico, updateServico, deleteServico,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   onLogout,
 }) {
   const [screen, setScreen] = useState('repro-home');
   const [tab, setTab] = useState('home');
+  const [cadSub, setCadSub] = useState('locais');
+  const [localSelecionado, setLocalSelecionado] = useState(null);
 
   // Filtra dados por workspace='repro'
   const propRepro = useMemo(() => proprietarios.filter(p => p.workspaceId === 'repro'), [proprietarios]);
   const eguasRepro = useMemo(() => cavalos.filter(c => c.workspaceId === 'repro'), [cavalos]);
   const registrosRepro = useMemo(() => (registrosReproducao || []).filter(r => r.workspaceId === 'repro'), [registrosReproducao]);
+  const insumosRepro = useMemo(() => insumos.filter(i => i.workspaceId === 'repro' || i.workspaceId === 'haras'), [insumos]);
+  const servicosRepro = useMemo(() => servicos.filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras'), [servicos]);
+
+  const goCadastros = (sub = 'locais') => { setCadSub(sub); setLocalSelecionado(null); setTab('cadastros'); setScreen('repro-cadastros'); };
 
   let content;
   if (screen === 'repro-home') {
@@ -1166,31 +1640,52 @@ export function ReproApp({
       registrosRepro={registrosRepro}
       setScreen={setScreen}
       setTab={setTab}
+      goCadastros={goCadastros}
     />;
-  } else if (screen === 'repro-locais') {
-    content = <ReproLocais
-      locaisRepro={locaisRepro}
-      addLocalRepro={addLocalRepro}
-      updateLocalRepro={updateLocalRepro}
-      deleteLocalRepro={deleteLocalRepro}
-    />;
-  } else if (screen === 'repro-proprietarios') {
-    content = <ReproProprietarios
-      propRepro={propRepro}
-      locaisRepro={locaisRepro}
-      addProprietario={addProprietario}
-      updateProprietario={updateProprietario}
-      deleteProprietario={deleteProprietario}
-    />;
-  } else if (screen === 'repro-eguas') {
-    content = <ReproEguas
-      eguasRepro={eguasRepro}
-      propRepro={propRepro}
-      locaisRepro={locaisRepro}
-      addCavalo={addCavalo}
-      updateCavalo={updateCavalo}
-      deleteCavalo={deleteCavalo}
-    />;
+  } else if (screen === 'repro-cadastros') {
+    if (localSelecionado) {
+      const l = locaisRepro.find(x => x.id === localSelecionado) || null;
+      if (!l) {
+        setLocalSelecionado(null);
+        content = null;
+      } else {
+        content = <ReproLocalDetalhe
+          local={l}
+          vetsExternos={vetsExternos}
+          vetKmLocais={vetKmLocais}
+          onBack={() => setLocalSelecionado(null)}
+          onEdit={() => { setLocalSelecionado(null); /* edição via ReproLocais → botão edit */ }}
+        />;
+      }
+    } else {
+      content = <ReproCadastros
+        currentUser={currentUser}
+        vetsExternos={vetsExternos}
+        locaisRepro={locaisRepro}
+        propRepro={propRepro}
+        eguasRepro={eguasRepro}
+        insumos={insumosRepro}
+        servicos={servicosRepro}
+        vetKmLocais={vetKmLocais}
+        addLocalRepro={addLocalRepro}
+        updateLocalRepro={updateLocalRepro}
+        deleteLocalRepro={deleteLocalRepro}
+        addProprietario={addProprietario}
+        updateProprietario={updateProprietario}
+        deleteProprietario={deleteProprietario}
+        addCavalo={addCavalo}
+        updateCavalo={updateCavalo}
+        deleteCavalo={deleteCavalo}
+        addInsumo={addInsumo}
+        updateInsumo={updateInsumo}
+        deleteInsumo={deleteInsumo}
+        addServico={addServico}
+        updateServico={updateServico}
+        deleteServico={deleteServico}
+        subInicial={cadSub}
+        onOpenLocal={(l) => setLocalSelecionado(l.id)}
+      />;
+    }
   } else if (screen === 'repro-caderno') {
     content = <ReproCaderno
       registrosRepro={registrosRepro}
@@ -1202,6 +1697,13 @@ export function ReproApp({
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
+    />;
+  } else if (screen === 'repro-cobrancas') {
+    content = <ReproCobrancas
+      currentUser={currentUser}
+      locaisRepro={locaisRepro}
+      vetKmLocais={vetKmLocais}
+      upsertVetKmLocal={upsertVetKmLocal}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta currentUser={currentUser} onLogout={onLogout} />;
