@@ -16,10 +16,12 @@ export const fromDbCavalo = r => ({
   dataSaida: r.data_saida || '',
   maeId: r.mae_id || null,
   pagarOCusto: !!r.pagar_o_custo,
+  workspaceId: r.workspace_id || 'haras',
 });
 
 export const fromDbProprietario = r => ({
   id: r.id, nome: r.nome, telefone: r.telefone || '', email: r.email || '',
+  workspaceId: r.workspace_id || 'haras',
   // Acesso do proprietário — nunca trafega senha_hash pro cliente
   login: r.login || null,
   temAcesso: !!r.login && !!r.senha_hash,
@@ -50,11 +52,51 @@ export const fromDbInsumo = r => ({
   valorFrasco: Number(r.valor_frasco) || 0,
   validadeAposAbertaDias: Number(r.validade_apos_aberta_dias) || 0,
   capacidadePorFrasco: Number(r.capacidade_por_frasco) || 0,
+  workspaceId: r.workspace_id || 'haras',
 });
 
 export const fromDbServico = r => ({
   id: r.id, nome: r.nome, valor: Number(r.valor) || 0, categoria: r.categoria,
   descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
+  workspaceId: r.workspace_id || 'haras',
+});
+
+// ── Vet externo (Epona Repro Team) ──────────────────────────
+// Auth via bcrypt (nunca trafega senha_hash pro cliente).
+export const fromDbVetExterno = r => ({
+  id: r.id, nome: r.nome, cor: r.cor || '#7c2d8c',
+  login: r.login || null,
+  temAcesso: !!r.login && !!r.senha_hash,
+  senhaProvisoria: !!r.senha_provisoria,
+  ativo: r.ativo !== false,
+});
+export const toDbVetExterno = v => ({
+  id: v.id, nome: v.nome, cor: v.cor || '#7c2d8c',
+  ativo: v.ativo !== false,
+});
+
+// ── Local do Repro (haras de terceiros que a equipe atende) ─
+export const fromDbLocalRepro = r => ({
+  id: r.id, workspaceId: r.workspace_id || 'repro',
+  nome: r.nome, endereco: r.endereco || '',
+  cidade: r.cidade || '', estado: r.estado || '',
+  observacoes: r.observacoes || '',
+});
+export const toDbLocalRepro = l => ({
+  id: l.id, workspace_id: l.workspaceId || 'repro',
+  nome: l.nome, endereco: l.endereco || '',
+  cidade: l.cidade || '', estado: l.estado || '',
+  observacoes: l.observacoes || '',
+});
+
+// ── Valor de km por vet + local ─────────────────────────────
+export const fromDbVetKmLocal = r => ({
+  id: r.id, vetId: r.vet_id, localId: r.local_id,
+  valor: Number(r.valor) || 0,
+});
+export const toDbVetKmLocal = k => ({
+  id: k.id, vet_id: k.vetId, local_id: k.localId,
+  valor: Number(k.valor) || 0,
 });
 
 export const fromDbFuncionario = r => ({
@@ -158,10 +200,12 @@ export const toDbCavalo = c => ({
   data_saida: c.dataSaida || null,
   mae_id: c.maeId || null,
   pagar_o_custo: !!c.pagarOCusto,
+  workspace_id: c.workspaceId || 'haras',
 });
 
 export const toDbProprietario = p => ({
   id: p.id, nome: p.nome, telefone: p.telefone || '', email: p.email || '',
+  workspace_id: p.workspaceId || 'haras',
   // Campos de cadastro completo (senha_hash NUNCA vai por aqui — só via RPC)
   nome_completo: p.nomeCompleto || null,
   rg: p.rg || null, cpf: p.cpf || null, profissao: p.profissao || null,
@@ -187,11 +231,13 @@ export const toDbInsumo = i => ({
   valor_frasco: Number(i.valorFrasco) || 0,
   validade_apos_aberta_dias: Number(i.validadeAposAbertaDias) || 0,
   capacidade_por_frasco: Number(i.capacidadePorFrasco) || 0,
+  workspace_id: i.workspaceId || 'haras',
 });
 
 export const toDbServico = s => ({
   id: s.id, nome: s.nome, valor: Number(s.valor) || 0, categoria: s.categoria,
   descartaveis_obrigatorios: s.descartaveisObrigatorios || [],
+  workspace_id: s.workspaceId || 'haras',
 });
 
 export const toDbFuncionario = f => ({
