@@ -158,3 +158,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 GRANT EXECUTE ON FUNCTION criar_credencial_vet_externo(TEXT, TEXT, TEXT) TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION verify_senha_vet_externo(TEXT, TEXT)          TO anon, authenticated;
 GRANT EXECUTE ON FUNCTION trocar_senha_vet_externo(TEXT, TEXT, TEXT)    TO anon, authenticated;
+
+-- ── Desabilita RLS (consistente com as demais tabelas do app) ─
+-- Sem isso, INSERT/UPDATE da chave anon falha com "row violates
+-- row-level security policy". As tabelas legadas foram criadas com
+-- RLS OFF; mantemos o mesmo padrão pras tabelas novas.
+ALTER TABLE vets_externos    DISABLE ROW LEVEL SECURITY;
+ALTER TABLE locais_repro     DISABLE ROW LEVEL SECURITY;
+ALTER TABLE vet_km_por_local DISABLE ROW LEVEL SECURITY;
