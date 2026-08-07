@@ -1544,7 +1544,10 @@ const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietari
     { id: 'cadServicos', label: 'Serviços', count: servicosCount, icon: 'stethoscope' },
     { id: 'cadMensalidades', label: 'Mensalidades', count: cavalosCount, icon: 'calendar' },
     { id: 'cadEmpresa', label: 'Dados da empresa', count: null, icon: 'building', sub: 'Endereço, pagamento e fatura' },
-    ...(currentUser?.role === 'admin' ? [{ id: 'funcionarios', label: 'Funcionários', count: null, icon: 'user' }] : []),
+    ...(currentUser?.role === 'admin' ? [
+      { id: 'funcionarios', label: 'Funcionários', count: null, icon: 'user', sub: 'Equipe e escalas' },
+      { id: 'cadVetsExternos', label: 'Epona Repro Team', count: null, icon: 'stethoscope', sub: 'Vets externos (login separado)' },
+    ] : []),
   ];
   return (
     <div style={{ paddingBottom: 90 }}>

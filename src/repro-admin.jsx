@@ -102,7 +102,7 @@ export function CadVetsExternosScreen({
       <TopBar
         title="Vets externos"
         subtitle="Epona Repro Team"
-        onBack={() => setScreen('equipe')}
+        onBack={() => setScreen('cadastros')}
         action={
           <button onClick={abrirNovo} style={{
             width: 36, height: 36, borderRadius: 12, background: '#7c2d8c',
