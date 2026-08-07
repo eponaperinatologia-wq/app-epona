@@ -1,6 +1,7 @@
 // reproducao.jsx — Módulo de Reprodução Equina
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { Icon } from './icons';
+import { norm } from './data';
 
 const pad2 = n => String(n).padStart(2, '0');
 const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`; };
@@ -318,6 +319,99 @@ function DiagnosticoGestacaoForm({ dados, onChange, iaRef, dataRegistro }) {
 }
 
 // ── Formulário Principal ──────────────────────────────────────────
+// Combobox de égua com busca — substitui o <select> nativo que só permitia
+// scroll da lista completa. Filtra por nome ou baia enquanto o usuário digita.
+function EguaCombobox({ value, onChange, eguas }) {
+  const [open, setOpen] = useState(false);
+  const [busca, setBusca] = useState('');
+  const wrapRef = useRef(null);
+
+  const selecionada = eguas.find(e => e.id === value);
+  const filtradas = useMemo(() => {
+    const q = busca.trim();
+    if (!q) return eguas;
+    return eguas.filter(e => norm(`${e.nome || ''} ${e.baia || ''}`).includes(norm(q)));
+  }, [eguas, busca]);
+
+  // Fecha ao clicar fora
+  useEffect(() => {
+    if (!open) return;
+    const onClickOutside = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  const escolher = (id) => {
+    onChange(id);
+    setBusca('');
+    setOpen(false);
+  };
+
+  const boxStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '9px 11px', fontSize: 13,
+    border: '1px solid var(--line)', borderRadius: 8,
+    background: 'var(--card)', color: 'var(--ink)', fontFamily: 'var(--sans)',
+    display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+  };
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <button type="button" onClick={() => setOpen(o => !o)} style={{ ...boxStyle, textAlign: 'left' }}>
+        <span style={{ flex: 1, color: selecionada ? 'var(--ink)' : 'var(--ink-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {selecionada ? selecionada.nome : '— Selecionar —'}
+        </span>
+        <span style={{ color: 'var(--ink-3)', fontSize: 10 }}>{open ? '▲' : '▼'}</span>
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 20,
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', overflow: 'hidden',
+        }}>
+          <div style={{ padding: '8px', borderBottom: '1px solid var(--line)' }}>
+            <input
+              autoFocus
+              value={busca}
+              onChange={e => setBusca(e.target.value)}
+              placeholder="Buscar por nome ou baia…"
+              style={{
+                width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8,
+                border: '1px solid var(--line)', background: 'var(--bg)',
+                fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+              }}
+            />
+          </div>
+          <div style={{ maxHeight: 260, overflowY: 'auto' }}>
+            {filtradas.length === 0 && (
+              <div style={{ padding: '12px', fontSize: 12, color: 'var(--ink-3)', textAlign: 'center' }}>
+                Nenhuma égua encontrada.
+              </div>
+            )}
+            {filtradas.map(e => (
+              <button
+                key={e.id}
+                type="button"
+                onClick={() => escolher(e.id)}
+                style={{
+                  width: '100%', textAlign: 'left', background: e.id === value ? 'var(--accent-soft)' : 'transparent',
+                  border: 'none', borderBottom: '1px solid var(--soft)',
+                  padding: '10px 12px', cursor: 'pointer', color: 'var(--ink)',
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 14, flex: 1 }}>{e.nome}</span>
+                {e.baia && <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{e.baia}</span>}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RegistroReprodutivoForm({ cavalos, insumos, registrosReproducao, initial, onSave, onCancel }) {
   const eguasPresentes = cavalos.filter(c => c.presente).sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
 
@@ -349,10 +443,11 @@ function RegistroReprodutivoForm({ cavalos, insumos, registrosReproducao, initia
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14 }}>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Égua *</div>
-          <select value={eguaId} onChange={e => setEguaId(e.target.value)} style={{ ...inputSt, padding: '9px 11px', fontSize: 13 }}>
-            <option value="">— Selecionar —</option>
-            {eguasPresentes.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
-          </select>
+          <EguaCombobox
+            value={eguaId}
+            onChange={setEguaId}
+            eguas={eguasPresentes}
+          />
         </div>
         <div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Data *</div>
