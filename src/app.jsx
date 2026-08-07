@@ -1,5 +1,5 @@
 // app.jsx — Main App Epona shell
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useTweaks, TweaksPanel, TweakSection, TweakRadio, TweakSelect } from './tweaks-panel';
 import { AddInsumoScreen, EditarInsumoScreen } from './insumo-form';
 import {
