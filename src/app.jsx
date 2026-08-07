@@ -24,6 +24,7 @@ import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
+import { CadVetsExternosScreen } from './repro-admin';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
 import { TrocarSenhaScreen, CadastroCompletoScreen, AssinaturaContratoScreen } from './proprietario-onboarding';
@@ -35,6 +36,8 @@ import { supabase } from './utils/supabase';
 import {
   fetchAll, dbInsert, dbInsertIgnore, dbUpdate, dbDelete,
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
+  fromDbVetExterno, toDbVetExterno,
+  fromDbLocalRepro, toDbLocalRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbLancamento, toDbLancamento,
@@ -91,6 +94,9 @@ function AppEpona() {
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [insumos, setInsumos] = useState([]);
   const [funcionarios, setFuncionarios] = useState([]);
+  // Vets externos (Epona Repro Team) e locais que atendem — workspace 'repro'
+  const [vetsExternos, setVetsExternos] = useState([]);
+  const [locaisRepro, setLocaisRepro] = useState([]);
   const [notas, setNotas] = useState({});
   const [eventos, setEventos] = useState([]);
   const [partos, setPartos] = useState([]);
@@ -170,7 +176,8 @@ const loadAllData = async () => {
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
-      progProgramasData, progAplicacoesData
+      progProgramasData, progAplicacoesData,
+      vetsExternosData, locaisReproData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -210,6 +217,8 @@ const loadAllData = async () => {
       fetchAll('frascos_abertos', fromDbFrascoAberto),
       fetchAll('progesterona_programas', fromDbProgesteronaPrograma),
       fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
+      fetchAll('vets_externos', fromDbVetExterno),
+      fetchAll('locais_repro', fromDbLocalRepro),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -246,6 +255,8 @@ const loadAllData = async () => {
     setFrascosAbertos(frascosData || []);
     setProgProgramas(progProgramasData || []);
     setProgAplicacoes(progAplicacoesData || []);
+    setVetsExternos(vetsExternosData || []);
+    setLocaisRepro(locaisReproData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
@@ -1136,6 +1147,46 @@ const loadAllData = async () => {
     }));
   };
 
+  // ── Vets Externos (Epona Repro Team) ─────────────────────────
+  const addVetExterno = (data) => {
+    const newId = 've_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { id: newId, nome: data.nome || 'Novo vet', cor: data.cor || '#7c2d8c', ativo: true };
+    setVetsExternos(prev => [...prev, novo]);
+    dbInsert('vets_externos', toDbVetExterno(novo));
+    return newId;
+  };
+  const updateVetExterno = (id, patch) => {
+    setVetsExternos(prev => prev.map(v => v.id === id ? { ...v, ...patch } : v));
+    const cur = vetsExternos.find(v => v.id === id);
+    dbUpdate('vets_externos', id, toDbVetExterno({ ...cur, ...patch }));
+  };
+  const refetchVetExterno = async (id) => {
+    const { data } = await supabase.from('vets_externos').select('*').eq('id', id).single();
+    if (data) setVetsExternos(prev => prev.map(v => v.id === id ? fromDbVetExterno(data) : v));
+  };
+  const deleteVetExterno = (id) => {
+    setVetsExternos(prev => prev.filter(v => v.id !== id));
+    dbDelete('vets_externos', id);
+  };
+
+  // ── Locais Repro (harás de terceiros que a equipe atende) ────
+  const addLocalRepro = (data) => {
+    const newId = 'loc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { id: newId, workspaceId: 'repro', ...data };
+    setLocaisRepro(prev => [...prev, novo]);
+    dbInsert('locais_repro', toDbLocalRepro(novo));
+    return newId;
+  };
+  const updateLocalRepro = (id, patch) => {
+    setLocaisRepro(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l));
+    const cur = locaisRepro.find(l => l.id === id);
+    dbUpdate('locais_repro', id, toDbLocalRepro({ ...cur, ...patch }));
+  };
+  const deleteLocalRepro = (id) => {
+    setLocaisRepro(prev => prev.filter(l => l.id !== id));
+    dbDelete('locais_repro', id);
+  };
+
   // ── Partos ────────────────────────────────────────────────────
   const addParto = (data) => {
     const newId = 'pt_' + Date.now();
@@ -1553,6 +1604,14 @@ const loadAllData = async () => {
       iniciais: fn.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase(),
     }));
 
+  // Segrega por workspace: telas do admin/vet/operacional só veem 'haras';
+  // o shell do repro filtra 'repro' internamente. Garante isolamento das
+  // duas contas paralelas mesmo que uma tela reutilizada esqueça de filtrar.
+  const proprietariosHaras = useMemo(() => proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras'), [proprietarios]);
+  const cavalosHaras       = useMemo(() => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalos]);
+  const insumosHaras       = useMemo(() => insumos.filter(i => (i.workspaceId || 'haras') === 'haras'), [insumos]);
+  const servicosHaras      = useMemo(() => servicos.filter(s => (s.workspaceId || 'haras') === 'haras'), [servicos]);
+
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
     if (!currentUser) return;
@@ -1707,6 +1766,7 @@ const loadAllData = async () => {
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registros} proprietarios={proprietarios} cavalos={cavalos} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} setMesRegistroDestino={setMesRegistroDestino} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
+  else if (screen === 'cadVetsExternos') content = <CadVetsExternosScreen setScreen={goScreen} vetsExternos={vetsExternos} addVetExterno={addVetExterno} updateVetExterno={updateVetExterno} deleteVetExterno={deleteVetExterno} refetchVetExterno={refetchVetExterno} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
   else if (screen === 'cronogramaVet') content = <VeterinariaScreen initialSecao="cronograma" setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
@@ -1727,7 +1787,7 @@ const loadAllData = async () => {
   // Proprietário nunca vê a TabBar do admin — ele tem shell próprio
   // (ProprietarioApp) OU está num gate de onboarding (troca senha, cadastro,
   // contrato) que NÃO deve mostrar tab bar por cima do form.
-  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','cadVetsExternos','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (

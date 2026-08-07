@@ -180,6 +180,25 @@ export function FuncionariosScreen({ setScreen, setSelected, funcionarios }) {
         }
       />
       <div style={{ padding: '14px 16px 0' }}>
+        {/* Atalho pro cadastro de vets externos (Epona Repro Team) */}
+        <button onClick={() => setScreen('cadVetsExternos')} style={{
+          width: '100%', background: 'linear-gradient(135deg, #7c2d8c, #591e6a)', color: '#fff',
+          border: 'none', borderRadius: 14, padding: '14px 16px', marginBottom: 14,
+          display: 'flex', alignItems: 'center', gap: 12, cursor: 'pointer', textAlign: 'left',
+          boxShadow: '0 6px 16px rgba(124,45,140,0.2)',
+        }}>
+          <div style={{
+            width: 40, height: 40, borderRadius: 10, background: 'rgba(255,255,255,0.18)',
+            display: 'grid', placeItems: 'center', flexShrink: 0,
+          }}>
+            <Icon name="stethoscope" size={20} color="#fff" />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 15 }}>Epona Repro Team</div>
+            <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>Vets externos (login separado)</div>
+          </div>
+          <span style={{ fontSize: 18, opacity: 0.85 }}>›</span>
+        </button>
         {funcionarios.map(fn => {
           const anivMsg = getProximoAniv(fn.aniversario);
           const diasTrabalhados = DIAS.filter(d => fn.escala?.[d.key]?.trabalha);
