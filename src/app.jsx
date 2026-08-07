@@ -39,6 +39,8 @@ import {
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
   fromDbVetExterno, toDbVetExterno,
   fromDbLocalRepro, toDbLocalRepro,
+  fromDbVetKmLocal, toDbVetKmLocal,
+  fromDbAvisoRepro, toDbAvisoRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbLancamento, toDbLancamento,
@@ -98,6 +100,8 @@ function AppEpona() {
   // Vets externos (Epona Repro Team) e locais que atendem — workspace 'repro'
   const [vetsExternos, setVetsExternos] = useState([]);
   const [locaisRepro, setLocaisRepro] = useState([]);
+  const [vetKmLocais, setVetKmLocais] = useState([]);
+  const [avisosRepro, setAvisosRepro] = useState([]);
   const [notas, setNotas] = useState({});
   const [eventos, setEventos] = useState([]);
   const [partos, setPartos] = useState([]);
@@ -178,7 +182,8 @@ const loadAllData = async () => {
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
-      vetsExternosData, locaisReproData,
+      vetsExternosData, locaisReproData, vetKmLocaisData,
+      avisosReproData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -220,6 +225,8 @@ const loadAllData = async () => {
       fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
       fetchAll('vets_externos', fromDbVetExterno),
       fetchAll('locais_repro', fromDbLocalRepro),
+      fetchAll('vet_km_por_local', fromDbVetKmLocal),
+      fetchAll('avisos_repro', fromDbAvisoRepro),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -258,6 +265,8 @@ const loadAllData = async () => {
     setProgAplicacoes(progAplicacoesData || []);
     setVetsExternos(vetsExternosData || []);
     setLocaisRepro(locaisReproData || []);
+    setVetKmLocais(vetKmLocaisData || []);
+    setAvisosRepro(avisosReproData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
@@ -923,6 +932,19 @@ const loadAllData = async () => {
       vet_id: r.vetId || null,
       local_id: r.localId || null,
     });
+    // IA repro marcando "transferência de embrião" cria um aviso persistente
+    // pra reservar receptora na central — visível a todo o time.
+    if (r.workspaceId === 'repro' && r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'transferencia') {
+      const egua = cavalos.find(c => c.id === r.eguaId);
+      const nomeEgua = (egua?.nome || 'ÉGUA').toUpperCase();
+      addAvisoRepro({
+        tipo: 'reservar_receptora',
+        texto: `RESERVAR RECEPTORA NA CENTRAL PARA ${nomeEgua}`,
+        eguaId: r.eguaId,
+        referenciaId: r.id,
+        criadoPor: r.vetId || null,
+      });
+    }
   };
   const updateRegistroReproducao = (id, patch) => {
     setRegistrosReproducao(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
@@ -940,6 +962,23 @@ const loadAllData = async () => {
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
     dbDelete('reproducao_registros', id);
+  };
+
+  // ── Avisos Repro (mural persistente) ──────────────────────
+  const addAvisoRepro = (a) => {
+    const novo = {
+      id: a.id || 'av_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      workspaceId: 'repro',
+      criadoEm: new Date().toISOString(),
+      ...a,
+    };
+    setAvisosRepro(prev => [novo, ...prev]);
+    dbInsert('avisos_repro', toDbAvisoRepro(novo));
+  };
+  const resolverAvisoRepro = (id, resolvedorId) => {
+    const agora = new Date().toISOString();
+    setAvisosRepro(prev => prev.map(a => a.id === id ? { ...a, resolvidoEm: agora, resolvidoPor: resolvedorId || null } : a));
+    dbUpdate('avisos_repro', id, { resolvido_em: agora, resolvido_por: resolvedorId || null });
   };
 
   // ── Custos Fixos CRUD ────────────────────────────────────
@@ -1206,6 +1245,25 @@ const loadAllData = async () => {
   const deleteLocalRepro = (id) => {
     setLocaisRepro(prev => prev.filter(l => l.id !== id));
     dbDelete('locais_repro', id);
+  };
+
+  // ── Valor de km por vet+local (Epona Repro Team) ─────────────
+  // Upsert por (vet_id, local_id) — cada vet cobra um valor próprio
+  // pelo mesmo local. Se já existe registro pro par, atualiza; senão,
+  // cria. Delete quando o valor for zerado explicitamente.
+  const upsertVetKmLocal = (vetId, localId, valor) => {
+    const existente = vetKmLocais.find(k => k.vetId === vetId && k.localId === localId);
+    if (existente) {
+      const patch = { valor: Number(valor) || 0 };
+      setVetKmLocais(prev => prev.map(k => k.id === existente.id ? { ...k, ...patch } : k));
+      dbUpdate('vet_km_por_local', existente.id, { valor: patch.valor });
+      return existente.id;
+    }
+    const newId = 'kml_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { id: newId, vetId, localId, valor: Number(valor) || 0 };
+    setVetKmLocais(prev => [...prev, novo]);
+    dbInsert('vet_km_por_local', toDbVetKmLocal(novo));
+    return newId;
   };
 
   // ── Partos ────────────────────────────────────────────────────
@@ -1763,6 +1821,9 @@ const loadAllData = async () => {
       currentUser={currentUser}
       vetsExternos={vetsExternos}
       locaisRepro={locaisRepro}
+      vetKmLocais={vetKmLocais}
+      avisosRepro={avisosRepro}
+      resolverAvisoRepro={resolverAvisoRepro}
       proprietarios={proprietarios}
       cavalos={cavalos}
       registrosReproducao={registrosReproducao}
@@ -1771,6 +1832,7 @@ const loadAllData = async () => {
       addLocalRepro={addLocalRepro}
       updateLocalRepro={updateLocalRepro}
       deleteLocalRepro={deleteLocalRepro}
+      upsertVetKmLocal={upsertVetKmLocal}
       addProprietario={addProprietario}
       updateProprietario={updateProprietario}
       deleteProprietario={deleteProprietario}
@@ -1780,6 +1842,12 @@ const loadAllData = async () => {
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
+      addInsumo={addInsumo}
+      updateInsumo={updateInsumo}
+      deleteInsumo={deleteInsumo}
+      addServico={addServico}
+      updateServico={updateServico}
+      deleteServico={deleteServico}
       onLogout={handleLogout}
     />;
   }

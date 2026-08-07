@@ -116,23 +116,27 @@ function TabBar({ tab, setTab, setScreen }) {
 // ─────────────────────────────────────────────────────────────
 // Home
 // ─────────────────────────────────────────────────────────────
-function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosRepro, setScreen, setTab, goCadastros }) {
+function ReproHome({
+  currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
+  registrosRepro, avisosRepro = [], resolverAvisoRepro,
+  setScreen, setTab, goCadastros,
+}) {
   const nome = (currentUser.nome || '').split(/\s+/)[0];
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
-  const hojeStr = new Date().toLocaleDateString('sv-SE');
-  const meusRegistrosHoje = (registrosRepro || []).filter(r => r.data === hojeStr && r.vetId === currentUser.id).length;
 
   const stats = [
     { label: 'Locais', value: locaisRepro.length, cadSub: 'locais' },
     { label: 'Proprietários', value: propRepro.length, cadSub: 'proprietarios' },
     { label: 'Éguas', value: eguasRepro.length, cadSub: 'eguas' },
-    { label: 'Meus regs hoje', value: meusRegistrosHoje, screen: 'repro-caderno', tab: 'caderno' },
+    { label: 'Insumos', value: 0, cadSub: 'insumos', ocultarValor: true },
   ];
   const abrirStat = (s) => {
     if (s.cadSub) goCadastros(s.cadSub);
     else { setTab(s.tab); setScreen(s.screen); }
   };
+
+  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
@@ -145,17 +149,11 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
       </div>
       <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 20 }}>Epona Repro Team</div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 16 }}>
-        {stats.map(s => (
-          <button key={s.label} onClick={() => abrirStat(s)} style={{
-            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-            padding: '14px 14px', textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
-          }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 24, letterSpacing: '-0.02em' }}>{s.value}</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{s.label}</div>
-          </button>
-        ))}
-      </div>
+      {avisosPend.length > 0 && (
+        <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
+      )}
+
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} />
 
       <button onClick={() => { setTab('caderno'); setScreen('repro-caderno'); }} style={{
         width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
@@ -177,6 +175,18 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
+        {stats.slice(0, 3).map(s => (
+          <button key={s.label} onClick={() => abrirStat(s)} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '12px 10px', textAlign: 'left', color: 'var(--ink)', cursor: 'pointer',
+          }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, letterSpacing: '-0.02em' }}>{s.value}</div>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginTop: 2 }}>{s.label}</div>
+          </button>
+        ))}
+      </div>
+
       <button onClick={() => goCadastros('locais')} style={{
         width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
         padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
@@ -193,6 +203,172 @@ function ReproHome({ currentUser, locaisRepro, propRepro, eguasRepro, registrosR
       </button>
     </div>
   );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Mural de avisos persistentes (RESERVAR RECEPTORA etc.)
+// ─────────────────────────────────────────────────────────────
+function MuralAvisos({ avisos, onResolver }) {
+  return (
+    <div style={{ marginBottom: 16 }}>
+      {avisos.map(a => (
+        <div key={a.id} style={{
+          background: '#fef3c7', border: '1px solid #f59e0b',
+          borderRadius: 12, padding: '12px 14px', marginBottom: 8,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 30, height: 30, borderRadius: 30, background: '#f59e0b', color: '#fff',
+            display: 'grid', placeItems: 'center', flexShrink: 0,
+          }}>
+            <Icon name="bell" size={14} />
+          </div>
+          <div style={{ flex: 1, fontSize: 13, color: '#78350f', fontWeight: 700, letterSpacing: '0.02em' }}>
+            {a.texto}
+          </div>
+          <button onClick={() => onResolver(a.id)} style={{
+            padding: '8px 12px', borderRadius: 8, border: 'none', background: '#f59e0b', color: '#fff',
+            fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>OK</button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Planner — agenda horizontal (atrasados, hoje, amanhã, próximos)
+// Cada evento pintado com a cor do vet responsável.
+// ─────────────────────────────────────────────────────────────
+function Planner({ registros, eguasRepro, vetsExternos }) {
+  const hoje = new Date().toLocaleDateString('sv-SE');
+
+  // Gera eventos a partir de: data, dataRetorno, dados.dataColetaAgendada
+  const eventos = [];
+  for (const r of (registros || [])) {
+    const dados = r.dados || {};
+    if (r.data) eventos.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data });
+    if (r.dataRetorno) eventos.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno });
+    if (dados.dataColetaAgendada) eventos.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
+  }
+
+  // Agrupa por chave (atrasado | hoje | dataISO)
+  const buckets = new Map();
+  const key = (dataEv) => {
+    if (dataEv < hoje) return 'atrasado';
+    if (dataEv === hoje) return 'hoje';
+    return dataEv;
+  };
+  for (const ev of eventos) {
+    const k = key(ev.dataEv);
+    if (!buckets.has(k)) buckets.set(k, []);
+    buckets.get(k).push(ev);
+  }
+
+  // Constrói lista ordenada: atrasado, hoje, próximos 7 dias
+  const proximos = [];
+  for (let i = 1; i <= 7; i++) proximos.push(addDias(hoje, i));
+  const ordem = ['atrasado', 'hoje', ...proximos];
+
+  const labelBucket = (k) => {
+    if (k === 'atrasado') return 'Atrasado';
+    if (k === 'hoje') return 'Hoje';
+    if (k === addDias(hoje, 1)) return 'Amanhã';
+    return fmtDataBrCurto(k);
+  };
+
+  const semNada = eventos.length === 0;
+
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+      padding: '12px 4px 14px', marginBottom: 12,
+    }}>
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 6, padding: '0 12px 8px',
+        borderBottom: '1px solid var(--line-soft, var(--line))', marginBottom: 8,
+      }}>
+        <Icon name="calendar" size={14} color="var(--ink-3)" />
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Agenda</div>
+      </div>
+
+      {semNada ? (
+        <div style={{ padding: '12px 14px', color: 'var(--ink-3)', fontSize: 12 }}>
+          Sem eventos agendados.
+        </div>
+      ) : (
+        <div style={{
+          display: 'flex', overflowX: 'auto', gap: 8, padding: '2px 12px 4px',
+          scrollSnapType: 'x mandatory',
+        }}>
+          {ordem.map(k => {
+            const evs = buckets.get(k) || [];
+            const destaque = (k === 'atrasado' && evs.length > 0) || k === 'hoje';
+            return (
+              <div key={k} style={{
+                flex: '0 0 200px', minWidth: 200, scrollSnapAlign: 'start',
+                background: destaque ? (k === 'atrasado' ? '#fee2e2' : '#f5e8ff') : 'var(--bg)',
+                border: `1px solid ${destaque ? (k === 'atrasado' ? '#fecaca' : '#e9d5ff') : 'var(--line)'}`,
+                borderRadius: 12, padding: '10px 10px',
+              }}>
+                <div style={{
+                  fontSize: 10, color: destaque ? (k === 'atrasado' ? '#991b1b' : '#6b21a8') : 'var(--ink-3)',
+                  textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6,
+                }}>
+                  {labelBucket(k)} {evs.length > 0 && <span style={{ opacity: 0.7 }}>· {evs.length}</span>}
+                </div>
+                {evs.length === 0 && (
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', padding: '4px 0' }}>—</div>
+                )}
+                {evs.map((ev, i) => {
+                  const vet = vetsExternos.find(v => v.id === ev.vetId);
+                  const egua = eguasRepro.find(e => e.id === ev.eguaId);
+                  const rotulo = {
+                    procedimento: ev.tipo === 'inseminacao_artificial' ? 'IA' :
+                                  ev.tipo === 'transferencia_embriao' ? 'TE' :
+                                  ev.tipo === 'controle_folicular' ? 'CF' : 'DG',
+                    retorno: 'Retorno',
+                    coleta: 'Coleta',
+                  }[ev.tipoEv];
+                  return (
+                    <div key={i} style={{
+                      background: 'var(--card)', border: '1px solid var(--line)',
+                      borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                      borderRadius: 8, padding: '6px 8px', marginTop: 4,
+                    }}>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {rotulo}
+                      </div>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25 }}>
+                        {egua?.nome || 'égua'}
+                      </div>
+                      {vet && (
+                        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
+                          {vet.nome.split(' ')[0]}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function eventoBase(r) {
+  return { id: r.id, eguaId: r.eguaId, vetId: r.vetId, tipo: r.tipo };
+}
+
+function fmtDataBrCurto(iso) {
+  if (!iso) return '';
+  const [, m, d] = iso.split('-');
+  const dias = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+  const dt = new Date(iso + 'T12:00:00');
+  return `${dias[dt.getDay()]} ${d}/${m}`;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -1608,6 +1784,7 @@ export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
+  avisosRepro = [], resolverAvisoRepro,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
   addCavalo, updateCavalo, deleteCavalo,
@@ -1637,7 +1814,10 @@ export function ReproApp({
       locaisRepro={locaisRepro}
       propRepro={propRepro}
       eguasRepro={eguasRepro}
+      vetsExternos={vetsExternos}
       registrosRepro={registrosRepro}
+      avisosRepro={avisosRepro}
+      resolverAvisoRepro={resolverAvisoRepro}
       setScreen={setScreen}
       setTab={setTab}
       goCadastros={goCadastros}

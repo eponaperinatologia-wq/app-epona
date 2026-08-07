@@ -15,11 +15,22 @@ const supabase = createClient(
 module.exports = async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { title, body, target } = req.body; // target: 'all' | 'admin'
+  // target aceito:
+  //   'all'                          → todos
+  //   'admin'                        → só admins
+  //   'repro'                        → todos os vets do repro team
+  //   { logins: ['a','b'] }          → subs específicos por user_login
+  //   { role: 'repro' }              → equivalente a 'repro'
+  const { title, body, target } = req.body;
   if (!title) return res.status(400).json({ error: 'title required' });
 
   let query = supabase.from('push_subscriptions').select('*');
-  if (target === 'admin') query = query.eq('role', 'admin');
+  if (typeof target === 'string') {
+    if (target === 'admin' || target === 'repro') query = query.eq('role', target);
+  } else if (target && typeof target === 'object') {
+    if (target.role) query = query.eq('role', target.role);
+    if (Array.isArray(target.logins) && target.logins.length > 0) query = query.in('user_login', target.logins);
+  }
 
   const { data: subs, error } = await query;
   if (error) return res.status(500).json({ error: error.message });

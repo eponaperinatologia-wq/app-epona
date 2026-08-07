@@ -101,6 +101,23 @@ export const toDbVetKmLocal = k => ({
   valor: Number(k.valor) || 0,
 });
 
+export const fromDbAvisoRepro = r => ({
+  id: r.id, workspaceId: r.workspace_id || 'repro',
+  tipo: r.tipo, texto: r.texto, eguaId: r.egua_id || null,
+  referenciaId: r.referencia_id || null,
+  criadoPor: r.criado_por || null,
+  criadoEm: r.criado_em, resolvidoEm: r.resolvido_em || null,
+  resolvidoPor: r.resolvido_por || null,
+});
+export const toDbAvisoRepro = a => ({
+  id: a.id, workspace_id: a.workspaceId || 'repro',
+  tipo: a.tipo, texto: a.texto, egua_id: a.eguaId || null,
+  referencia_id: a.referenciaId || null,
+  criado_por: a.criadoPor || null,
+  resolvido_em: a.resolvidoEm || null,
+  resolvido_por: a.resolvidoPor || null,
+});
+
 export const fromDbFuncionario = r => ({
   id: r.id, nome: r.nome, funcao: r.funcao, aniversario: r.aniversario || '',
   login: r.login || '', senha: r.senha || '', escala: r.escala || {},

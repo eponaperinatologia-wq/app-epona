@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron-agenda-repro",
+      "schedule": "0 9 * * *"
+    }
+  ]
+}
