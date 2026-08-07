@@ -29,6 +29,7 @@ import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
 import { TrocarSenhaScreen, CadastroCompletoScreen, AssinaturaContratoScreen } from './proprietario-onboarding';
 import { ProprietarioApp } from './proprietario-app';
+import { ReproApp, TrocarSenhaVetScreen } from './repro-app';
 import { VeterinariaScreen } from './veterinaria';
 import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
@@ -1115,10 +1116,10 @@ const loadAllData = async () => {
   };
 
   // ── Proprietários ─────────────────────────────────────────────
-  const addProprietario = (nome) => {
+  const addProprietario = (nome, workspaceId = 'haras') => {
     // Sufixo aleatório para evitar colisão em cliques duplos / multi-usuário.
     const newId = 'p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-    const novoProp = { id: newId, nome, telefone: '', email: '' };
+    const novoProp = { id: newId, nome, telefone: '', email: '', workspaceId };
     setProprietarios(prev => [...prev, novoProp]);
     dbInsert('proprietarios', toDbProprietario(novoProp));
     return newId;
@@ -1616,7 +1617,7 @@ const loadAllData = async () => {
   useEffect(() => {
     if (!currentUser) return;
     // Proprietário roda no shell próprio (ProprietarioApp) e ignora este sync.
-    if (currentUser.role === 'proprietario') return;
+    if (currentUser.role === 'proprietario' || currentUser.role === 'repro') return;
     if (tab === 'home' && !['historico'].includes(screen)) setScreen('home');
     if (tab === 'cavalos' && !['addCavalo', 'cavaloDetalhe', 'editarCavalo'].includes(screen)) setScreen('cavalos');
     if (tab === 'cadastros' && !['cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo'].includes(screen)) setScreen('cadastros');
@@ -1711,6 +1712,38 @@ const loadAllData = async () => {
       onLogout={handleLogout}
     />;
   }
+  // ─── Gate + Shell do Epona Repro Team (vet externo) ─────────
+  // Lê senha_provisoria do banco pra não perder gate após refresh.
+  else if (currentUser.role === 'repro' && (() => {
+    const v = vetsExternos.find(x => x.id === currentUser.id);
+    return v ? v.senhaProvisoria : currentUser.senhaProvisoria;
+  })()) {
+    content = <TrocarSenhaVetScreen
+      currentUser={currentUser}
+      onComplete={(patch) => setCurrentUser(u => ({ ...u, ...patch }))}
+      onLogout={handleLogout}
+    />;
+  }
+  else if (currentUser.role === 'repro') {
+    content = <ReproApp
+      currentUser={currentUser}
+      vetsExternos={vetsExternos}
+      locaisRepro={locaisRepro}
+      proprietarios={proprietarios}
+      cavalos={cavalos}
+      registrosReproducao={registrosReproducao}
+      addLocalRepro={addLocalRepro}
+      updateLocalRepro={updateLocalRepro}
+      deleteLocalRepro={deleteLocalRepro}
+      addProprietario={addProprietario}
+      updateProprietario={updateProprietario}
+      deleteProprietario={deleteProprietario}
+      addCavalo={addCavalo}
+      updateCavalo={updateCavalo}
+      deleteCavalo={deleteCavalo}
+      onLogout={handleLogout}
+    />;
+  }
   // Todos os gates passaram → app read-only do proprietário
   else if (currentUser.role === 'proprietario') {
     content = <ProprietarioApp
@@ -1784,10 +1817,11 @@ const loadAllData = async () => {
 
   const isOperacional = currentUser?.role === 'operacional';
   const isProprietario = currentUser?.role === 'proprietario';
+  const isRepro = currentUser?.role === 'repro';
   // Proprietário nunca vê a TabBar do admin — ele tem shell próprio
   // (ProprietarioApp) OU está num gate de onboarding (troca senha, cadastro,
   // contrato) que NÃO deve mostrar tab bar por cima do form.
-  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','cadVetsExternos','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && !isRepro && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','cadVetsExternos','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (
@@ -1817,7 +1851,7 @@ const loadAllData = async () => {
         display: 'flex', flexDirection: 'column',
         maxWidth: 480, margin: '0 auto',
       }}>
-          {currentUser && !loading && !isProprietario && (
+          {currentUser && !loading && !isProprietario && !isRepro && (
             <div style={{
               display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
               padding: '4px 12px 4px',
