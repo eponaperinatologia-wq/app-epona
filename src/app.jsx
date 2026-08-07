@@ -1672,16 +1672,21 @@ const loadAllData = async () => {
   // refresh de página. Assim, se o banco já diz contrato_status='assinado',
   // o gate é pulado mesmo que o localStorage esteja com valor antigo.
   else if (currentUser.role === 'proprietario' && (() => {
+    if (currentUser.senhaProvisoria === false) return false;
     const p = proprietarios.find(x => x.id === currentUser.id);
     return p ? p.senhaProvisoria : currentUser.senhaProvisoria;
   })()) {
     content = <TrocarSenhaScreen
       currentUser={currentUser}
-      onComplete={(patch) => setCurrentUser(u => ({ ...u, ...patch }))}
+      onComplete={(patch) => {
+        setCurrentUser(u => ({ ...u, ...patch }));
+        refetchProprietario(currentUser.id);
+      }}
       onLogout={handleLogout}
     />;
   }
   else if (currentUser.role === 'proprietario' && (() => {
+    if (currentUser.cadastroCompleto === true) return false;
     const p = proprietarios.find(x => x.id === currentUser.id);
     return p ? !p.cadastroCompleto : !currentUser.cadastroCompleto;
   })()) {
@@ -1697,6 +1702,7 @@ const loadAllData = async () => {
     />;
   }
   else if (currentUser.role === 'proprietario' && (() => {
+    if (currentUser.contratoStatus === 'assinado') return false;
     const p = proprietarios.find(x => x.id === currentUser.id);
     const status = p ? p.contratoStatus : currentUser.contratoStatus;
     return status !== 'assinado';
@@ -1713,14 +1719,22 @@ const loadAllData = async () => {
     />;
   }
   // ─── Gate + Shell do Epona Repro Team (vet externo) ─────────
-  // Lê senha_provisoria do banco pra não perder gate após refresh.
+  // Regra: se currentUser diz senhaProvisoria=false (setado pelo onComplete
+  // depois da RPC de troca), respeita — o array vindo do boot está stale
+  // até refetch. Senão, consulta DB (via array) pra não perder gate após
+  // refresh.
   else if (currentUser.role === 'repro' && (() => {
+    if (currentUser.senhaProvisoria === false) return false;
     const v = vetsExternos.find(x => x.id === currentUser.id);
     return v ? v.senhaProvisoria : currentUser.senhaProvisoria;
   })()) {
     content = <TrocarSenhaVetScreen
       currentUser={currentUser}
-      onComplete={(patch) => setCurrentUser(u => ({ ...u, ...patch }))}
+      onComplete={(patch) => {
+        setCurrentUser(u => ({ ...u, ...patch }));
+        // Refetch pra sincronizar o array com o DB (senha_provisoria=false).
+        refetchVetExterno(currentUser.id);
+      }}
       onLogout={handleLogout}
     />;
   }
