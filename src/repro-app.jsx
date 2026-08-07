@@ -582,12 +582,37 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
 }
 
 // ─────────────────────────────────────────────────────────────
-// Caderno de reprodução — Placeholder Fase 1
-// (IA/TE detalhados vêm na fase seguinte com DG, receptora, retorno,
-//  divisão de km, etc. Aqui só a lista pra confirmar que o shell funciona.)
+// Caderno de reprodução — lista + form completo IA/TE + DG
 // ─────────────────────────────────────────────────────────────
-function ReproCaderno({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, currentUser }) {
+const TIPO_META = {
+  inseminacao_artificial: { label: 'Inseminação Artificial', short: 'IA', cor: '#7c2d8c', bg: '#f5e8ff' },
+  transferencia_embriao:  { label: 'Transferência de Embrião', short: 'TE', cor: '#0e7490', bg: '#cffafe' },
+  controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
+  diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
+};
+
+const fmtDataBr = (iso) => {
+  if (!iso) return '';
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y.slice(2)}`;
+};
+
+// Soma dias a uma data ISO (yyyy-mm-dd) preservando o formato ISO
+const addDias = (iso, n) => {
+  if (!iso) return '';
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + n);
+  return d.toISOString().slice(0, 10);
+};
+
+function ReproCaderno({
+  registrosRepro, eguasRepro, propRepro, locaisRepro, vetsExternos, currentUser,
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+}) {
   const [busca, setBusca] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editReg, setEditReg] = useState(null);
+  const [detalheId, setDetalheId] = useState(null);
 
   const lista = [...(registrosRepro || [])]
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
@@ -597,37 +622,51 @@ function ReproCaderno({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, c
       return norm(`${egua?.nome || ''} ${r.tipo || ''}`).includes(norm(busca.trim()));
     });
 
+  const abrirNovo = () => { setEditReg(null); setShowForm(true); };
+  const abrirEditar = (r) => { setEditReg(r); setShowForm(true); };
+  const abrirDetalhe = (r) => setDetalheId(r.id);
+
   return (
     <div>
-      <TopBar title="Caderno de reprodução" subtitle={`${lista.length} registro${lista.length !== 1 ? 's' : ''}`} />
+      <TopBar title="Caderno de reprodução" subtitle={`${lista.length} registro${lista.length !== 1 ? 's' : ''}`} action={
+        <button onClick={abrirNovo} disabled={eguasRepro.length === 0} style={{
+          width: 36, height: 36, borderRadius: 12, background: eguasRepro.length === 0 ? 'var(--soft)' : CORES_TAB_ATIVA,
+          display: 'grid', placeItems: 'center', border: 'none', cursor: eguasRepro.length === 0 ? 'default' : 'pointer',
+        }}>
+          <Icon name="plus" size={18} color="#fff" />
+        </button>
+      } />
       <div style={{ padding: '12px 20px 0' }}>
         <SearchBar value={busca} onChange={setBusca} placeholder="Buscar por égua ou tipo…" />
       </div>
-      <div style={{ padding: '18px 20px 0' }}>
-        <div style={{
-          background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 12,
-          padding: '14px 16px', marginBottom: 14, fontSize: 13, color: '#92400e', lineHeight: 1.5,
-        }}>
-          <strong>Fase 1:</strong> shell do caderno está pronto. Registro completo de IA/TE com DG,
-          receptora, data de retorno e faturamento por km chegam no próximo commit.
-        </div>
-        {lista.length === 0 && (
+      <div style={{ padding: '12px 20px 0' }}>
+        {eguasRepro.length === 0 && (
           <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
-            Sem registros ainda.
+            Cadastre uma égua antes de registrar atividades.
+          </div>
+        )}
+        {lista.length === 0 && eguasRepro.length > 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            Sem registros{busca ? ' com esse filtro' : ''} ainda. Toque em + pra criar.
           </div>
         )}
         {lista.map(r => {
           const egua = eguasRepro.find(e => e.id === r.eguaId);
+          const prop = egua && propRepro.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
           const vet = vetsExternos.find(v => v.id === r.vetId);
           const local = locaisRepro.find(l => l.id === r.localId);
+          const meta = TIPO_META[r.tipo] || {};
           return (
-            <div key={r.id} style={{
-              background: 'var(--card)', border: `1px solid var(--line)`,
-              borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+            <button key={r.id} onClick={() => abrirDetalhe(r)} style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer',
+              background: 'var(--card)', border: '1px solid var(--line)',
+              borderLeft: `3px solid ${vet?.cor || meta.cor || CORES_TAB_ATIVA}`,
               borderRadius: 12, padding: '12px 14px', marginBottom: 8,
+              color: 'var(--ink)',
             }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{r.data}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                <span style={{ fontSize: 10, background: meta.bg || 'var(--soft)', color: meta.cor || 'var(--ink)', padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>{meta.label || r.tipo}</span>
+                <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmtDataBr(r.data)}</span>
                 {vet && (
                   <span style={{ fontSize: 10, color: '#fff', background: vet.cor, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
                     {vet.nome.split(' ')[0]}
@@ -635,25 +674,478 @@ function ReproCaderno({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, c
                 )}
               </div>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{egua?.nome || '—'}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 2 }}>
-                {r.tipo}{local ? ` · ${local.nome}` : ''}
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>
+                {prop?.nome || '—'}{local ? ` · ${local.nome}` : ''}
               </div>
-            </div>
+              {r.dataRetorno && (
+                <div style={{ fontSize: 11, color: '#b45309', marginTop: 4 }}>
+                  ↩ Retorno {fmtDataBr(r.dataRetorno)}
+                </div>
+              )}
+            </button>
           );
         })}
       </div>
+
+      {showForm && (
+        <FormRegistroRepro
+          registro={editReg}
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          currentUser={currentUser}
+          onSave={(payload) => {
+            if (editReg) {
+              updateRegistroReproducao(editReg.id, payload);
+            } else {
+              addRegistroReproducao(payload);
+            }
+            setShowForm(false);
+          }}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
+
+      {detalheId && (
+        <DetalheRegistroRepro
+          registro={registrosRepro.find(r => r.id === detalheId)}
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
+          onClose={() => setDetalheId(null)}
+          onEdit={(r) => { setDetalheId(null); abrirEditar(r); }}
+          onDelete={(r) => {
+            if (window.confirm('Excluir este registro?')) {
+              deleteRegistroReproducao(r.id);
+              setDetalheId(null);
+            }
+          }}
+          onUpdateDg={(r, campo, valor) => {
+            const novosDados = { ...(r.dados || {}), [campo]: valor };
+            updateRegistroReproducao(r.id, { dados: novosDados });
+          }}
+        />
+      )}
     </div>
   );
 }
+
+// ─────────────────────────────────────────────────────────────
+// Formulário: IA / TE / Controle folicular / DG
+// ─────────────────────────────────────────────────────────────
+function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, onSave, onCancel }) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  const init = registro || { data: hoje, tipo: 'inseminacao_artificial', dados: {}, dataRetorno: '' };
+
+  const [tipo, setTipo] = useState(init.tipo);
+  const [data, setData] = useState(init.data);
+  const [eguaId, setEguaId] = useState(init.eguaId || '');
+  const [localId, setLocalId] = useState(init.localId || '');
+  const [dados, setDados] = useState(init.dados || {});
+  const [dataRetorno, setDataRetorno] = useState(init.dataRetorno || '');
+
+  const eguaSel = eguasRepro.find(e => e.id === eguaId);
+
+  // Se a égua tem local padrão, sugere ao selecionar
+  useEffect(() => {
+    if (!localId && eguaSel?.localId) setLocalId(eguaSel.localId);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eguaId]);
+
+  const setDado = (k, v) => setDados(d => ({ ...d, [k]: v }));
+
+  // Datas automáticas com base no tipo
+  useEffect(() => {
+    if (!data) return;
+    // IA que vira TE agenda a coleta em +9 dias (editável)
+    if (tipo === 'inseminacao_artificial' && dados.destino === 'transferencia' && !dados.dataColetaAgendada) {
+      setDado('dataColetaAgendada', addDias(data, 9));
+    }
+    // TE agenda retorno em +5 dias (editável) — só se não houver
+    if (tipo === 'transferencia_embriao' && !dataRetorno) {
+      setDataRetorno(addDias(data, 5));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo, data, dados.destino]);
+
+  const canSave = eguaId && data && tipo;
+
+  const handleSave = () => {
+    if (!canSave) return;
+    const mes = data.slice(0, 7);
+    const payload = {
+      id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      eguaId, data, tipo, dados, dataRetorno: dataRetorno || null,
+      insumosUsados: registro?.insumosUsados || [],
+      autor: currentUser?.nome || 'Vet',
+      mes,
+      workspaceId: 'repro',
+      vetId: currentUser?.id || null,
+      localId: localId || null,
+    };
+    onSave(payload);
+  };
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+    border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <Modal onClose={onCancel}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 14 }}>
+        {registro ? 'Editar registro' : 'Novo registro'}
+      </div>
+
+      {/* Tipo */}
+      <FormField label="Tipo de atividade">
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {Object.entries(TIPO_META).map(([k, m]) => (
+            <button key={k} onClick={() => { setTipo(k); setDados({}); }} style={{
+              flex: '1 1 45%', minWidth: 120, padding: '10px 8px', borderRadius: 10,
+              border: `1.5px solid ${tipo === k ? m.cor : 'var(--line)'}`,
+              background: tipo === k ? m.bg : 'var(--card)', color: tipo === k ? m.cor : 'var(--ink-2)',
+              fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>{m.label}</button>
+          ))}
+        </div>
+      </FormField>
+
+      {/* Égua + Data + Local */}
+      <FormField label="Égua *">
+        <select value={eguaId} onChange={e => setEguaId(e.target.value)} style={inputStyle}>
+          <option value="">— Selecionar —</option>
+          {[...eguasRepro].sort((a, b) => a.nome.localeCompare(b.nome, 'pt')).map(e => {
+            const prop = propRepro.find(p => (e.proprietarioIds || [e.proprietarioId]).includes(p.id));
+            return <option key={e.id} value={e.id}>{e.nome}{prop ? ` · ${prop.nome}` : ''}</option>;
+          })}
+        </select>
+      </FormField>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+        <FormField label="Data *">
+          <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputStyle} />
+        </FormField>
+        <FormField label="Local">
+          <select value={localId} onChange={e => setLocalId(e.target.value)} style={inputStyle}>
+            <option value="">—</option>
+            {locaisRepro.map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+          </select>
+        </FormField>
+      </div>
+
+      {/* Campos específicos por tipo */}
+      {tipo === 'inseminacao_artificial' && (
+        <>
+          <FormField label="Garanhão">
+            <input value={dados.garanhao || ''} onChange={e => setDado('garanhao', e.target.value)} style={inputStyle} placeholder="Nome do garanhão" />
+          </FormField>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Palhetas usadas">
+              <input type="number" min="0" step="1" value={dados.qtdPalhetas || ''} onChange={e => setDado('qtdPalhetas', e.target.value)} style={inputStyle} />
+            </FormField>
+            <FormField label="Ovulações">
+              <input type="number" min="0" step="1" value={dados.ovulacoes || ''} onChange={e => setDado('ovulacoes', e.target.value)} style={inputStyle} placeholder="0, 1 ou 2" />
+            </FormField>
+          </div>
+          <FormField label="Momento">
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {[
+                ['pre_ovulacao', 'Pré-ovulação'],
+                ['pos_ovulacao', 'Pós-ovulação'],
+              ].map(([v, lbl]) => (
+                <button key={v} onClick={() => setDado('momento', dados.momento === v ? '' : v)} style={{
+                  padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
+                  border: `1px solid ${dados.momento === v ? CORES_TAB_ATIVA : 'var(--line)'}`,
+                  background: dados.momento === v ? '#f5e8ff' : 'var(--card)',
+                  color: dados.momento === v ? CORES_TAB_ATIVA : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{lbl}</button>
+              ))}
+            </div>
+          </FormField>
+          <FormField label="Destino da IA *">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                ['prenhez', 'Prenhez na própria égua'],
+                ['transferencia', 'Transferência de embrião'],
+              ].map(([v, lbl]) => (
+                <button key={v} onClick={() => setDado('destino', v)} style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+                  border: `1.5px solid ${dados.destino === v ? CORES_TAB_ATIVA : 'var(--line)'}`,
+                  background: dados.destino === v ? '#f5e8ff' : 'var(--card)',
+                  color: dados.destino === v ? CORES_TAB_ATIVA : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{lbl}</button>
+              ))}
+            </div>
+          </FormField>
+          {dados.destino === 'transferencia' && (
+            <FormField label="Data prevista da coleta (padrão +9 dias, editável)">
+              <input type="date" value={dados.dataColetaAgendada || ''} onChange={e => setDado('dataColetaAgendada', e.target.value)} style={inputStyle} />
+            </FormField>
+          )}
+          <FormField label="Data de retorno (se houver)">
+            <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
+          </FormField>
+          <div style={{
+            background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 10,
+            padding: '10px 12px', fontSize: 12, color: '#6b21a8', lineHeight: 1.5, marginBottom: 12,
+          }}>
+            <strong>Descartáveis obrigatórios</strong> (cobrados na fatura):
+            luva de palpação, pipeta de inseminação, dose de lubrificante estéril.
+          </div>
+        </>
+      )}
+
+      {tipo === 'transferencia_embriao' && (
+        <>
+          <FormField label="Tônus cervical">
+            <select value={dados.tonusCervical || ''} onChange={e => setDado('tonusCervical', e.target.value)} style={inputStyle}>
+              <option value="">—</option>
+              {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Tônus uterino">
+            <select value={dados.tonusUterino || ''} onChange={e => setDado('tonusUterino', e.target.value)} style={inputStyle}>
+              <option value="">—</option>
+              {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Aspecto da vagina">
+            <input value={dados.aspectoVagina || ''} onChange={e => setDado('aspectoVagina', e.target.value)} style={inputStyle} placeholder="Ex: normal, hiperêmica…" />
+          </FormField>
+          <FormField label="Ringer Lactato (ml)">
+            <input type="number" min="0" step="10" value={dados.ringerLactatoMl || ''} onChange={e => setDado('ringerLactatoMl', e.target.value)} style={inputStyle} />
+          </FormField>
+          <FormField label="Resultado *">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                ['positivo', '✓ Positiva'],
+                ['negativo', '✗ Negativa'],
+              ].map(([v, lbl]) => (
+                <button key={v} onClick={() => setDado('resultado', v)} style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  border: `1.5px solid ${dados.resultado === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
+                  background: dados.resultado === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
+                  color: dados.resultado === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{lbl}</button>
+              ))}
+            </div>
+          </FormField>
+          {dados.resultado === 'positivo' && (
+            <>
+              <FormField label="Receptora (nome ou local)">
+                <input value={dados.receptora || ''} onChange={e => setDado('receptora', e.target.value)} style={inputStyle} placeholder="Ex: Receptora 42 · Piquete 3" />
+              </FormField>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 10 }}>
+                Diagnósticos gestacionais (DG15/30/45) podem ser marcados abrindo o detalhe do registro.
+              </div>
+            </>
+          )}
+          <FormField label="Data de retorno (padrão +5 dias, editável)">
+            <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
+          </FormField>
+        </>
+      )}
+
+      {tipo === 'controle_folicular' && (
+        <>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Ovário direito">
+              <input value={dados.ovarioDireito || ''} onChange={e => setDado('ovarioDireito', e.target.value)} style={inputStyle} placeholder="Ex: F35" />
+            </FormField>
+            <FormField label="Ovário esquerdo">
+              <input value={dados.ovarEsquerdo || ''} onChange={e => setDado('ovarEsquerdo', e.target.value)} style={inputStyle} placeholder="Ex: Vf12" />
+            </FormField>
+          </div>
+          <FormField label="Edema uterino">
+            <input value={dados.edemaUterino || ''} onChange={e => setDado('edemaUterino', e.target.value)} style={inputStyle} placeholder="Ex: 0, +, ++, +++" />
+          </FormField>
+          <FormField label="Data de retorno">
+            <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
+          </FormField>
+        </>
+      )}
+
+      {tipo === 'diagnostico_gestacao' && (
+        <>
+          <FormField label="Resultado *">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                ['positivo', '✓ Gestante'],
+                ['negativo', '✗ Vazio'],
+              ].map(([v, lbl]) => (
+                <button key={v} onClick={() => setDado('resultado', v)} style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  border: `1.5px solid ${dados.resultado === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
+                  background: dados.resultado === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
+                  color: dados.resultado === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{lbl}</button>
+              ))}
+            </div>
+          </FormField>
+          <FormField label="Tamanho da vesícula">
+            <input value={dados.tamanhoVesicula || ''} onChange={e => setDado('tamanhoVesicula', e.target.value)} style={inputStyle} placeholder="Ex: 15 mm" />
+          </FormField>
+        </>
+      )}
+
+      <FormField label="Observações">
+        <textarea value={dados.observacoes || ''} onChange={e => setDado('observacoes', e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+      </FormField>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <button onClick={onCancel} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: canSave ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: canSave ? 1 : 0.5 }}>
+          {registro ? 'Salvar' : 'Registrar'}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Detalhe do registro — leitura + marcar DG15/30/45
+// ─────────────────────────────────────────────────────────────
+function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, vetsExternos, onClose, onEdit, onDelete, onUpdateDg }) {
+  if (!registro) return null;
+  const egua = eguasRepro.find(e => e.id === registro.eguaId);
+  const prop = egua && propRepro.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
+  const local = locaisRepro.find(l => l.id === registro.localId);
+  const vet = vetsExternos.find(v => v.id === registro.vetId);
+  const meta = TIPO_META[registro.tipo] || {};
+  const d = registro.dados || {};
+
+  // DG só faz sentido quando: IA c/ destino='prenhez' OU TE c/ resultado='positivo'
+  const mostrarDg = (registro.tipo === 'inseminacao_artificial' && d.destino === 'prenhez')
+    || (registro.tipo === 'transferencia_embriao' && d.resultado === 'positivo');
+
+  const dgs = [
+    ['dg15', 'DG 15 dias'],
+    ['dg30', 'DG 30 dias'],
+    ['dg45', 'DG 45 dias'],
+  ];
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+        <span style={{ fontSize: 10, background: meta.bg || 'var(--soft)', color: meta.cor || 'var(--ink)', padding: '3px 8px', borderRadius: 5, fontWeight: 700 }}>{meta.label || registro.tipo}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmtDataBr(registro.data)}</span>
+        {vet && (
+          <span style={{ fontSize: 10, color: '#fff', background: vet.cor, padding: '2px 6px', borderRadius: 4, fontWeight: 700 }}>
+            {vet.nome.split(' ')[0]}
+          </span>
+        )}
+      </div>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: 'var(--ink)', marginBottom: 2 }}>{egua?.nome || '—'}</div>
+      <div style={{ fontSize: 13, color: 'var(--ink-3)', marginBottom: 14 }}>
+        {prop?.nome || '—'}{local ? ` · ${local.nome}` : ''}
+      </div>
+
+      {/* Corpo por tipo */}
+      <div style={{ background: 'var(--soft)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+        {registro.tipo === 'inseminacao_artificial' && (
+          <>
+            <DetalheLinha label="Garanhão" valor={d.garanhao} />
+            <DetalheLinha label="Palhetas" valor={d.qtdPalhetas} />
+            <DetalheLinha label="Ovulações" valor={d.ovulacoes} />
+            <DetalheLinha label="Momento" valor={d.momento === 'pre_ovulacao' ? 'Pré-ovulação' : d.momento === 'pos_ovulacao' ? 'Pós-ovulação' : null} />
+            <DetalheLinha label="Destino" valor={d.destino === 'prenhez' ? 'Prenhez na própria égua' : d.destino === 'transferencia' ? 'Transferência de embrião' : null} />
+            {d.destino === 'transferencia' && <DetalheLinha label="Coleta agendada" valor={fmtDataBr(d.dataColetaAgendada)} />}
+          </>
+        )}
+        {registro.tipo === 'transferencia_embriao' && (
+          <>
+            <DetalheLinha label="Tônus cervical" valor={d.tonusCervical} />
+            <DetalheLinha label="Tônus uterino" valor={d.tonusUterino} />
+            <DetalheLinha label="Aspecto da vagina" valor={d.aspectoVagina} />
+            <DetalheLinha label="Ringer Lactato" valor={d.ringerLactatoMl ? `${d.ringerLactatoMl} ml` : null} />
+            <DetalheLinha label="Resultado" valor={d.resultado === 'positivo' ? '✓ Positiva' : d.resultado === 'negativo' ? '✗ Negativa' : null} />
+            {d.resultado === 'positivo' && <DetalheLinha label="Receptora" valor={d.receptora} />}
+          </>
+        )}
+        {registro.tipo === 'controle_folicular' && (
+          <>
+            <DetalheLinha label="OD" valor={d.ovarioDireito} />
+            <DetalheLinha label="OE" valor={d.ovarEsquerdo} />
+            <DetalheLinha label="Edema uterino" valor={d.edemaUterino} />
+          </>
+        )}
+        {registro.tipo === 'diagnostico_gestacao' && (
+          <>
+            <DetalheLinha label="Resultado" valor={d.resultado === 'positivo' ? '✓ Gestante' : d.resultado === 'negativo' ? '✗ Vazio' : null} />
+            <DetalheLinha label="Vesícula" valor={d.tamanhoVesicula} />
+          </>
+        )}
+        {registro.dataRetorno && <DetalheLinha label="Retorno" valor={fmtDataBr(registro.dataRetorno)} />}
+        {d.observacoes && (
+          <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 3 }}>Observações</div>
+            <div style={{ fontSize: 13, color: 'var(--ink)', whiteSpace: 'pre-wrap' }}>{d.observacoes}</div>
+          </div>
+        )}
+      </div>
+
+      {/* Diagnósticos de gestação (só se aplicável) */}
+      {mostrarDg && (
+        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 10 }}>Diagnósticos gestacionais</div>
+          {dgs.map(([k, lbl]) => {
+            const val = d[k]; // 'positivo' | 'negativo' | undefined
+            return (
+              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{lbl}</span>
+                {['positivo', 'negativo'].map(v => (
+                  <button key={v} onClick={() => onUpdateDg(registro, k, val === v ? null : v)} style={{
+                    padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                    border: `1px solid ${val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
+                    background: val === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
+                    color: val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-2)',
+                    cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>{v === 'positivo' ? '✓ Positivo' : '✗ Negativo'}</button>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <button onClick={() => onDelete(registro)} style={{
+          padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640',
+          background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+        }}>Excluir</button>
+        <button onClick={onClose} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Fechar</button>
+        <button onClick={() => onEdit(registro)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Editar</button>
+      </div>
+    </Modal>
+  );
+}
+
+const DetalheLinha = ({ label, valor }) => {
+  if (valor === null || valor === undefined || valor === '') return null;
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 13, padding: '3px 0' }}>
+      <span style={{ color: 'var(--ink-3)' }}>{label}</span>
+      <span style={{ color: 'var(--ink)', fontWeight: 500, textAlign: 'right' }}>{valor}</span>
+    </div>
+  );
+};
 
 // ─────────────────────────────────────────────────────────────
 // Shell principal — decide qual tela renderizar
 // ─────────────────────────────────────────────────────────────
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
+  insumos = [], servicos = [],
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
   addCavalo, updateCavalo, deleteCavalo,
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   onLogout,
 }) {
   const [screen, setScreen] = useState('repro-home');
@@ -703,9 +1195,13 @@ export function ReproApp({
     content = <ReproCaderno
       registrosRepro={registrosRepro}
       eguasRepro={eguasRepro}
+      propRepro={propRepro}
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
       currentUser={currentUser}
+      addRegistroReproducao={addRegistroReproducao}
+      updateRegistroReproducao={updateRegistroReproducao}
+      deleteRegistroReproducao={deleteRegistroReproducao}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta currentUser={currentUser} onLogout={onLogout} />;

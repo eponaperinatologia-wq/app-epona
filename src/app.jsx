@@ -207,7 +207,7 @@ const loadAllData = async () => {
       fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
       fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [] })),
       fetchAll('exames_complementares', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, tipo: r.tipo, descricao: r.descricao || '', arquivoUrl: r.arquivo_url || '', arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '', mes: r.mes })),
-      fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes })),
+      fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes, workspaceId: r.workspace_id || 'haras', vetId: r.vet_id || null, localId: r.local_id || null })),
       fetchAll('custos_fixos', fromDbCustoFixo),
       fetchAll('emergencias', fromDbEmergencia),
       fetchAll('emergencia_medicacoes', fromDbEmergenciaMedicacao),
@@ -915,7 +915,27 @@ const loadAllData = async () => {
 
   const addRegistroReproducao = (r) => {
     setRegistrosReproducao(prev => [r, ...prev]);
-    dbInsert('reproducao_registros', { id: r.id, egua_id: r.eguaId, data: r.data, tipo: r.tipo, dados: r.dados || {}, insumos_usados: r.insumosUsados || [], data_retorno: r.dataRetorno || null, autor: r.autor || '', mes: r.mes });
+    dbInsert('reproducao_registros', {
+      id: r.id, egua_id: r.eguaId, data: r.data, tipo: r.tipo,
+      dados: r.dados || {}, insumos_usados: r.insumosUsados || [],
+      data_retorno: r.dataRetorno || null, autor: r.autor || '', mes: r.mes,
+      workspace_id: r.workspaceId || 'haras',
+      vet_id: r.vetId || null,
+      local_id: r.localId || null,
+    });
+  };
+  const updateRegistroReproducao = (id, patch) => {
+    setRegistrosReproducao(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+    const cur = registrosReproducao.find(r => r.id === id) || {};
+    const merged = { ...cur, ...patch };
+    dbUpdate('reproducao_registros', id, {
+      egua_id: merged.eguaId, data: merged.data, tipo: merged.tipo,
+      dados: merged.dados || {}, insumos_usados: merged.insumosUsados || [],
+      data_retorno: merged.dataRetorno || null, autor: merged.autor || '', mes: merged.mes,
+      workspace_id: merged.workspaceId || 'haras',
+      vet_id: merged.vetId || null,
+      local_id: merged.localId || null,
+    });
   };
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
@@ -1746,6 +1766,8 @@ const loadAllData = async () => {
       proprietarios={proprietarios}
       cavalos={cavalos}
       registrosReproducao={registrosReproducao}
+      insumos={insumos}
+      servicos={servicos}
       addLocalRepro={addLocalRepro}
       updateLocalRepro={updateLocalRepro}
       deleteLocalRepro={deleteLocalRepro}
@@ -1755,6 +1777,9 @@ const loadAllData = async () => {
       addCavalo={addCavalo}
       updateCavalo={updateCavalo}
       deleteCavalo={deleteCavalo}
+      addRegistroReproducao={addRegistroReproducao}
+      updateRegistroReproducao={updateRegistroReproducao}
+      deleteRegistroReproducao={deleteRegistroReproducao}
       onLogout={handleLogout}
     />;
   }
