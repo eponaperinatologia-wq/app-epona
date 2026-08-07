@@ -180,8 +180,8 @@ export function LoginScreen({ onLogin, usuarios }) {
               display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0,
             }}>🧬</div>
             <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>Sou vet externo</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Epona Repro Team</div>
+              <div style={{ fontSize: 15, fontWeight: 700 }}>Epona Repro Team</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Reprodução extra-haras</div>
             </div>
             <div style={{ fontSize: 20, color: 'var(--ink-3)' }}>›</div>
           </button>
