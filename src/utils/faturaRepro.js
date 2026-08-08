@@ -22,19 +22,24 @@
 
 const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 
-// Descobre o preço "padrão" cadastrado para IA e TE nos serviços do
-// workspace repro (fallback: haras). Usa nomes normalizados.
-export function precosPadraoServicos(servicos) {
+// Retorna os OBJETOS dos serviços "IA" e "TE" cadastrados (workspace
+// repro tem prioridade sobre haras). Fonte da verdade pra preço e pra
+// lista de descartáveis obrigatórios.
+export function servicosPadrao(servicos) {
   const svRepro = servicos.filter(s => (s.workspaceId || 'haras') === 'repro');
-  const buscarPor = (predicate, ordem = 'repro') => {
-    const pool = ordem === 'repro' ? svRepro.length ? svRepro : servicos : servicos;
-    return pool.find(predicate);
-  };
+  const pool = svRepro.length ? svRepro : servicos;
   const isIa = (s) => /insemin/.test(norm(s.nome || ''));
   const isTe = (s) => /coleta|transfer|te\b|ce\b|embria/.test(norm(s.nome || ''));
   return {
-    ia: Number((buscarPor(isIa) || {}).valor || 0),
-    te: Number((buscarPor(isTe) || {}).valor || 0),
+    ia: pool.find(isIa) || null,
+    te: pool.find(isTe) || null,
+  };
+}
+export function precosPadraoServicos(servicos) {
+  const p = servicosPadrao(servicos);
+  return {
+    ia: Number(p.ia?.valor || 0),
+    te: Number(p.te?.valor || 0),
   };
 }
 

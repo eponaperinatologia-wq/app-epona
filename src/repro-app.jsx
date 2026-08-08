@@ -6,7 +6,7 @@ import { Icon } from './icons';
 import { norm, formatBRL } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, dividirFatura } from './utils/faturaRepro';
+import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { SwitcherContas } from './multiSessionUi';
 
@@ -143,14 +143,38 @@ function ReproHome({
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
-        <div style={{
-          width: 28, height: 28, borderRadius: 28, background: currentUser.cor || CORES_TAB_ATIVA, color: '#fff',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700,
-        }}>{(currentUser.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--ink)' }}>{saudacao}, {nome}.</div>
+      {/* Header — click no avatar/nome vai pra Conta (multilogin) */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        gap: 10, marginBottom: 18,
+      }}>
+        <div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--ink)' }}>{saudacao}, {nome}.</div>
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', marginTop: 2 }}>Epona Repro Team</div>
+        </div>
+        <button
+          onClick={() => { setTab('conta'); setScreen('repro-conta'); }}
+          title="Minha conta · trocar de conta"
+          style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            padding: '6px 10px 6px 6px', borderRadius: 999,
+            background: 'var(--card)', border: '1px solid var(--line)',
+            cursor: 'pointer', color: 'var(--ink-2)', fontFamily: 'var(--sans)',
+          }}
+        >
+          <div style={{
+            width: 28, height: 28, borderRadius: 28,
+            background: currentUser.cor || CORES_TAB_ATIVA, color: '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 11, fontWeight: 700, flexShrink: 0,
+          }}>
+            {(currentUser.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+          </div>
+          <div style={{ fontSize: 12, fontWeight: 600, maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {nome}
+          </div>
+        </button>
       </div>
-      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 20 }}>Epona Repro Team</div>
 
       {avisosPend.length > 0 && (
         <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
@@ -193,7 +217,7 @@ function ReproHome({
       <button onClick={() => goCadastros('locais')} style={{
         width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
         padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
-        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', marginBottom: 8,
+        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
       }}>
         <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center' }}>
           <Icon name="menu" size={18} />
@@ -203,20 +227,6 @@ function ReproHome({
           <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Locais · Proprietários · Éguas · Insumos · Serviços</div>
         </div>
         <span style={{ fontSize: 18, opacity: 0.6 }}>›</span>
-      </button>
-
-      <button onClick={() => { setTab('conta'); setScreen('repro-conta'); }} style={{
-        width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
-        padding: '12px 16px', cursor: 'pointer', color: 'var(--ink-2)',
-        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-      }}>
-        <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-3)', display: 'grid', placeItems: 'center' }}>
-          <Icon name="user" size={16} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 600 }}>Minha conta</div>
-        </div>
-        <span style={{ fontSize: 16, opacity: 0.5 }}>›</span>
       </button>
     </div>
   );
@@ -1103,6 +1113,89 @@ function resolverDescartaveisInjecao(insumos) {
   return _matchInsumos(insumos, DESCARTAVEIS_INJECAO_MATCHERS);
 }
 
+// Deduplica um catálogo (insumos ou serviços) por nome (case/accent
+// insensitive), priorizando entradas do workspace 'repro' sobre 'haras'.
+// Usado nos dropdowns do form pra evitar mostrar o mesmo item 2 vezes
+// quando o vet importou o catálogo do haras.
+function dedupPorNome(items) {
+  const norm2 = (s) => norm(String(s || '').trim());
+  const byNome = new Map();
+  for (const it of items) {
+    const k = norm2(it.nome);
+    if (!k) continue;
+    const existente = byNome.get(k);
+    if (!existente) { byNome.set(k, it); continue; }
+    // repro tem prioridade
+    const ehRepro = it.workspaceId === 'repro';
+    const existeRepro = existente.workspaceId === 'repro';
+    if (ehRepro && !existeRepro) byNome.set(k, it);
+  }
+  return [...byNome.values()];
+}
+
+// Bloco compartilhado — configura descartáveis obrigatórios do
+// serviço (usado no form de Cadastros → Serviços). Mesma estrutura
+// {insumoId, qtd} do insumosUsados. Ao criar registro do caderno,
+// esses descartáveis são empilhados automaticamente.
+function BlocoDescartaveisObrigatorios({ insumos, descartaveis, setDescartaveis }) {
+  const addLinha = () => setDescartaveis([...(descartaveis || []), { insumoId: '', qtd: 1 }]);
+  const alterar = (i, patch) => setDescartaveis((descartaveis || []).map((u, idx) => idx === i ? { ...u, ...patch } : u));
+  const remover = (i) => setDescartaveis((descartaveis || []).filter((_, idx) => idx !== i));
+
+  const opcoes = dedupPorNome((insumos || []).filter(i => i.workspaceId === 'repro' || (i.workspaceId || 'haras') === 'haras'))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
+    background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <div style={{ marginBottom: 12, padding: 10, background: 'var(--soft)', borderRadius: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>
+        Descartáveis obrigatórios
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.4 }}>
+        Todo registro do caderno com este serviço cobra automaticamente estes insumos na fatura.
+      </div>
+      {(descartaveis || []).map((u, i) => (
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 32px', gap: 6, marginBottom: 6 }}>
+          <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
+            <option value="">— Insumo —</option>
+            {opcoes.map(o => (
+              <option key={o.id} value={o.id}>
+                {o.nome}{o.workspaceId === 'haras' ? ' (haras)' : ''}
+              </option>
+            ))}
+          </select>
+          <input
+            type="number" min="0" step="0.5" value={u.qtd}
+            onChange={e => alterar(i, { qtd: Number(e.target.value) || 0 })}
+            style={{ ...inputStyle, textAlign: 'right' }}
+            placeholder="qtd"
+          />
+          <button onClick={() => remover(i)} style={{
+            width: 32, height: 32, borderRadius: 8, border: '1px solid var(--line)',
+            background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      ))}
+      <button onClick={addLinha} type="button" style={{
+        marginTop: 4, padding: '6px 10px', borderRadius: 8,
+        border: '1px dashed var(--line)', background: 'transparent',
+        color: 'var(--ink-2)', fontSize: 11, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <Icon name="plus" size={11} /> Adicionar descartável
+      </button>
+    </div>
+  );
+}
+
 // Bloco compartilhado — adição/remoção de insumos usados no registro
 // do caderno. Cada linha: select do insumo + qtd + remover.
 function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
@@ -1110,8 +1203,7 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
   const alterar = (i, patch) => setInsumosUsados(insumosUsados.map((u, idx) => idx === i ? { ...u, ...patch } : u));
   const remover = (i) => setInsumosUsados(insumosUsados.filter((_, idx) => idx !== i));
 
-  const opcoes = [...insumos]
-    .filter(i => i.workspaceId === 'repro' || (i.workspaceId || 'haras') === 'haras')
+  const opcoes = dedupPorNome(insumos.filter(i => i.workspaceId === 'repro' || (i.workspaceId || 'haras') === 'haras'))
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
 
   const inputStyle = {
@@ -1220,28 +1312,40 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     if (!canSave) return;
     const mes = data.slice(0, 7);
     let finalInsumos = [...insumosUsados];
-    // IA: adiciona descartáveis obrigatórios (só se ainda não estiverem)
-    if (tipo === 'inseminacao_artificial') {
-      const { encontrados } = resolverDescartaveisIa(insumos);
-      for (const item of encontrados) {
+    const empilhar = (arr) => {
+      for (const item of (arr || [])) {
+        if (!item?.insumoId) continue;
         if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
-          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: item.qtd }];
+          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: Number(item.qtd) || 1 }];
         }
       }
+    };
+    // 1) Descartáveis obrigatórios do próprio serviço vinculado (fonte
+    //    da verdade — configurado pelo vet em Cadastros → Serviços).
+    const padrao = servicosPadrao(servicos);
+    let svcVinculado = null;
+    if (tipo === 'inseminacao_artificial') svcVinculado = padrao.ia;
+    else if (tipo === 'transferencia_embriao') svcVinculado = padrao.te;
+    else if (tipo === 'servico_avulso' && dados.servicoId) {
+      svcVinculado = servicos.find(s => s.id === dados.servicoId) || null;
     }
-    // Para cada insumo injetável adicionado, empilha 1 agulha + 1 seringa
-    // + 1 dose de algodão com álcool (regra do haras). Só se não já estão.
-    const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
+    if (svcVinculado?.descartaveisObrigatorios?.length > 0) {
+      empilhar(svcVinculado.descartaveisObrigatorios);
+    } else if (tipo === 'inseminacao_artificial') {
+      // Fallback pra IA (compat): matcher por nome de insumo se o serviço
+      // não tem descartáveis configurados ainda.
+      const { encontrados } = resolverDescartaveisIa(insumos);
+      empilhar(encontrados);
+    }
+    // 2) Para cada insumo injetável adicionado, empilha 1 agulha +
+    //    1 seringa + 1 dose de algodão com álcool (regra do haras).
     const temInjetavel = finalInsumos.some(u => {
       const ins = insumos.find(i => i.id === u.insumoId);
       return ins && ins.injetavel;
     });
     if (temInjetavel) {
-      for (const item of descInj) {
-        if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
-          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: item.qtd }];
-        }
-      }
+      const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
+      empilhar(descInj);
     }
     const payload = {
       id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
@@ -1500,8 +1604,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
               if (sv && !dados.valorCobrado) setDado('valorCobrado', String(sv.valor || 0));
             }} style={inputStyle}>
               <option value="">— Selecionar —</option>
-              {[...servicos]
-                .filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras')
+              {dedupPorNome(servicos.filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras'))
                 .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
                 .map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
@@ -1754,6 +1857,7 @@ function ReproCadastros({
         <ReproCobCatalogo
           tipo="servicos"
           itens={servicos}
+          todosInsumos={insumos}
           addItem={addServico}
           updateItem={updateServico}
           deleteItem={deleteServico}
@@ -2750,12 +2854,12 @@ function ReproCobKm({ currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal })
 }
 
 // ── Sub-tela: catálogo (insumos ou serviços) do workspace repro ──
-function ReproCobCatalogo({ tipo, itens, addItem, updateItem, deleteItem }) {
+function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem, deleteItem }) {
   const [busca, setBusca] = useState('');
   const [importando, setImportando] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nome: '', valor: '' });
+  const [form, setForm] = useState({ nome: '', valor: '', descartaveisObrigatorios: [] });
 
   const doHaras = itens.filter(i => (i.workspaceId || 'haras') === 'haras');
   const doRepro = itens.filter(i => i.workspaceId === 'repro');
@@ -2786,24 +2890,30 @@ function ReproCobCatalogo({ tipo, itens, addItem, updateItem, deleteItem }) {
 
   const abrirNovo = () => {
     setEditId(null);
-    setForm({ nome: '', valor: '' });
+    setForm({ nome: '', valor: '', descartaveisObrigatorios: [] });
     setShowForm(true);
   };
   const abrirEditar = (i) => {
     setEditId(i.id);
-    setForm({ nome: i.nome, valor: String(tipo === 'insumos' ? (i.valorVenda ?? 0) : (i.valor ?? 0)) });
+    setForm({
+      nome: i.nome,
+      valor: String(tipo === 'insumos' ? (i.valorVenda ?? 0) : (i.valor ?? 0)),
+      descartaveisObrigatorios: Array.isArray(i.descartaveisObrigatorios) ? i.descartaveisObrigatorios : [],
+    });
     setShowForm(true);
   };
   const salvar = () => {
     if (!form.nome.trim()) return;
     const valorNum = parseFloat(String(form.valor).replace(',', '.')) || 0;
     if (editId) {
-      const patch = tipo === 'insumos' ? { nome: form.nome.trim(), valorVenda: valorNum } : { nome: form.nome.trim(), valor: valorNum };
+      const patch = tipo === 'insumos'
+        ? { nome: form.nome.trim(), valorVenda: valorNum }
+        : { nome: form.nome.trim(), valor: valorNum, descartaveisObrigatorios: form.descartaveisObrigatorios };
       updateItem(editId, patch);
     } else {
       const base = tipo === 'insumos'
         ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, workspaceId: 'repro' }
-        : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro' };
+        : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro', descartaveisObrigatorios: form.descartaveisObrigatorios };
       addItem(base);
     }
     setShowForm(false);
@@ -2877,6 +2987,15 @@ function ReproCobCatalogo({ tipo, itens, addItem, updateItem, deleteItem }) {
           <FormField label={tipo === 'insumos' ? 'Valor de venda (R$)' : 'Valor (R$)'}>
             <input type="number" min="0" step="0.01" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} style={inputStyle} placeholder="0,00" />
           </FormField>
+
+          {tipo === 'servicos' && (
+            <BlocoDescartaveisObrigatorios
+              insumos={todosInsumos}
+              descartaveis={form.descartaveisObrigatorios}
+              setDescartaveis={(v) => setForm(f => ({ ...f, descartaveisObrigatorios: v }))}
+            />
+          )}
+
           <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
             {editId && deleteItem && (
               <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteItem(editId); setShowForm(false); } }} style={{
