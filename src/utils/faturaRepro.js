@@ -31,7 +31,7 @@ export function precosPadraoServicos(servicos) {
     return pool.find(predicate);
   };
   const isIa = (s) => /insemin/.test(norm(s.nome || ''));
-  const isTe = (s) => /transfer|te\b|embria/.test(norm(s.nome || ''));
+  const isTe = (s) => /coleta|transfer|te\b|ce\b|embria/.test(norm(s.nome || ''));
   return {
     ia: Number((buscarPor(isIa) || {}).valor || 0),
     te: Number((buscarPor(isTe) || {}).valor || 0),
@@ -216,8 +216,8 @@ export function calcFaturaRepro(propId, ref, deps) {
       });
     } else if (r.tipo === 'transferencia_embriao') {
       procedimentosLinhas.push({
-        data: r.data, registroId: r.id, tipo: 'TE', vetId: r.vetId,
-        descricao: 'Transferência de Embrião',
+        data: r.data, registroId: r.id, tipo: 'CE', vetId: r.vetId,
+        descricao: 'Coleta de Embrião',
         valor: precos.te,
       });
     }

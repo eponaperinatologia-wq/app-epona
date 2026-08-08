@@ -122,7 +122,7 @@ function TabBar({ tab, setTab, setScreen }) {
 function ReproHome({
   currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
-  setScreen, setTab, goCadastros,
+  setScreen, setTab, goCadastros, onSelectEvento,
 }) {
   const nome = (currentUser.nome || '').split(/\s+/)[0];
   const h = new Date().getHours();
@@ -156,7 +156,7 @@ function ReproHome({
         <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
       )}
 
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} />
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
 
       <button onClick={() => { setTab('caderno'); setScreen('repro-caderno'); }} style={{
         width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
@@ -256,18 +256,16 @@ function MuralAvisos({ avisos, onResolver }) {
 // ─────────────────────────────────────────────────────────────
 // Planner — agenda horizontal (atrasados, hoje, amanhã, próximos)
 // Cada evento pintado com a cor do vet responsável.
+//
+// Regra: procedimento passado JÁ REGISTRADO não é evento — foi
+// concluído. Só é evento (pendente/atrasado) o que foi programado
+// via dataRetorno ou dados.dataColetaAgendada, e ainda não foi
+// "cumprido" por um registro subsequente da mesma égua.
 // ─────────────────────────────────────────────────────────────
-function Planner({ registros, eguasRepro, vetsExternos }) {
+function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento }) {
   const hoje = new Date().toLocaleDateString('sv-SE');
 
-  // Gera eventos a partir de: data, dataRetorno, dados.dataColetaAgendada
-  const eventos = [];
-  for (const r of (registros || [])) {
-    const dados = r.dados || {};
-    if (r.data) eventos.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data });
-    if (r.dataRetorno) eventos.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno });
-    if (dados.dataColetaAgendada) eventos.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
-  }
+  const eventos = eventosPendentes(registros, hoje);
 
   // Agrupa por chave (atrasado | hoje | dataISO)
   const buckets = new Map();
@@ -340,19 +338,18 @@ function Planner({ registros, eguasRepro, vetsExternos }) {
                 {evs.map((ev, i) => {
                   const vet = vetsExternos.find(v => v.id === ev.vetId);
                   const egua = eguasRepro.find(e => e.id === ev.eguaId);
-                  const rotulo = {
-                    procedimento: ev.tipo === 'inseminacao_artificial' ? 'IA' :
-                                  ev.tipo === 'transferencia_embriao' ? 'TE' :
-                                  ev.tipo === 'controle_folicular' ? 'CF' : 'DG',
-                    retorno: 'Retorno',
-                    coleta: 'Coleta',
-                  }[ev.tipoEv];
+                  const rotulo = rotuloEvento(ev);
                   return (
-                    <div key={i} style={{
-                      background: 'var(--card)', border: '1px solid var(--line)',
-                      borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
-                      borderRadius: 8, padding: '6px 8px', marginTop: 4,
-                    }}>
+                    <button
+                      key={i}
+                      onClick={() => onSelectEvento && onSelectEvento(ev)}
+                      style={{
+                        width: '100%', textAlign: 'left', cursor: onSelectEvento ? 'pointer' : 'default',
+                        background: 'var(--card)', border: '1px solid var(--line)',
+                        borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                        borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
+                      }}
+                    >
                       <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {rotulo}
                       </div>
@@ -364,7 +361,7 @@ function Planner({ registros, eguasRepro, vetsExternos }) {
                           {vet.nome.split(' ')[0]}
                         </div>
                       )}
-                    </div>
+                    </button>
                   );
                 })}
               </div>
@@ -377,7 +374,66 @@ function Planner({ registros, eguasRepro, vetsExternos }) {
 }
 
 function eventoBase(r) {
-  return { id: r.id, eguaId: r.eguaId, vetId: r.vetId, tipo: r.tipo };
+  return { id: r.id, eguaId: r.eguaId, vetId: r.vetId, tipo: r.tipo, registro: r };
+}
+
+// Um retorno agendado (registro.dataRetorno) é considerado "cumprido"
+// quando existe QUALQUER outro registro da mesma égua com data >= a
+// data de retorno. A ideia: se o vet voltou pra atender e registrou
+// algo, o retorno virou realidade. Se ele passou da data e não
+// registrou nada, o evento está atrasado.
+function retornoCumprido(reg, todosRegistros) {
+  if (!reg.dataRetorno) return true;
+  return (todosRegistros || []).some(other =>
+    other.id !== reg.id
+    && other.eguaId === reg.eguaId
+    && (other.workspaceId || 'haras') === 'repro'
+    && other.data && other.data >= reg.dataRetorno,
+  );
+}
+
+// Coleta agendada (dados.dataColetaAgendada em IA→transferencia) é
+// cumprida quando existe um TE (transferencia_embriao) da mesma égua
+// com data >= a data agendada.
+function coletaCumprida(reg, todosRegistros) {
+  const dataAg = reg.dados?.dataColetaAgendada;
+  if (!dataAg) return true;
+  return (todosRegistros || []).some(other =>
+    other.tipo === 'transferencia_embriao'
+    && other.eguaId === reg.eguaId
+    && (other.workspaceId || 'haras') === 'repro'
+    && other.data && other.data >= dataAg,
+  );
+}
+
+// Retorna a lista de eventos que ainda estão pendentes (agendados
+// futuros ou atrasados). NÃO inclui procedimentos passados já
+// registrados — esses são história, não agenda.
+function eventosPendentes(registros, hoje) {
+  const out = [];
+  for (const r of (registros || [])) {
+    if ((r.workspaceId || 'haras') !== 'repro') continue;
+    const dados = r.dados || {};
+    // Procedimento agendado no futuro (ou hoje) — só faz sentido se a
+    // data do próprio registro é futura. Como o vet cria o registro
+    // no dia que faz o procedimento, isso normalmente é 'hoje'.
+    if (r.data && r.data >= hoje) {
+      out.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data });
+    }
+    if (r.dataRetorno && !retornoCumprido(r, registros)) {
+      out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno });
+    }
+    if (dados.dataColetaAgendada && !coletaCumprida(r, registros)) {
+      out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
+    }
+  }
+  return out;
+}
+
+function rotuloEvento(ev) {
+  if (ev.tipoEv === 'retorno') return 'Retorno';
+  if (ev.tipoEv === 'coleta') return 'Coleta';
+  return (TIPO_META[ev.tipo]?.short) || '—';
 }
 
 function fmtDataBrCurto(iso) {
@@ -837,9 +893,12 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
 // ─────────────────────────────────────────────────────────────
 // Caderno de reprodução — lista + form completo IA/TE + DG
 // ─────────────────────────────────────────────────────────────
+// tipo `transferencia_embriao` guarda o dado; label mostra "Coleta de
+// Embrião" pra bater com o vocabulário do time (é a etapa em que o
+// embrião é coletado da doadora).
 const TIPO_META = {
   inseminacao_artificial: { label: 'Inseminação Artificial', short: 'IA', cor: '#7c2d8c', bg: '#f5e8ff' },
-  transferencia_embriao:  { label: 'Transferência de Embrião', short: 'TE', cor: '#0e7490', bg: '#cffafe' },
+  transferencia_embriao:  { label: 'Coleta de Embrião', short: 'CE', cor: '#0e7490', bg: '#cffafe' },
   controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
   diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
   servico_avulso:         { label: 'Serviço avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
@@ -862,12 +921,25 @@ const addDias = (iso, n) => {
 function ReproCaderno({
   registrosRepro, eguasRepro, propRepro, locaisRepro, vetsExternos, currentUser,
   servicos = [], insumos = [],
+  preFill = null, onConsumirPreFill,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editReg, setEditReg] = useState(null);
   const [detalheId, setDetalheId] = useState(null);
+  const [novoBase, setNovoBase] = useState(null);
+
+  // Se veio um preFill (via click em evento), abre o form auto.
+  useEffect(() => {
+    if (preFill) {
+      setEditReg(null);
+      setNovoBase(preFill);
+      setShowForm(true);
+      onConsumirPreFill && onConsumirPreFill();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preFill]);
 
   const lista = [...(registrosRepro || [])]
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
@@ -877,7 +949,7 @@ function ReproCaderno({
       return norm(`${egua?.nome || ''} ${r.tipo || ''}`).includes(norm(busca.trim()));
     });
 
-  const abrirNovo = () => { setEditReg(null); setShowForm(true); };
+  const abrirNovo = () => { setEditReg(null); setNovoBase(null); setShowForm(true); };
   const abrirEditar = (r) => { setEditReg(r); setShowForm(true); };
   const abrirDetalhe = (r) => setDetalheId(r.id);
 
@@ -945,6 +1017,7 @@ function ReproCaderno({
       {showForm && (
         <FormRegistroRepro
           registro={editReg}
+          novoBase={novoBase}
           eguasRepro={eguasRepro}
           propRepro={propRepro}
           locaisRepro={locaisRepro}
@@ -1000,7 +1073,14 @@ const DESCARTAVEIS_IA_MATCHERS = [
   { regex: /pipeta.*insem|insem.*pipeta|pipeta/i, label: 'pipeta de inseminação' },
   { regex: /lubrificante.*est[eé]ril|lubrificante/i, label: 'lubrificante estéril' },
 ];
-function resolverDescartaveisIa(insumos) {
+// Regra do haras: cada aplicação de insumo injetável cobra também
+// 1 agulha + 1 seringa + 1 dose de algodão com álcool. Repetido aqui.
+const DESCARTAVEIS_INJECAO_MATCHERS = [
+  { regex: /agulha/i, label: 'agulha' },
+  { regex: /seringa/i, label: 'seringa' },
+  { regex: /algod[aã]o.*[áa]lcool|[áa]lcool.*algod[aã]o/i, label: 'algodão com álcool' },
+];
+function _matchInsumos(insumos, matchers) {
   const repro = insumos.filter(i => i.workspaceId === 'repro');
   const haras = insumos.filter(i => (i.workspaceId || 'haras') === 'haras');
   const encontrar = (matcher) => {
@@ -1009,17 +1089,98 @@ function resolverDescartaveisIa(insumos) {
   };
   const encontrados = [];
   const faltantes = [];
-  for (const m of DESCARTAVEIS_IA_MATCHERS) {
+  for (const m of matchers) {
     const ins = encontrar(m);
     if (ins) encontrados.push({ insumoId: ins.id, qtd: 1, nome: ins.nome });
     else faltantes.push(m.label);
   }
   return { encontrados, faltantes };
 }
+function resolverDescartaveisIa(insumos) {
+  return _matchInsumos(insumos, DESCARTAVEIS_IA_MATCHERS);
+}
+function resolverDescartaveisInjecao(insumos) {
+  return _matchInsumos(insumos, DESCARTAVEIS_INJECAO_MATCHERS);
+}
 
-function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
+// Bloco compartilhado — adição/remoção de insumos usados no registro
+// do caderno. Cada linha: select do insumo + qtd + remover.
+function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
+  const addLinha = () => setInsumosUsados([...insumosUsados, { insumoId: '', qtd: 1 }]);
+  const alterar = (i, patch) => setInsumosUsados(insumosUsados.map((u, idx) => idx === i ? { ...u, ...patch } : u));
+  const remover = (i) => setInsumosUsados(insumosUsados.filter((_, idx) => idx !== i));
+
+  const opcoes = [...insumos]
+    .filter(i => i.workspaceId === 'repro' || (i.workspaceId || 'haras') === 'haras')
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
+    background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+        Insumos utilizados
+      </div>
+      {insumosUsados.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '4px 0 8px' }}>
+          Nenhum insumo adicional. Descartáveis obrigatórios (luva/pipeta/lubrificante pra IA, agulha/seringa/álcool pra injetáveis) são cobrados automaticamente na fatura.
+        </div>
+      )}
+      {insumosUsados.map((u, i) => {
+        const ins = insumos.find(x => x.id === u.insumoId);
+        return (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 32px', gap: 6, marginBottom: 6 }}>
+            <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
+              <option value="">— Selecionar insumo —</option>
+              {opcoes.map(o => (
+                <option key={o.id} value={o.id}>
+                  {o.nome}{o.injetavel ? ' 💉' : ''}{o.workspaceId === 'haras' ? ' (haras)' : ''}
+                </option>
+              ))}
+            </select>
+            <input
+              type="number" min="0" step="0.5" value={u.qtd}
+              onChange={e => alterar(i, { qtd: Number(e.target.value) || 0 })}
+              style={{ ...inputStyle, textAlign: 'right' }}
+              placeholder="qtd"
+            />
+            <button onClick={() => remover(i)} style={{
+              width: 32, height: 32, borderRadius: 8, border: '1px solid var(--line)',
+              background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+              display: 'grid', placeItems: 'center',
+            }}>
+              <Icon name="x" size={12} />
+            </button>
+          </div>
+        );
+      })}
+      <button onClick={addLinha} type="button" style={{
+        marginTop: 4, padding: '8px 12px', borderRadius: 10,
+        border: '1px dashed var(--line)', background: 'transparent',
+        color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', gap: 6,
+      }}>
+        <Icon name="plus" size={12} /> Adicionar insumo
+      </button>
+    </div>
+  );
+}
+
+function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
   const hoje = new Date().toISOString().slice(0, 10);
-  const init = registro || { data: hoje, tipo: 'inseminacao_artificial', dados: {}, dataRetorno: '' };
+  // Prioridade: editando um registro > novoBase (vindo da agenda) > padrão vazio.
+  const init = registro || {
+    data: novoBase?.data || hoje,
+    tipo: novoBase?.tipo || 'inseminacao_artificial',
+    dados: novoBase?.dados || {},
+    dataRetorno: '',
+    eguaId: novoBase?.eguaId || '',
+    localId: novoBase?.localId || '',
+  };
 
   const [tipo, setTipo] = useState(init.tipo);
   const [data, setData] = useState(init.data);
@@ -1027,6 +1188,7 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
   const [localId, setLocalId] = useState(init.localId || '');
   const [dados, setDados] = useState(init.dados || {});
   const [dataRetorno, setDataRetorno] = useState(init.dataRetorno || '');
+  const [insumosUsados, setInsumosUsados] = useState(registro?.insumosUsados || []);
 
   const eguaSel = eguasRepro.find(e => e.id === eguaId);
 
@@ -1057,20 +1219,34 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
   const handleSave = () => {
     if (!canSave) return;
     const mes = data.slice(0, 7);
-    let insumosUsados = registro?.insumosUsados || [];
+    let finalInsumos = [...insumosUsados];
     // IA: adiciona descartáveis obrigatórios (só se ainda não estiverem)
     if (tipo === 'inseminacao_artificial') {
       const { encontrados } = resolverDescartaveisIa(insumos);
       for (const item of encontrados) {
-        if (!insumosUsados.some(u => u.insumoId === item.insumoId)) {
-          insumosUsados = [...insumosUsados, { insumoId: item.insumoId, qtd: item.qtd }];
+        if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
+          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: item.qtd }];
+        }
+      }
+    }
+    // Para cada insumo injetável adicionado, empilha 1 agulha + 1 seringa
+    // + 1 dose de algodão com álcool (regra do haras). Só se não já estão.
+    const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
+    const temInjetavel = finalInsumos.some(u => {
+      const ins = insumos.find(i => i.id === u.insumoId);
+      return ins && ins.injetavel;
+    });
+    if (temInjetavel) {
+      for (const item of descInj) {
+        if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
+          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: item.qtd }];
         }
       }
     }
     const payload = {
       id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       eguaId, data, tipo, dados, dataRetorno: dataRetorno || null,
-      insumosUsados,
+      insumosUsados: finalInsumos,
       autor: currentUser?.nome || 'Vet',
       mes,
       workspaceId: 'repro',
@@ -1341,6 +1517,15 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
           </div>
         </>
       )}
+
+      {/* Insumos utilizados — bloco compartilhado por todos os tipos.
+          Adicionar um insumo injetável auto-empilha agulha + seringa +
+          algodão-álcool na hora de salvar (regra do haras). */}
+      <BlocoInsumosRepro
+        insumos={insumos}
+        insumosUsados={insumosUsados}
+        setInsumosUsados={setInsumosUsados}
+      />
 
       <FormField label="Observações">
         <textarea value={dados.observacoes || ''} onChange={e => setDado('observacoes', e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
@@ -1660,7 +1845,7 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // ─────────────────────────────────────────────────────────────
 function ReproPainel({
   registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
-  currentUser, updateRegistroReproducao,
+  currentUser, updateRegistroReproducao, onSelectEvento,
 }) {
   const [sub, setSub] = useState('dashboard');
   const abas = [
@@ -1704,6 +1889,7 @@ function ReproPainel({
           eguasRepro={eguasRepro}
           locaisRepro={locaisRepro}
           vetsExternos={vetsExternos}
+          onSelectEvento={onSelectEvento}
         />
       )}
     </div>
@@ -1756,7 +1942,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
 
   const cards = [
     { label: 'IA', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff' },
-    { label: 'TE', valor: totalTE, cor: '#0e7490', bg: '#cffafe' },
+    { label: 'CE', valor: totalTE, cor: '#0e7490', bg: '#cffafe' },
     { label: 'CF', valor: totalCF, cor: '#0e7490', bg: '#cffafe' },
     { label: 'DG', valor: totalDG, cor: '#15803d', bg: '#dcfce7' },
     { label: 'SV', valor: totalSV, cor: '#c2410c', bg: '#fed7aa' },
@@ -1946,7 +2132,7 @@ function ReproCruzamentos({ registrosRepro, eguasRepro, propRepro, vetsExternos,
   );
 }
 // ── Calendário mensal (grid 7×N) ─────────────────────────────
-function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos }) {
+function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, onSelectEvento }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [diaAberto, setDiaAberto] = useState(null); // iso YYYY-MM-DD
@@ -1970,11 +2156,18 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
     if (!eventosPorDia.has(iso)) eventosPorDia.set(iso, []);
     eventosPorDia.get(iso).push(ev);
   };
+  // Regras de "cumprimento" — retorno/coleta consumidos NÃO viram
+  // evento no calendário. Procedimentos passados aparecem como
+  // historico (é a linha do tempo de fato).
   for (const r of (registrosRepro || [])) {
     const dados = r.dados || {};
-    if (r.data) add(r.data, { r, tipoEv: 'procedimento', dataEv: r.data });
-    if (r.dataRetorno) add(r.dataRetorno, { r, tipoEv: 'retorno', dataEv: r.dataRetorno });
-    if (dados.dataColetaAgendada) add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
+    if (r.data) add(r.data, { r, tipoEv: 'procedimento', dataEv: r.data, ...eventoBase(r) });
+    if (r.dataRetorno && !retornoCumprido(r, registrosRepro)) {
+      add(r.dataRetorno, { r, tipoEv: 'retorno', dataEv: r.dataRetorno, ...eventoBase(r) });
+    }
+    if (dados.dataColetaAgendada && !coletaCumprida(r, registrosRepro)) {
+      add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, ...eventoBase(r) });
+    }
   }
 
   const isoDe = (d) => d.toISOString().slice(0, 10);
@@ -2071,23 +2264,30 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
             const vet = vetsExternos.find(v => v.id === ev.r.vetId);
             const egua = eguasRepro.find(e => e.id === ev.r.eguaId);
             const local = locaisRepro.find(l => l.id === ev.r.localId);
-            const rotuloEv = ev.tipoEv === 'procedimento'
-              ? (TIPO_META[ev.r.tipo]?.short || '—')
-              : ev.tipoEv === 'retorno' ? 'Retorno' : 'Coleta';
+            const rot = rotuloEvento(ev);
             return (
-              <div key={i} style={{
-                background: 'var(--card)', border: '1px solid var(--line)',
-                borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
-                borderRadius: 10, padding: '10px 12px', marginBottom: 8,
-              }}>
+              <button
+                key={i}
+                onClick={() => {
+                  setDiaAberto(null);
+                  onSelectEvento && onSelectEvento(ev);
+                }}
+                style={{
+                  width: '100%', textAlign: 'left', cursor: onSelectEvento ? 'pointer' : 'default',
+                  background: 'var(--card)', border: '1px solid var(--line)',
+                  borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                  borderRadius: 10, padding: '10px 12px', marginBottom: 8,
+                  color: 'var(--ink)',
+                }}
+              >
                 <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
-                  {rotuloEv}
+                  {rot}
                 </div>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', marginTop: 2 }}>{egua?.nome || '—'}</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
                   {local?.nome || '—'}{vet ? ` · ${vet.nome.split(' ')[0]}` : ''}
                 </div>
-              </div>
+              </button>
             );
           })}
         </Modal>
@@ -2714,6 +2914,36 @@ export function ReproApp({
   const [tab, setTab] = useState('home');
   const [cadSub, setCadSub] = useState('locais');
   const [localSelecionado, setLocalSelecionado] = useState(null);
+  // Pré-preenchimento do form do caderno quando vindo da agenda/calendário
+  const [preFillCaderno, setPreFillCaderno] = useState(null);
+
+  // Traduz um evento (retorno/coleta/procedimento) no rascunho de um NOVO
+  // registro do caderno pra continuar aquele fluxo.
+  const abrirCadernoDoEvento = (ev) => {
+    if (!ev) return;
+    const hojeIso = new Date().toLocaleDateString('sv-SE');
+    let tipoSugerido = 'controle_folicular';
+    let dadosSugeridos = {};
+    if (ev.tipoEv === 'coleta') {
+      // coleta agendada → próximo passo é registrar a TE (coleta) do embrião
+      tipoSugerido = 'transferencia_embriao';
+      dadosSugeridos = { iaOrigemId: ev.registro?.id };
+    } else if (ev.tipoEv === 'retorno') {
+      // retorno de qualquer coisa → controle folicular pra ver a égua
+      tipoSugerido = 'controle_folicular';
+    } else if (ev.tipoEv === 'procedimento') {
+      tipoSugerido = ev.tipo || 'controle_folicular';
+    }
+    setPreFillCaderno({
+      eguaId: ev.eguaId,
+      localId: ev.registro?.localId || null,
+      data: hojeIso,
+      tipo: tipoSugerido,
+      dados: dadosSugeridos,
+    });
+    setTab('caderno');
+    setScreen('repro-caderno');
+  };
 
   // Filtra dados por workspace='repro'
   const propRepro = useMemo(() => proprietarios.filter(p => p.workspaceId === 'repro'), [proprietarios]);
@@ -2738,6 +2968,7 @@ export function ReproApp({
       setScreen={setScreen}
       setTab={setTab}
       goCadastros={goCadastros}
+      onSelectEvento={abrirCadernoDoEvento}
     />;
   } else if (screen === 'repro-cadastros') {
     if (localSelecionado) {
@@ -2793,6 +3024,8 @@ export function ReproApp({
       currentUser={currentUser}
       servicos={servicosRepro}
       insumos={insumosRepro}
+      preFill={preFillCaderno}
+      onConsumirPreFill={() => setPreFillCaderno(null)}
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
@@ -2806,6 +3039,7 @@ export function ReproApp({
       vetsExternos={vetsExternos}
       currentUser={currentUser}
       updateRegistroReproducao={updateRegistroReproducao}
+      onSelectEvento={abrirCadernoDoEvento}
     />;
   } else if (screen === 'repro-cobrancas') {
     content = <ReproCobrancas
