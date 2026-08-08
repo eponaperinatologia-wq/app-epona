@@ -1517,8 +1517,8 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           <FormField label="Aspecto da vagina">
             <input value={dados.aspectoVagina || ''} onChange={e => setDado('aspectoVagina', e.target.value)} style={inputStyle} placeholder="Ex: normal, hiperêmica…" />
           </FormField>
-          <FormField label="Ringer Lactato (ml)">
-            <input type="number" min="0" step="10" value={dados.ringerLactatoMl || ''} onChange={e => setDado('ringerLactatoMl', e.target.value)} style={inputStyle} />
+          <FormField label="Ringer Lactato (L)">
+            <input type="number" min="0" step="0.5" value={dados.ringerLactatoL || ''} onChange={e => setDado('ringerLactatoL', e.target.value)} style={inputStyle} placeholder="Ex: 2" />
           </FormField>
           <FormField label="Resultado *">
             <div style={{ display: 'flex', gap: 6 }}>
@@ -1699,7 +1699,10 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
             <DetalheLinha label="Tônus cervical" valor={d.tonusCervical} />
             <DetalheLinha label="Tônus uterino" valor={d.tonusUterino} />
             <DetalheLinha label="Aspecto da vagina" valor={d.aspectoVagina} />
-            <DetalheLinha label="Ringer Lactato" valor={d.ringerLactatoMl ? `${d.ringerLactatoMl} ml` : null} />
+            <DetalheLinha label="Ringer Lactato" valor={
+              d.ringerLactatoL ? `${d.ringerLactatoL} L` :
+              d.ringerLactatoMl ? `${(Number(d.ringerLactatoMl) / 1000).toFixed(2)} L` : null
+            } />
             <DetalheLinha label="Resultado" valor={d.resultado === 'positivo' ? '✓ Positiva' : d.resultado === 'negativo' ? '✗ Negativa' : null} />
             {d.resultado === 'positivo' && <DetalheLinha label="Receptora" valor={d.receptora} />}
           </>
@@ -2404,6 +2407,7 @@ function ReproCobrancas({
   currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal,
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
   vetsExternos, empresaInfo,
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
   const [sub, setSub] = useState('faturas');
   const abas = [
@@ -2444,6 +2448,10 @@ function ReproCobrancas({
           locais={locaisRepro}
           vetsExternos={vetsExternos}
           empresaInfo={empresaInfo}
+          currentUser={currentUser}
+          addRegistroReproducao={addRegistroReproducao}
+          updateRegistroReproducao={updateRegistroReproducao}
+          deleteRegistroReproducao={deleteRegistroReproducao}
         />
       )}
       {sub === 'divisao' && (
@@ -2498,7 +2506,8 @@ const navBtn = {
 // ─────────────────────────────────────────────────────────────
 function ReproFaturas({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
-  vetKmLocais, locais, vetsExternos, empresaInfo,
+  vetKmLocais, locais, vetsExternos, empresaInfo, currentUser,
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
@@ -2513,12 +2522,29 @@ function ReproFaturas({
   if (propAberto) {
     const item = lista.find(x => x.prop.id === propAberto);
     if (item) {
+      // Éguas do proprietário aberto (repro) — usado no picker "+ Adicionar"
+      const eguasDoProp = cavalos.filter(c =>
+        (c.workspaceId || 'haras') === 'repro'
+        && ((c.proprietarioIds || []).includes(item.prop.id) || c.proprietarioId === item.prop.id),
+      );
       return (
         <ReproFaturaDetalhe
           fatura={item.fat}
           empresaInfo={empresaInfo}
           vetsExternos={vetsExternos}
           onBack={() => setPropAberto(null)}
+          registros={registros}
+          eguasDoProp={eguasDoProp}
+          eguasRepro={cavalos.filter(c => (c.workspaceId || 'haras') === 'repro')}
+          propRepro={propRepro}
+          locaisRepro={locais}
+          servicos={servicos}
+          insumos={insumos}
+          currentUser={currentUser}
+          addRegistroReproducao={addRegistroReproducao}
+          updateRegistroReproducao={updateRegistroReproducao}
+          deleteRegistroReproducao={deleteRegistroReproducao}
+          mesRef={mesRef}
         />
       );
     }
@@ -2572,16 +2598,51 @@ function ReproFaturas({
 // ─────────────────────────────────────────────────────────────
 // Detalhe da fatura + PDF
 // ─────────────────────────────────────────────────────────────
-function ReproFaturaDetalhe({ fatura, empresaInfo, vetsExternos, onBack }) {
+function ReproFaturaDetalhe({
+  fatura, empresaInfo, vetsExternos, onBack,
+  registros = [], eguasDoProp = [], eguasRepro = [], propRepro = [], locaisRepro = [], servicos = [], insumos = [], currentUser,
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  mesRef,
+}) {
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const mesNome = meses[fatura.ref.mes - 1];
+  const [editRegId, setEditRegId] = useState(null);
+  const [novoRegBase, setNovoRegBase] = useState(null);
 
   const baixarPdf = () => {
     const doc = gerarPdfFaturaRepro({ fatura, mesNome, empresa: empresaInfo || {}, vetsExternos });
     doc.save(nomePdfFaturaRepro(fatura.proprietario, fatura.ref, mesNome));
   };
-
   const vetNome = (id) => (vetsExternos.find(v => v.id === id)?.nome) || '—';
+
+  const excluirRegistro = (regId, msg) => {
+    if (!regId || !deleteRegistroReproducao) return;
+    if (window.confirm(msg || 'Excluir este registro do caderno?')) {
+      deleteRegistroReproducao(regId);
+    }
+  };
+  const removerInsumoDaLinha = (regId, insumoId) => {
+    const r = registros.find(x => x.id === regId);
+    if (!r || !updateRegistroReproducao) return;
+    if (!window.confirm('Remover este insumo do registro?')) return;
+    const nova = (r.insumosUsados || []).filter(u => u.insumoId !== insumoId);
+    updateRegistroReproducao(regId, { insumosUsados: nova });
+  };
+  const editarRegistro = (regId) => setEditRegId(regId);
+  const criarRegistroNovo = () => {
+    // Pré-preenche com a 1ª égua do proprietário e último dia do mês
+    const egua = eguasDoProp[0];
+    const ultimoDiaMes = new Date(fatura.ref.ano, fatura.ref.mes, 0).getDate();
+    const dataIso = `${fatura.ref.ano}-${String(fatura.ref.mes).padStart(2, '0')}-${String(ultimoDiaMes).padStart(2, '0')}`;
+    setNovoRegBase({
+      eguaId: egua?.id || '',
+      localId: egua?.localId || '',
+      data: dataIso,
+      tipo: 'servico_avulso',
+      dados: {},
+    });
+  };
+  const registroEmEdicao = editRegId ? registros.find(r => r.id === editRegId) : null;
 
   return (
     <div>
@@ -2609,26 +2670,44 @@ function ReproFaturaDetalhe({ fatura, empresaInfo, vetsExternos, onBack }) {
           <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--ink)' }}>{formatBRL(fatura.total)}</div>
         </div>
 
+        {addRegistroReproducao && (
+          <button onClick={criarRegistroNovo} style={{
+            width: '100%', padding: '11px', borderRadius: 10, border: '1px dashed var(--line)',
+            background: 'var(--soft)', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+            cursor: 'pointer', fontFamily: 'var(--sans)', marginBottom: 10,
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          }}>
+            <Icon name="plus" size={12} /> Adicionar registro nesta fatura
+          </button>
+        )}
+
         {fatura.visitasLinhas.length > 0 && (
           <SecaoFat titulo={`Visitas · ${formatBRL(fatura.visitasTotal)}`} linhas={fatura.visitasLinhas.map(v => ({
             principal: v.localNome,
             sub: `${fmtDataBr(v.data)} · ${vetNome(v.vetId).split(' ')[0]}${v.nProps > 1 ? ` · rateado ${v.nProps}p` : ''}`,
             valor: v.valor,
+            readOnly: true,
           }))} />
         )}
         {fatura.insumosLinhas.length > 0 && (
           <SecaoFat titulo={`Insumos · ${formatBRL(fatura.insumosTotal)}`} linhas={fatura.insumosLinhas.map(l => ({
             principal: l.nome, sub: `${fmtDataBr(l.data)} · ${l.qtd} ${l.unidade}`, valor: l.valor,
+            onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
+            onExcluir: updateRegistroReproducao ? () => removerInsumoDaLinha(l.registroId, l.insumoId) : null,
           }))} />
         )}
         {fatura.procedimentosLinhas.length > 0 && (
           <SecaoFat titulo={`Procedimentos · ${formatBRL(fatura.procedimentosTotal)}`} linhas={fatura.procedimentosLinhas.map(l => ({
             principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+            onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
+            onExcluir: deleteRegistroReproducao ? () => excluirRegistro(l.registroId, `Excluir procedimento ${l.tipo} de ${fmtDataBr(l.data)}? O registro sai do caderno.`) : null,
           }))} />
         )}
         {fatura.avulsosLinhas.length > 0 && (
           <SecaoFat titulo={`Serviços avulsos · ${formatBRL(fatura.avulsosTotal)}`} linhas={fatura.avulsosLinhas.map(l => ({
             principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+            onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
+            onExcluir: deleteRegistroReproducao ? () => excluirRegistro(l.registroId, `Excluir serviço "${l.descricao}" de ${fmtDataBr(l.data)}?`) : null,
           }))} />
         )}
         {fatura.resultadosLinhas.length > 0 && (
@@ -2636,9 +2715,31 @@ function ReproFaturaDetalhe({ fatura, empresaInfo, vetsExternos, onBack }) {
             principal: l.eguaNome,
             sub: `${fmtDataBr(l.data)} · DG30+${l.vetIdInsem ? ` · insem. ${vetNome(l.vetIdInsem).split(' ')[0]}` : ''}`,
             valor: l.valor,
+            readOnly: true,
           }))} />
         )}
       </div>
+
+      {(registroEmEdicao || novoRegBase) && (
+        <FormRegistroRepro
+          registro={registroEmEdicao}
+          novoBase={novoRegBase}
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          currentUser={currentUser}
+          servicos={servicos}
+          insumos={insumos}
+          registrosRepro={registros}
+          onSave={(payload) => {
+            if (registroEmEdicao) updateRegistroReproducao(registroEmEdicao.id, payload);
+            else addRegistroReproducao(payload);
+            setEditRegId(null);
+            setNovoRegBase(null);
+          }}
+          onCancel={() => { setEditRegId(null); setNovoRegBase(null); }}
+        />
+      )}
     </div>
   );
 }
@@ -2653,7 +2754,7 @@ const SecaoFat = ({ titulo, linhas }) => (
     </div>
     {linhas.map((l, i) => (
       <div key={i} style={{
-        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0',
+        display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
         borderTop: i === 0 ? 'none' : '1px solid var(--line-soft, var(--line))',
       }}>
         <div style={{ flex: 1, minWidth: 0 }}>
@@ -2661,6 +2762,28 @@ const SecaoFat = ({ titulo, linhas }) => (
           {l.sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{l.sub}</div>}
         </div>
         <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{formatBRL(l.valor)}</div>
+        {!l.readOnly && (l.onEditar || l.onExcluir) && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            {l.onEditar && (
+              <button onClick={l.onEditar} title="Editar registro" style={{
+                width: 26, height: 26, borderRadius: 6, border: '1px solid var(--line)',
+                background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="edit" size={11} />
+              </button>
+            )}
+            {l.onExcluir && (
+              <button onClick={l.onExcluir} title="Excluir" style={{
+                width: 26, height: 26, borderRadius: 6, border: '1px solid #dc262640',
+                background: '#fee2e2', color: '#dc2626', cursor: 'pointer',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="x" size={11} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     ))}
   </div>
@@ -2859,7 +2982,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
   const [importando, setImportando] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nome: '', valor: '', descartaveisObrigatorios: [] });
+  const [form, setForm] = useState({ nome: '', valor: '', injetavel: false, descartaveisObrigatorios: [] });
 
   const doHaras = itens.filter(i => (i.workspaceId || 'haras') === 'haras');
   const doRepro = itens.filter(i => i.workspaceId === 'repro');
@@ -2890,7 +3013,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 
   const abrirNovo = () => {
     setEditId(null);
-    setForm({ nome: '', valor: '', descartaveisObrigatorios: [] });
+    setForm({ nome: '', valor: '', injetavel: false, descartaveisObrigatorios: [] });
     setShowForm(true);
   };
   const abrirEditar = (i) => {
@@ -2898,6 +3021,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
     setForm({
       nome: i.nome,
       valor: String(tipo === 'insumos' ? (i.valorVenda ?? 0) : (i.valor ?? 0)),
+      injetavel: !!i.injetavel,
       descartaveisObrigatorios: Array.isArray(i.descartaveisObrigatorios) ? i.descartaveisObrigatorios : [],
     });
     setShowForm(true);
@@ -2907,12 +3031,12 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
     const valorNum = parseFloat(String(form.valor).replace(',', '.')) || 0;
     if (editId) {
       const patch = tipo === 'insumos'
-        ? { nome: form.nome.trim(), valorVenda: valorNum }
+        ? { nome: form.nome.trim(), valorVenda: valorNum, injetavel: !!form.injetavel }
         : { nome: form.nome.trim(), valor: valorNum, descartaveisObrigatorios: form.descartaveisObrigatorios };
       updateItem(editId, patch);
     } else {
       const base = tipo === 'insumos'
-        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, workspaceId: 'repro' }
+        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, injetavel: !!form.injetavel, workspaceId: 'repro' }
         : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro', descartaveisObrigatorios: form.descartaveisObrigatorios };
       addItem(base);
     }
@@ -2987,6 +3111,26 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
           <FormField label={tipo === 'insumos' ? 'Valor de venda (R$)' : 'Valor (R$)'}>
             <input type="number" min="0" step="0.01" value={form.valor} onChange={e => setForm(f => ({ ...f, valor: e.target.value }))} style={inputStyle} placeholder="0,00" />
           </FormField>
+
+          {tipo === 'insumos' && (
+            <label style={{
+              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+              background: 'var(--soft)', borderRadius: 10, marginBottom: 12, cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={!!form.injetavel}
+                onChange={e => setForm(f => ({ ...f, injetavel: e.target.checked }))}
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+              />
+              <div style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>
+                Insumo injetável 💉
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                  Cada uso cobra automaticamente 1 agulha + 1 seringa + 1 algodão com álcool.
+                </div>
+              </div>
+            </label>
+          )}
 
           {tipo === 'servicos' && (
             <BlocoDescartaveisObrigatorios
@@ -3174,6 +3318,9 @@ export function ReproApp({
       insumos={insumosRepro}
       vetsExternos={vetsExternos}
       empresaInfo={empresaInfo}
+      addRegistroReproducao={addRegistroReproducao}
+      updateRegistroReproducao={updateRegistroReproducao}
+      deleteRegistroReproducao={deleteRegistroReproducao}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta
