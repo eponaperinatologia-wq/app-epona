@@ -91,8 +91,8 @@ function TabBar({ tab, setTab, setScreen }) {
     { id: 'home', label: 'Início', icon: 'home', screen: 'repro-home' },
     { id: 'caderno', label: 'Caderno', icon: 'edit', screen: 'repro-caderno' },
     { id: 'cadastros', label: 'Cadastros', icon: 'menu', screen: 'repro-cadastros' },
+    { id: 'painel', label: 'Painel', icon: 'sparkle', screen: 'repro-painel' },
     { id: 'cobrancas', label: 'Cobranças', icon: 'doc', screen: 'repro-cobrancas' },
-    { id: 'conta', label: 'Conta', icon: 'user', screen: 'repro-conta' },
   ];
   return (
     <div style={{
@@ -192,7 +192,7 @@ function ReproHome({
       <button onClick={() => goCadastros('locais')} style={{
         width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
         padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
-        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', marginBottom: 8,
       }}>
         <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center' }}>
           <Icon name="menu" size={18} />
@@ -202,6 +202,20 @@ function ReproHome({
           <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Locais · Proprietários · Éguas · Insumos · Serviços</div>
         </div>
         <span style={{ fontSize: 18, opacity: 0.6 }}>›</span>
+      </button>
+
+      <button onClick={() => { setTab('conta'); setScreen('repro-conta'); }} style={{
+        width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+        padding: '12px 16px', cursor: 'pointer', color: 'var(--ink-2)',
+        display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+      }}>
+        <div style={{ width: 34, height: 34, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-3)', display: 'grid', placeItems: 'center' }}>
+          <Icon name="user" size={16} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--sans)', fontSize: 13, fontWeight: 600 }}>Minha conta</div>
+        </div>
+        <span style={{ fontSize: 16, opacity: 0.5 }}>›</span>
       </button>
     </div>
   );
@@ -836,7 +850,7 @@ const addDias = (iso, n) => {
 
 function ReproCaderno({
   registrosRepro, eguasRepro, propRepro, locaisRepro, vetsExternos, currentUser,
-  servicos = [],
+  servicos = [], insumos = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
   const [busca, setBusca] = useState('');
@@ -925,6 +939,7 @@ function ReproCaderno({
           locaisRepro={locaisRepro}
           currentUser={currentUser}
           servicos={servicos}
+          insumos={insumos}
           registrosRepro={registrosRepro}
           onSave={(payload) => {
             if (editReg) {
@@ -966,7 +981,32 @@ function ReproCaderno({
 // ─────────────────────────────────────────────────────────────
 // Formulário: IA / TE / Controle folicular / DG
 // ─────────────────────────────────────────────────────────────
-function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], registrosRepro = [], onSave, onCancel }) {
+// Insumos que são obrigatoriamente cobrados em toda IA (luva palpação,
+// pipeta inseminação, dose de lubrificante estéril). Buscamos por nome
+// no catálogo — repro tem prioridade, haras é fallback.
+const DESCARTAVEIS_IA_MATCHERS = [
+  { regex: /luva.*palpa|palpa.*luva/i, label: 'luva de palpação' },
+  { regex: /pipeta.*insem|insem.*pipeta|pipeta/i, label: 'pipeta de inseminação' },
+  { regex: /lubrificante.*est[eé]ril|lubrificante/i, label: 'lubrificante estéril' },
+];
+function resolverDescartaveisIa(insumos) {
+  const repro = insumos.filter(i => i.workspaceId === 'repro');
+  const haras = insumos.filter(i => (i.workspaceId || 'haras') === 'haras');
+  const encontrar = (matcher) => {
+    const nomeMatch = (arr) => arr.find(i => matcher.regex.test(i.nome || ''));
+    return nomeMatch(repro) || nomeMatch(haras) || null;
+  };
+  const encontrados = [];
+  const faltantes = [];
+  for (const m of DESCARTAVEIS_IA_MATCHERS) {
+    const ins = encontrar(m);
+    if (ins) encontrados.push({ insumoId: ins.id, qtd: 1, nome: ins.nome });
+    else faltantes.push(m.label);
+  }
+  return { encontrados, faltantes };
+}
+
+function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
   const hoje = new Date().toISOString().slice(0, 10);
   const init = registro || { data: hoje, tipo: 'inseminacao_artificial', dados: {}, dataRetorno: '' };
 
@@ -1006,10 +1046,20 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
   const handleSave = () => {
     if (!canSave) return;
     const mes = data.slice(0, 7);
+    let insumosUsados = registro?.insumosUsados || [];
+    // IA: adiciona descartáveis obrigatórios (só se ainda não estiverem)
+    if (tipo === 'inseminacao_artificial') {
+      const { encontrados } = resolverDescartaveisIa(insumos);
+      for (const item of encontrados) {
+        if (!insumosUsados.some(u => u.insumoId === item.insumoId)) {
+          insumosUsados = [...insumosUsados, { insumoId: item.insumoId, qtd: item.qtd }];
+        }
+      }
+    }
     const payload = {
       id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       eguaId, data, tipo, dados, dataRetorno: dataRetorno || null,
-      insumosUsados: registro?.insumosUsados || [],
+      insumosUsados,
       autor: currentUser?.nome || 'Vet',
       mes,
       workspaceId: 'repro',
@@ -1121,13 +1171,26 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
           <FormField label="Data de retorno (se houver)">
             <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
           </FormField>
-          <div style={{
-            background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 10,
-            padding: '10px 12px', fontSize: 12, color: '#6b21a8', lineHeight: 1.5, marginBottom: 12,
-          }}>
-            <strong>Descartáveis obrigatórios</strong> (cobrados na fatura):
-            luva de palpação, pipeta de inseminação, dose de lubrificante estéril.
-          </div>
+          {(() => {
+            const { faltantes } = resolverDescartaveisIa(insumos);
+            const bg = faltantes.length ? '#fee2e2' : '#f5e8ff';
+            const border = faltantes.length ? '#fca5a5' : '#d8b4fe';
+            const cor = faltantes.length ? '#991b1b' : '#6b21a8';
+            return (
+              <div style={{
+                background: bg, border: `1px solid ${border}`, borderRadius: 10,
+                padding: '10px 12px', fontSize: 12, color: cor, lineHeight: 1.5, marginBottom: 12,
+              }}>
+                <strong>Descartáveis obrigatórios</strong> (cobrados automaticamente na fatura):
+                luva de palpação, pipeta de inseminação, dose de lubrificante estéril.
+                {faltantes.length > 0 && (
+                  <div style={{ marginTop: 4 }}>
+                    ⚠ Não achei no catálogo: <strong>{faltantes.join(', ')}</strong>. Cadastre em Cadastros → Insumos pra cobrar automaticamente.
+                  </div>
+                )}
+              </div>
+            );
+          })()}
         </>
       )}
 
@@ -1581,6 +1644,447 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // Cobranças — apenas Km por local do vet logado (insumos e
 // serviços agora vivem em Cadastros).
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Painel — wrapper com 3 sub-abas: Dashboard | Cruzamentos | Calendário
+// ─────────────────────────────────────────────────────────────
+function ReproPainel({
+  registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
+  currentUser, updateRegistroReproducao,
+}) {
+  const [sub, setSub] = useState('dashboard');
+  const abas = [
+    ['dashboard', 'Dashboard'],
+    ['cruzamentos', 'Cruzamentos'],
+    ['calendario', 'Calendário'],
+  ];
+  return (
+    <div>
+      <TopBar title="Painel" subtitle="Dashboard · Cruzamentos · Calendário" />
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
+        {abas.map(([id, lbl]) => (
+          <button key={id} onClick={() => setSub(id)} style={{
+            flex: 1, padding: '11px 4px', border: 'none', background: 'none',
+            borderBottom: `2px solid ${sub === id ? CORES_TAB_ATIVA : 'transparent'}`,
+            color: sub === id ? CORES_TAB_ATIVA : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>{lbl}</button>
+        ))}
+      </div>
+      {sub === 'dashboard' && (
+        <ReproDashboard
+          registrosRepro={registrosRepro}
+          eguasRepro={eguasRepro}
+          vetsExternos={vetsExternos}
+          currentUser={currentUser}
+        />
+      )}
+      {sub === 'cruzamentos' && (
+        <ReproCruzamentos
+          registrosRepro={registrosRepro}
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          vetsExternos={vetsExternos}
+          updateRegistroReproducao={updateRegistroReproducao}
+        />
+      )}
+      {sub === 'calendario' && (
+        <ReproCalendario
+          registrosRepro={registrosRepro}
+          eguasRepro={eguasRepro}
+          locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Dashboard ────────────────────────────────────────────────
+function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser }) {
+  const hoje = new Date();
+  const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
+  const [filtroVetId, setFiltroVetId] = useState('');
+
+  const emMes = (iso) => {
+    if (!iso) return false;
+    const [y, m] = iso.split('-');
+    return Number(y) === mesRef.ano && Number(m) === mesRef.mes;
+  };
+
+  const regs = (registrosRepro || []).filter(r => {
+    if (!emMes(r.data)) return false;
+    if (filtroVetId && r.vetId !== filtroVetId) return false;
+    return true;
+  });
+
+  // Totais por tipo
+  const totalIA = regs.filter(r => r.tipo === 'inseminacao_artificial').length;
+  const totalTE = regs.filter(r => r.tipo === 'transferencia_embriao').length;
+  const totalCF = regs.filter(r => r.tipo === 'controle_folicular').length;
+  const totalDG = regs.filter(r => r.tipo === 'diagnostico_gestacao').length;
+  const totalSV = regs.filter(r => r.tipo === 'servico_avulso').length;
+
+  // % IA que viraram TE (destino=transferencia)
+  const iaTransfer = regs.filter(r => r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'transferencia').length;
+  const pctIaTe = totalIA ? Math.round((iaTransfer / totalIA) * 100) : 0;
+
+  // % TE positivas
+  const tePos = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo').length;
+  const teNeg = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'negativo').length;
+  const pctTePos = (tePos + teNeg) ? Math.round((tePos / (tePos + teNeg)) * 100) : 0;
+
+  // Taxa DG15/30/45 — considera registros com dg15/dg30/dg45 marcado (positivo|negativo)
+  const contarDg = (chave) => {
+    const total = regs.filter(r => r.dados?.[chave] === 'positivo' || r.dados?.[chave] === 'negativo').length;
+    const pos = regs.filter(r => r.dados?.[chave] === 'positivo').length;
+    return { total, pos, pct: total ? Math.round((pos / total) * 100) : 0 };
+  };
+  const dg15 = contarDg('dg15');
+  const dg30 = contarDg('dg30');
+  const dg45 = contarDg('dg45');
+
+  const cards = [
+    { label: 'IA', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff' },
+    { label: 'TE', valor: totalTE, cor: '#0e7490', bg: '#cffafe' },
+    { label: 'CF', valor: totalCF, cor: '#0e7490', bg: '#cffafe' },
+    { label: 'DG', valor: totalDG, cor: '#15803d', bg: '#dcfce7' },
+    { label: 'SV', valor: totalSV, cor: '#c2410c', bg: '#fed7aa' },
+  ];
+
+  return (
+    <div>
+      <NavMes mesRef={mesRef} setMesRef={setMesRef} />
+      <div style={{ padding: '4px 20px 8px' }}>
+        <FiltroVet vets={vetsExternos} valor={filtroVetId} onChange={setFiltroVetId} />
+      </div>
+
+      <div style={{ padding: '4px 20px 8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+        {cards.map(c => (
+          <div key={c.label} style={{
+            background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 10, padding: '10px 6px', textAlign: 'center',
+          }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: c.cor }}>{c.valor}</div>
+            <div style={{ fontSize: 10, color: c.cor, fontWeight: 700, letterSpacing: '0.06em' }}>{c.label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: '10px 20px 20px' }}>
+        <BarraPercentual titulo="IA que viraram TE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
+        <BarraPercentual titulo="TE positivas" valor={pctTePos} totalLabel={`${tePos}/${tePos + teNeg}`} cor="#0e7490" />
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 8,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
+            Diagnósticos gestacionais
+          </div>
+          {[['DG 15', dg15], ['DG 30', dg30], ['DG 45', dg45]].map(([lbl, d]) => (
+            <div key={lbl} style={{ marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                <span style={{ color: 'var(--ink)' }}>{lbl}</span>
+                <span style={{ color: 'var(--ink-3)' }}>{d.pos}/{d.total} · {d.pct}%</span>
+              </div>
+              <div style={{ height: 6, background: 'var(--soft)', borderRadius: 3, overflow: 'hidden' }}>
+                <div style={{ width: `${d.pct}%`, height: '100%', background: '#15803d' }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const FiltroVet = ({ vets, valor, onChange }) => (
+  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+    <button onClick={() => onChange('')} style={filtroBtn(!valor)}>Todos</button>
+    {vets.map(v => (
+      <button key={v.id} onClick={() => onChange(v.id === valor ? '' : v.id)} style={{
+        ...filtroBtn(valor === v.id),
+        borderColor: valor === v.id ? v.cor : 'var(--line)',
+        color: valor === v.id ? v.cor : 'var(--ink-3)',
+      }}>
+        <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 8, background: v.cor, marginRight: 4 }} />
+        {v.nome.split(' ')[0]}
+      </button>
+    ))}
+  </div>
+);
+const filtroBtn = (ativo) => ({
+  padding: '6px 10px', borderRadius: 20, border: `1px solid ${ativo ? 'var(--ink)' : 'var(--line)'}`,
+  background: ativo ? 'var(--card)' : 'transparent', color: ativo ? 'var(--ink)' : 'var(--ink-3)',
+  fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+});
+
+const BarraPercentual = ({ titulo, valor, totalLabel, cor }) => (
+  <div style={{
+    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 8,
+  }}>
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 6 }}>
+      <span style={{ color: 'var(--ink)' }}>{titulo}</span>
+      <span style={{ color: 'var(--ink-3)' }}>{totalLabel} · <strong style={{ color: cor }}>{valor}%</strong></span>
+    </div>
+    <div style={{ height: 8, background: 'var(--soft)', borderRadius: 4, overflow: 'hidden' }}>
+      <div style={{ width: `${valor}%`, height: '100%', background: cor }} />
+    </div>
+  </div>
+);
+
+// ── Cruzamentos confirmados (DG45+) ─────────────────────────
+// Listamos éguas cuja gestação foi confirmada em DG45. O checklist
+// (comunicado cobertura, pré-registro, inspeção) fica salvo em
+// registro.dados.checklistCobertura no MESMO registro que carrega o dg45.
+function ReproCruzamentos({ registrosRepro, eguasRepro, propRepro, vetsExternos, updateRegistroReproducao }) {
+  const [filtroVetId, setFiltroVetId] = useState('');
+  const [ocultarConcluidos, setOcultarConcluidos] = useState(false);
+
+  // Qualquer registro com dg45=='positivo' vira uma "confirmação".
+  const confirmados = (registrosRepro || [])
+    .filter(r => r.dados?.dg45 === 'positivo')
+    .filter(r => !filtroVetId || r.vetId === filtroVetId)
+    .sort((a, b) => (b.dados?.dg45_data || b.data || '').localeCompare(a.dados?.dg45_data || a.data || ''));
+
+  const salvarCheck = (r, campo, valor) => {
+    const cur = r.dados?.checklistCobertura || {};
+    const novo = { ...cur, [campo]: valor };
+    updateRegistroReproducao(r.id, { dados: { ...(r.dados || {}), checklistCobertura: novo } });
+  };
+
+  const isConcluido = (r) => {
+    const c = r.dados?.checklistCobertura || {};
+    return c.comunicadoCobertura && c.preRegistro && c.inspecaoZootecnica;
+  };
+
+  const visiveis = ocultarConcluidos ? confirmados.filter(r => !isConcluido(r)) : confirmados;
+
+  return (
+    <div>
+      <div style={{ padding: '12px 20px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <FiltroVet vets={vetsExternos} valor={filtroVetId} onChange={setFiltroVetId} />
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+          fontSize: 12, color: 'var(--ink-2)',
+        }}>
+          <input type="checkbox" checked={ocultarConcluidos} onChange={e => setOcultarConcluidos(e.target.checked)} />
+          Ocultar cruzamentos com checklist completa
+        </label>
+      </div>
+
+      <div style={{ padding: '4px 20px 20px' }}>
+        {visiveis.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {confirmados.length === 0 ? 'Nenhum cruzamento confirmado (DG45+) ainda.' : 'Todos os cruzamentos filtrados estão com checklist completo.'}
+          </div>
+        )}
+        {visiveis.map(r => {
+          const egua = eguasRepro.find(e => e.id === r.eguaId);
+          const prop = egua && propRepro.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
+          const vet = vetsExternos.find(v => v.id === r.vetId);
+          const c = r.dados?.checklistCobertura || {};
+          const dg45Data = r.dados?.dg45_data || r.data;
+          const completo = isConcluido(r);
+          return (
+            <div key={r.id} style={{
+              background: completo ? '#ecfdf5' : 'var(--card)',
+              border: `1px solid ${completo ? '#a7f3d0' : 'var(--line)'}`,
+              borderRadius: 14, padding: '12px 14px', marginBottom: 10,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{
+                  width: 34, height: 34, borderRadius: 34, background: vet?.cor || CORES_TAB_ATIVA, color: '#fff',
+                  display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0,
+                }}>{(egua?.nome || 'E').slice(0, 2).toUpperCase()}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{egua?.nome || 'Égua'}</div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                    {prop?.nome || '—'} · DG45 {fmtDataBr(dg45Data)} {vet ? `· ${vet.nome.split(' ')[0]}` : ''}
+                  </div>
+                </div>
+                {completo && (
+                  <div style={{
+                    fontSize: 10, background: '#15803d', color: '#fff', padding: '3px 7px', borderRadius: 4, fontWeight: 700,
+                  }}>OK</div>
+                )}
+              </div>
+
+              {[
+                ['comunicadoCobertura', 'Comunicado de cobertura'],
+                ['preRegistro', 'Pré-registro'],
+                ['inspecaoZootecnica', 'Inspeção zootécnica'],
+              ].map(([campo, label]) => (
+                <label key={campo} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+                  cursor: 'pointer', fontSize: 13, color: 'var(--ink)',
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={!!c[campo]}
+                    onChange={e => salvarCheck(r, campo, e.target.checked)}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  <span style={{ textDecoration: c[campo] ? 'line-through' : 'none', opacity: c[campo] ? 0.6 : 1 }}>
+                    {label}
+                  </span>
+                </label>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+// ── Calendário mensal (grid 7×N) ─────────────────────────────
+function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos }) {
+  const hoje = new Date();
+  const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
+  const [diaAberto, setDiaAberto] = useState(null); // iso YYYY-MM-DD
+
+  // Gera 42 células (6 semanas) a partir da 1ª segunda antes/no dia 1
+  const primeiroDia = new Date(mesRef.ano, mesRef.mes - 1, 1);
+  const primeiroSemana = new Date(primeiroDia);
+  // desloca até o domingo anterior (grid começa no domingo)
+  primeiroSemana.setDate(primeiroSemana.getDate() - primeiroDia.getDay());
+  const celulas = [];
+  for (let i = 0; i < 42; i++) {
+    const d = new Date(primeiroSemana);
+    d.setDate(d.getDate() + i);
+    celulas.push(d);
+  }
+
+  // Coleta todos os eventos e mapeia por data ISO
+  const eventosPorDia = new Map();
+  const add = (iso, ev) => {
+    if (!iso) return;
+    if (!eventosPorDia.has(iso)) eventosPorDia.set(iso, []);
+    eventosPorDia.get(iso).push(ev);
+  };
+  for (const r of (registrosRepro || [])) {
+    const dados = r.dados || {};
+    if (r.data) add(r.data, { r, tipoEv: 'procedimento', dataEv: r.data });
+    if (r.dataRetorno) add(r.dataRetorno, { r, tipoEv: 'retorno', dataEv: r.dataRetorno });
+    if (dados.dataColetaAgendada) add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
+  }
+
+  const isoDe = (d) => d.toISOString().slice(0, 10);
+  const hojeIso = isoDe(new Date());
+  const mesAtivo = (d) => (d.getMonth() + 1) === mesRef.mes && d.getFullYear() === mesRef.ano;
+
+  const dias = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+
+  const eventosDia = diaAberto ? (eventosPorDia.get(diaAberto) || []) : [];
+
+  return (
+    <div>
+      <NavMes mesRef={mesRef} setMesRef={setMesRef} />
+      <div style={{ padding: '4px 10px 20px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2, marginBottom: 2 }}>
+          {dias.map((d, i) => (
+            <div key={i} style={{ textAlign: 'center', fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, padding: '4px 0' }}>{d}</div>
+          ))}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 2 }}>
+          {celulas.map((d, i) => {
+            const iso = isoDe(d);
+            const inMes = mesAtivo(d);
+            const isHoje = iso === hojeIso;
+            const evs = eventosPorDia.get(iso) || [];
+            // até 6 bolinhas (cores dos vets únicos, com repeats por evento)
+            const bolinhas = evs.slice(0, 6);
+            return (
+              <button
+                key={i}
+                onClick={() => setDiaAberto(iso)}
+                style={{
+                  aspectRatio: '1 / 1', minHeight: 40,
+                  background: isHoje ? '#f5e8ff' : (inMes ? 'var(--card)' : 'transparent'),
+                  border: `1px solid ${isHoje ? CORES_TAB_ATIVA : 'var(--line)'}`,
+                  borderRadius: 8, padding: 4, cursor: 'pointer',
+                  display: 'flex', flexDirection: 'column', alignItems: 'stretch', justifyContent: 'space-between',
+                  opacity: inMes ? 1 : 0.35,
+                  color: 'var(--ink)',
+                }}
+              >
+                <div style={{
+                  fontSize: 11, fontWeight: isHoje ? 700 : 500,
+                  color: isHoje ? CORES_TAB_ATIVA : 'var(--ink-2)', textAlign: 'right',
+                }}>
+                  {d.getDate()}
+                </div>
+                {bolinhas.length > 0 && (
+                  <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'flex-start' }}>
+                    {bolinhas.map((ev, j) => {
+                      const vet = vetsExternos.find(v => v.id === ev.r.vetId);
+                      return (
+                        <div key={j} style={{
+                          width: 6, height: 6, borderRadius: 6,
+                          background: vet?.cor || CORES_TAB_ATIVA,
+                        }} />
+                      );
+                    })}
+                    {evs.length > 6 && (
+                      <div style={{ fontSize: 8, color: 'var(--ink-3)', lineHeight: 1 }}>+{evs.length - 6}</div>
+                    )}
+                  </div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Legenda das cores dos vets */}
+        {vetsExternos.length > 0 && (
+          <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10 }}>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, fontWeight: 700 }}>Vets</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {vetsExternos.map(v => (
+                <div key={v.id} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-2)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 8, background: v.cor || CORES_TAB_ATIVA }} />
+                  {v.nome.split(' ')[0]}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {diaAberto && (
+        <Modal onClose={() => setDiaAberto(null)}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 18, marginBottom: 12 }}>
+            {fmtDataBr(diaAberto)}
+          </div>
+          {eventosDia.length === 0 && (
+            <div style={{ color: 'var(--ink-3)', fontSize: 13, padding: '10px 0' }}>Sem eventos.</div>
+          )}
+          {eventosDia.map((ev, i) => {
+            const vet = vetsExternos.find(v => v.id === ev.r.vetId);
+            const egua = eguasRepro.find(e => e.id === ev.r.eguaId);
+            const local = locaisRepro.find(l => l.id === ev.r.localId);
+            const rotuloEv = ev.tipoEv === 'procedimento'
+              ? (TIPO_META[ev.r.tipo]?.short || '—')
+              : ev.tipoEv === 'retorno' ? 'Retorno' : 'Coleta';
+            return (
+              <div key={i} style={{
+                background: 'var(--card)', border: '1px solid var(--line)',
+                borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                borderRadius: 10, padding: '10px 12px', marginBottom: 8,
+              }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                  {rotuloEv}
+                </div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', marginTop: 2 }}>{egua?.nome || '—'}</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
+                  {local?.nome || '—'}{vet ? ` · ${vet.nome.split(' ')[0]}` : ''}
+                </div>
+              </div>
+            );
+          })}
+        </Modal>
+      )}
+    </div>
+  );
+}
+
 function ReproCobrancas({
   currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal,
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
@@ -2276,9 +2780,20 @@ export function ReproApp({
       vetsExternos={vetsExternos}
       currentUser={currentUser}
       servicos={servicosRepro}
+      insumos={insumosRepro}
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
+    />;
+  } else if (screen === 'repro-painel') {
+    content = <ReproPainel
+      registrosRepro={registrosRepro}
+      eguasRepro={eguasRepro}
+      propRepro={propRepro}
+      locaisRepro={locaisRepro}
+      vetsExternos={vetsExternos}
+      currentUser={currentUser}
+      updateRegistroReproducao={updateRegistroReproducao}
     />;
   } else if (screen === 'repro-cobrancas') {
     content = <ReproCobrancas
