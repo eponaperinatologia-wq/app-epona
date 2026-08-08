@@ -83,10 +83,9 @@ module.exports = async function handler(req, res) {
       eventos.push({ title: `Coleta de embrião hoje: ${egua}${local}`, body: CHECKLIST_TE });
     }
 
-    if (dados.dataInducaoOvulacao === hoje) {
-      const hora = dados.horaInducaoOvulacao ? ` às ${dados.horaInducaoOvulacao}` : '';
-      eventos.push({ title: `Indução de ovulação hoje${hora}: ${egua}${local}`, body: '' });
-    }
+    // Indução de ovulação NÃO entra aqui — a notificação sai no
+    // horário exato via pg_cron a cada 15min (ver
+    // migration_repro_inducao_cron.sql).
   }
 
   // Aviso persistente (RESERVAR RECEPTORA...) — inclui na notificação
