@@ -6,6 +6,8 @@ import { Icon } from './icons';
 import { norm, formatBRL } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
+import { calcFaturaRepro, dividirFatura } from './utils/faturaRepro';
+import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 
 const CORES_TAB_ATIVA = '#7c2d8c';
 
@@ -815,6 +817,7 @@ const TIPO_META = {
   transferencia_embriao:  { label: 'Transferência de Embrião', short: 'TE', cor: '#0e7490', bg: '#cffafe' },
   controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
   diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
+  servico_avulso:         { label: 'Serviço avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
 };
 
 const fmtDataBr = (iso) => {
@@ -833,6 +836,7 @@ const addDias = (iso, n) => {
 
 function ReproCaderno({
   registrosRepro, eguasRepro, propRepro, locaisRepro, vetsExternos, currentUser,
+  servicos = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
   const [busca, setBusca] = useState('');
@@ -920,6 +924,8 @@ function ReproCaderno({
           propRepro={propRepro}
           locaisRepro={locaisRepro}
           currentUser={currentUser}
+          servicos={servicos}
+          registrosRepro={registrosRepro}
           onSave={(payload) => {
             if (editReg) {
               updateRegistroReproducao(editReg.id, payload);
@@ -960,7 +966,7 @@ function ReproCaderno({
 // ─────────────────────────────────────────────────────────────
 // Formulário: IA / TE / Controle folicular / DG
 // ─────────────────────────────────────────────────────────────
-function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, onSave, onCancel }) {
+function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], registrosRepro = [], onSave, onCancel }) {
   const hoje = new Date().toISOString().slice(0, 10);
   const init = registro || { data: hoje, tipo: 'inseminacao_artificial', dados: {}, dataRetorno: '' };
 
@@ -1127,6 +1133,21 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
 
       {tipo === 'transferencia_embriao' && (
         <>
+          <FormField label="IA de origem (embrião coletado)">
+            <select value={dados.iaOrigemId || ''} onChange={e => setDado('iaOrigemId', e.target.value)} style={inputStyle}>
+              <option value="">— tenta inferir automaticamente —</option>
+              {(registrosRepro || [])
+                .filter(r => r.tipo === 'inseminacao_artificial'
+                  && r.eguaId === eguaId
+                  && r.dados?.destino === 'transferencia')
+                .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+                .map(ia => (
+                  <option key={ia.id} value={ia.id}>
+                    {fmtDataBr(ia.data)} · {ia.dados?.garanhao || 'sem garanhão'}
+                  </option>
+                ))}
+            </select>
+          </FormField>
           <FormField label="Tônus cervical">
             <select value={dados.tonusCervical || ''} onChange={e => setDado('tonusCervical', e.target.value)} style={inputStyle}>
               <option value="">—</option>
@@ -1217,6 +1238,33 @@ function FormRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, curre
           <FormField label="Tamanho da vesícula">
             <input value={dados.tamanhoVesicula || ''} onChange={e => setDado('tamanhoVesicula', e.target.value)} style={inputStyle} placeholder="Ex: 15 mm" />
           </FormField>
+        </>
+      )}
+
+      {tipo === 'servico_avulso' && (
+        <>
+          <FormField label="Serviço *">
+            <select value={dados.servicoId || ''} onChange={e => {
+              const sv = servicos.find(s => s.id === e.target.value);
+              setDado('servicoId', e.target.value);
+              if (sv && !dados.valorCobrado) setDado('valorCobrado', String(sv.valor || 0));
+            }} style={inputStyle}>
+              <option value="">— Selecionar —</option>
+              {[...servicos]
+                .filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras')
+                .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+                .map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
+            </select>
+          </FormField>
+          <FormField label="Valor cobrado (R$)">
+            <input type="number" min="0" step="0.01" value={dados.valorCobrado || ''} onChange={e => setDado('valorCobrado', e.target.value)} style={inputStyle} placeholder="0,00" />
+          </FormField>
+          <div style={{
+            background: '#fed7aa', border: '1px solid #fdba74', borderRadius: 10,
+            padding: '10px 12px', fontSize: 12, color: '#7c2d12', lineHeight: 1.5, marginBottom: 12,
+          }}>
+            Serviços avulsos (ex. lavagem uterina) são <strong>100% do vet</strong> na divisão da equipe.
+          </div>
         </>
       )}
 
@@ -1533,16 +1581,368 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // Cobranças — apenas Km por local do vet logado (insumos e
 // serviços agora vivem em Cadastros).
 // ─────────────────────────────────────────────────────────────
-function ReproCobrancas({ currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal }) {
+function ReproCobrancas({
+  currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal,
+  proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
+  vetsExternos, empresaInfo,
+}) {
+  const [sub, setSub] = useState('faturas');
+  const abas = [
+    ['faturas', 'Faturas'],
+    ['km', 'Km por local'],
+    ['divisao', 'Divisão'],
+  ];
   return (
     <div>
-      <TopBar title="Cobranças" subtitle="Km por local — sua tabela" />
-      <ReproCobKm
-        currentUser={currentUser}
-        locaisRepro={locaisRepro}
-        vetKmLocais={vetKmLocais}
-        upsertVetKmLocal={upsertVetKmLocal}
-      />
+      <TopBar title="Cobranças" subtitle="Faturas · Km · Divisão da equipe" />
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
+        {abas.map(([id, lbl]) => (
+          <button key={id} onClick={() => setSub(id)} style={{
+            flex: 1, padding: '11px 4px', border: 'none', background: 'none',
+            borderBottom: `2px solid ${sub === id ? CORES_TAB_ATIVA : 'transparent'}`,
+            color: sub === id ? CORES_TAB_ATIVA : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>{lbl}</button>
+        ))}
+      </div>
+      {sub === 'km' && (
+        <ReproCobKm
+          currentUser={currentUser}
+          locaisRepro={locaisRepro}
+          vetKmLocais={vetKmLocais}
+          upsertVetKmLocal={upsertVetKmLocal}
+        />
+      )}
+      {sub === 'faturas' && (
+        <ReproFaturas
+          propRepro={propRepro}
+          registros={registrosRepro}
+          cavalos={cavalos}
+          proprietarios={proprietarios}
+          servicos={servicos}
+          insumos={insumos}
+          vetKmLocais={vetKmLocais}
+          locais={locaisRepro}
+          vetsExternos={vetsExternos}
+          empresaInfo={empresaInfo}
+        />
+      )}
+      {sub === 'divisao' && (
+        <ReproDivisao
+          propRepro={propRepro}
+          registros={registrosRepro}
+          cavalos={cavalos}
+          proprietarios={proprietarios}
+          servicos={servicos}
+          insumos={insumos}
+          vetKmLocais={vetKmLocais}
+          locais={locaisRepro}
+          vetsExternos={vetsExternos}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Navegador de mês (compartilhado por Faturas e Divisão)
+// ─────────────────────────────────────────────────────────────
+function NavMes({ mesRef, setMesRef }) {
+  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const mudar = (delta) => {
+    let m = mesRef.mes + delta;
+    let a = mesRef.ano;
+    if (m < 1) { m = 12; a -= 1; }
+    if (m > 12) { m = 1; a += 1; }
+    setMesRef({ mes: m, ano: a });
+  };
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px 6px',
+    }}>
+      <button onClick={() => mudar(-1)} style={navBtn}>‹</button>
+      <div style={{ flex: 1, textAlign: 'center', fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>
+        {meses[mesRef.mes - 1]} · {mesRef.ano}
+      </div>
+      <button onClick={() => mudar(1)} style={navBtn}>›</button>
+    </div>
+  );
+}
+const navBtn = {
+  width: 34, height: 34, borderRadius: 10, border: '1px solid var(--line)',
+  background: 'var(--card)', color: 'var(--ink-2)', cursor: 'pointer',
+  fontSize: 16, fontWeight: 700, display: 'grid', placeItems: 'center',
+};
+
+// ─────────────────────────────────────────────────────────────
+// Lista de faturas do mês por proprietário (workspace repro)
+// ─────────────────────────────────────────────────────────────
+function ReproFaturas({
+  propRepro, registros, cavalos, proprietarios, servicos, insumos,
+  vetKmLocais, locais, vetsExternos, empresaInfo,
+}) {
+  const hoje = new Date();
+  const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
+  const [propAberto, setPropAberto] = useState(null);
+
+  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
+  const lista = [...propRepro]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .map(p => ({ prop: p, fat: calcFaturaRepro(p.id, mesRef, deps) }))
+    .filter(x => x.fat.total > 0);
+
+  if (propAberto) {
+    const item = lista.find(x => x.prop.id === propAberto);
+    if (item) {
+      return (
+        <ReproFaturaDetalhe
+          fatura={item.fat}
+          empresaInfo={empresaInfo}
+          vetsExternos={vetsExternos}
+          onBack={() => setPropAberto(null)}
+        />
+      );
+    }
+  }
+
+  const totalMes = lista.reduce((s, x) => s + x.fat.total, 0);
+
+  return (
+    <div>
+      <NavMes mesRef={mesRef} setMesRef={setMesRef} />
+      <div style={{
+        margin: '4px 20px 12px', padding: '10px 14px', background: 'var(--card)',
+        border: '1px solid var(--line)', borderRadius: 12,
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Total do mês</div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 18, color: 'var(--ink)' }}>{formatBRL(totalMes)}</div>
+      </div>
+      <div style={{ padding: '4px 20px 20px' }}>
+        {lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            Sem faturas pra fechar neste mês.
+          </div>
+        )}
+        {lista.map(({ prop, fat }) => (
+          <button key={prop.id} onClick={() => setPropAberto(prop.id)} style={{
+            width: '100%', textAlign: 'left', cursor: 'pointer',
+            background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 12, padding: '12px 14px', marginBottom: 8, color: 'var(--ink)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, flex: 1, minWidth: 0 }}>{prop.nome}</div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{formatBRL(fat.total)}</div>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
+              {[
+                fat.visitasLinhas.length ? `${fat.visitasLinhas.length} visita(s)` : null,
+                fat.insumosLinhas.length ? `${fat.insumosLinhas.length} insumo(s)` : null,
+                fat.procedimentosLinhas.length ? `${fat.procedimentosLinhas.length} proc.` : null,
+                fat.avulsosLinhas.length ? `${fat.avulsosLinhas.length} avulso(s)` : null,
+                fat.resultadosLinhas.length ? `${fat.resultadosLinhas.length} DG30+` : null,
+              ].filter(Boolean).join(' · ')}
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Detalhe da fatura + PDF
+// ─────────────────────────────────────────────────────────────
+function ReproFaturaDetalhe({ fatura, empresaInfo, vetsExternos, onBack }) {
+  const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const mesNome = meses[fatura.ref.mes - 1];
+
+  const baixarPdf = () => {
+    const doc = gerarPdfFaturaRepro({ fatura, mesNome, empresa: empresaInfo || {}, vetsExternos });
+    doc.save(nomePdfFaturaRepro(fatura.proprietario, fatura.ref, mesNome));
+  };
+
+  const vetNome = (id) => (vetsExternos.find(v => v.id === id)?.nome) || '—';
+
+  return (
+    <div>
+      <TopBar title={fatura.proprietario?.nome || '—'} subtitle={`${mesNome} / ${fatura.ref.ano}`} action={
+        <button onClick={baixarPdf} style={{
+          width: 36, height: 36, borderRadius: 12, background: CORES_TAB_ATIVA,
+          border: 'none', display: 'grid', placeItems: 'center', cursor: 'pointer',
+        }}>
+          <Icon name="download" size={16} color="#fff" />
+        </button>
+      } />
+      <div style={{ padding: '4px 20px 0' }}>
+        <button onClick={onBack} style={{
+          background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
+          padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="arrow-left" size={14} /> Voltar
+        </button>
+      </div>
+      <div style={{ padding: '8px 20px 20px' }}>
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14, marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>Total</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--ink)' }}>{formatBRL(fatura.total)}</div>
+        </div>
+
+        {fatura.visitasLinhas.length > 0 && (
+          <SecaoFat titulo={`Visitas · ${formatBRL(fatura.visitasTotal)}`} linhas={fatura.visitasLinhas.map(v => ({
+            principal: v.localNome,
+            sub: `${fmtDataBr(v.data)} · ${vetNome(v.vetId).split(' ')[0]}${v.nProps > 1 ? ` · rateado ${v.nProps}p` : ''}`,
+            valor: v.valor,
+          }))} />
+        )}
+        {fatura.insumosLinhas.length > 0 && (
+          <SecaoFat titulo={`Insumos · ${formatBRL(fatura.insumosTotal)}`} linhas={fatura.insumosLinhas.map(l => ({
+            principal: l.nome, sub: `${fmtDataBr(l.data)} · ${l.qtd} ${l.unidade}`, valor: l.valor,
+          }))} />
+        )}
+        {fatura.procedimentosLinhas.length > 0 && (
+          <SecaoFat titulo={`Procedimentos · ${formatBRL(fatura.procedimentosTotal)}`} linhas={fatura.procedimentosLinhas.map(l => ({
+            principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+          }))} />
+        )}
+        {fatura.avulsosLinhas.length > 0 && (
+          <SecaoFat titulo={`Serviços avulsos · ${formatBRL(fatura.avulsosTotal)}`} linhas={fatura.avulsosLinhas.map(l => ({
+            principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+          }))} />
+        )}
+        {fatura.resultadosLinhas.length > 0 && (
+          <SecaoFat titulo={`Resultado repro · ${formatBRL(fatura.resultadosTotal)}`} linhas={fatura.resultadosLinhas.map(l => ({
+            principal: l.eguaNome,
+            sub: `${fmtDataBr(l.data)} · DG30+${l.vetIdInsem ? ` · insem. ${vetNome(l.vetIdInsem).split(' ')[0]}` : ''}`,
+            valor: l.valor,
+          }))} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+const SecaoFat = ({ titulo, linhas }) => (
+  <div style={{
+    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+    padding: 12, marginBottom: 10,
+  }}>
+    <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
+      {titulo}
+    </div>
+    {linhas.map((l, i) => (
+      <div key={i} style={{
+        display: 'flex', alignItems: 'flex-start', gap: 10, padding: '6px 0',
+        borderTop: i === 0 ? 'none' : '1px solid var(--line-soft, var(--line))',
+      }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)' }}>{l.principal}</div>
+          {l.sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{l.sub}</div>}
+        </div>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{formatBRL(l.valor)}</div>
+      </div>
+    ))}
+  </div>
+);
+
+// ─────────────────────────────────────────────────────────────
+// Divisão da equipe — soma das faturas do mês → split por vet + Epona
+// ─────────────────────────────────────────────────────────────
+function ReproDivisao({
+  propRepro, registros, cavalos, proprietarios, servicos, insumos,
+  vetKmLocais, locais, vetsExternos,
+}) {
+  const hoje = new Date();
+  const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
+
+  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
+  const acc = { epona: 0, porVet: {} };
+  let totalMes = 0;
+  for (const p of propRepro) {
+    const fat = calcFaturaRepro(p.id, mesRef, deps);
+    totalMes += fat.total;
+    const d = dividirFatura(fat);
+    acc.epona += d.epona;
+    for (const [vetId, v] of Object.entries(d.porVet)) {
+      acc.porVet[vetId] = (acc.porVet[vetId] || 0) + v;
+    }
+  }
+  const linhasVets = Object.entries(acc.porVet)
+    .map(([vetId, v]) => ({ vet: vetsExternos.find(x => x.id === vetId), valor: v }))
+    .filter(l => l.vet)
+    .sort((a, b) => b.valor - a.valor);
+  const totalDividido = acc.epona + linhasVets.reduce((s, l) => s + l.valor, 0);
+
+  return (
+    <div>
+      <NavMes mesRef={mesRef} setMesRef={setMesRef} />
+      <div style={{ padding: '4px 20px 6px' }}>
+        <div style={{
+          background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 12,
+          padding: '10px 14px', fontSize: 12, color: '#6b21a8', lineHeight: 1.4,
+        }}>
+          Regras: <strong>insumos 100 Epona</strong> · <strong>km 100 vet</strong> ·
+          <strong> IA/TE 70 vet · 30 Epona</strong> · <strong>resultado 50 vet · 50 Epona</strong> ·
+          <strong> avulsos 100 vet</strong>
+        </div>
+      </div>
+      <div style={{ padding: '10px 20px 20px' }}>
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14, marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Faturado no mês</div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(totalMes)}</div>
+          {Math.abs(totalDividido - totalMes) > 0.01 && (
+            <div style={{ fontSize: 10, color: '#dc2626', marginTop: 4 }}>
+              Divisão: {formatBRL(totalDividido)} (diferença: {formatBRL(totalMes - totalDividido)})
+            </div>
+          )}
+        </div>
+
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          padding: '12px 14px', marginBottom: 8,
+          display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{
+            width: 32, height: 32, borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--accent)',
+            display: 'grid', placeItems: 'center',
+          }}>
+            <Icon name="building" size={16} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>Epona Stud</div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Insumos + 30 IA/TE + 50 resultado</div>
+          </div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(acc.epona)}</div>
+        </div>
+
+        {linhasVets.map(({ vet, valor }) => (
+          <div key={vet.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+            padding: '12px 14px', marginBottom: 8,
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <div style={{
+              width: 32, height: 32, borderRadius: 32, background: vet.cor || CORES_TAB_ATIVA, color: '#fff',
+              display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700,
+            }}>{(vet.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{vet.nome}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Km + 70 IA/TE + 50 resultado + avulsos</div>
+            </div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(valor)}</div>
+          </div>
+        ))}
+
+        {linhasVets.length === 0 && acc.epona === 0 && (
+          <div style={{ textAlign: 'center', padding: '20px', color: 'var(--ink-3)', fontSize: 12 }}>
+            Nada a dividir neste mês.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -1785,6 +2185,7 @@ export function ReproApp({
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
+  empresaInfo = null,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
   addCavalo, updateCavalo, deleteCavalo,
@@ -1874,6 +2275,7 @@ export function ReproApp({
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
       currentUser={currentUser}
+      servicos={servicosRepro}
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
@@ -1884,6 +2286,14 @@ export function ReproApp({
       locaisRepro={locaisRepro}
       vetKmLocais={vetKmLocais}
       upsertVetKmLocal={upsertVetKmLocal}
+      proprietarios={proprietarios}
+      propRepro={propRepro}
+      cavalos={cavalos}
+      registrosRepro={registrosRepro}
+      servicos={servicosRepro}
+      insumos={insumosRepro}
+      vetsExternos={vetsExternos}
+      empresaInfo={empresaInfo}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta currentUser={currentUser} onLogout={onLogout} />;

@@ -1824,6 +1824,7 @@ const loadAllData = async () => {
       vetKmLocais={vetKmLocais}
       avisosRepro={avisosRepro}
       resolverAvisoRepro={resolverAvisoRepro}
+      empresaInfo={empresaInfo}
       proprietarios={proprietarios}
       cavalos={cavalos}
       registrosReproducao={registrosReproducao}
