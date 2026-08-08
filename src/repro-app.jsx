@@ -124,6 +124,7 @@ function ReproHome({
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento,
 }) {
+  const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
   const h = new Date().getHours();
   const saudacao = h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite';
@@ -180,8 +181,6 @@ function ReproHome({
         <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
       )}
 
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
-
       <button onClick={() => { setTab('caderno'); setScreen('repro-caderno'); }} style={{
         width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
         border: 'none', borderRadius: 16, padding: '20px 18px', cursor: 'pointer',
@@ -197,10 +196,40 @@ function ReproHome({
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 18 }}>Caderno de reprodução</div>
-          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Nova IA / TE / diagnóstico</div>
+          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Nova IA / CE / CF / DG</div>
         </div>
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
+
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
+
+      {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
+          Click no card do topo abre a versão completa dentro do Painel. */}
+      <div style={{ marginBottom: 12 }}>
+        <button
+          onClick={goPainelCalendario}
+          style={{
+            width: '100%', display: 'flex', alignItems: 'center', gap: 6,
+            padding: '4px 4px 6px', border: 'none', background: 'none',
+            color: 'var(--ink-3)', cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}
+        >
+          <Icon name="calendar" size={14} color="var(--ink-3)" />
+          <div style={{ flex: 1, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+            Planner mensal
+          </div>
+          <span style={{ fontSize: 11, opacity: 0.6 }}>abrir ›</span>
+        </button>
+        <div style={{ marginTop: -8 }}>
+          <ReproCalendario
+            registrosRepro={registrosRepro}
+            eguasRepro={eguasRepro}
+            locaisRepro={locaisRepro}
+            vetsExternos={vetsExternos}
+            onSelectEvento={onSelectEvento}
+          />
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8, marginBottom: 10 }}>
         {stats.slice(0, 3).map(s => (
@@ -415,6 +444,18 @@ function coletaCumprida(reg, todosRegistros) {
     && other.data && other.data >= dataAg,
   );
 }
+// Indução de ovulação agendada (CF): cumprida quando existe outro
+// registro da mesma égua com data >= à data da indução.
+function inducaoCumprida(reg, todosRegistros) {
+  const dataAg = reg.dados?.dataInducaoOvulacao;
+  if (!dataAg) return true;
+  return (todosRegistros || []).some(other =>
+    other.id !== reg.id
+    && other.eguaId === reg.eguaId
+    && (other.workspaceId || 'haras') === 'repro'
+    && other.data && other.data >= dataAg,
+  );
+}
 
 // Retorna a lista de eventos que ainda estão pendentes (agendados
 // futuros ou atrasados). NÃO inclui procedimentos passados já
@@ -436,6 +477,9 @@ function eventosPendentes(registros, hoje) {
     if (dados.dataColetaAgendada && !coletaCumprida(r, registros)) {
       out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
     }
+    if (dados.dataInducaoOvulacao && !inducaoCumprida(r, registros)) {
+      out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '' });
+    }
   }
   return out;
 }
@@ -443,6 +487,7 @@ function eventosPendentes(registros, hoje) {
 function rotuloEvento(ev) {
   if (ev.tipoEv === 'retorno') return 'Retorno';
   if (ev.tipoEv === 'coleta') return 'Coleta';
+  if (ev.tipoEv === 'inducao') return ev.hora ? `Induzir ${ev.hora}` : 'Induzir';
   return (TIPO_META[ev.tipo]?.short) || '—';
 }
 
@@ -1133,6 +1178,91 @@ function dedupPorNome(items) {
   return [...byNome.values()];
 }
 
+// Bloco "Induzir Ovulação" — usado no form do Controle Folicular.
+// Só lista insumos marcados como indutorOvulacao=true. O indutor
+// escolhido é empilhado no insumosUsados na hora de salvar (via
+// dados.indutorOvulacaoId), e como é injetável, os descartáveis
+// (agulha/seringa/álcool) são adicionados automaticamente.
+function BlocoInduzirOvulacao({ dados, setDado, insumos, data, inputStyle }) {
+  const [aberto, setAberto] = useState(!!dados.indutorOvulacaoId);
+  const indutores = dedupPorNome(insumos.filter(i => i.indutorOvulacao)).sort((a, b) =>
+    (a.nome || '').localeCompare(b.nome || '', 'pt'),
+  );
+
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => {
+        setAberto(true);
+        if (!dados.dataInducaoOvulacao) setDado('dataInducaoOvulacao', data || '');
+      }} style={{
+        width: '100%', padding: '11px 14px', borderRadius: 10,
+        border: '1px dashed var(--line)', background: 'var(--soft)',
+        color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+        marginBottom: 12,
+      }}>
+        <Icon name="plus" size={13} /> Induzir Ovulação
+      </button>
+    );
+  }
+
+  const cancelar = () => {
+    setAberto(false);
+    setDado('indutorOvulacaoId', '');
+    setDado('dataInducaoOvulacao', '');
+    setDado('horaInducaoOvulacao', '');
+  };
+
+  return (
+    <div style={{
+      background: '#f5e8ff', border: '1px solid #d8b4fe',
+      borderRadius: 10, padding: 12, marginBottom: 12,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          🥚 Indução de ovulação
+        </div>
+        <button onClick={cancelar} type="button" style={{
+          width: 22, height: 22, borderRadius: 6, border: 'none', background: 'transparent',
+          color: '#6b21a8', cursor: 'pointer', display: 'grid', placeItems: 'center',
+        }}>
+          <Icon name="x" size={10} />
+        </button>
+      </div>
+
+      {indutores.length === 0 && (
+        <div style={{ fontSize: 11, color: '#991b1b', background: '#fee2e2', border: '1px solid #fca5a5',
+          borderRadius: 8, padding: '8px 10px', marginBottom: 8, lineHeight: 1.4,
+        }}>
+          Nenhum insumo marcado como indutor de ovulação. Cadastre em Cadastros → Insumos e marque a caixinha "Indutor de ovulação".
+        </div>
+      )}
+      <FormField label="Indutor *">
+        <select value={dados.indutorOvulacaoId || ''} onChange={e => setDado('indutorOvulacaoId', e.target.value)} style={inputStyle}>
+          <option value="">— Selecionar indutor —</option>
+          {indutores.map(i => (
+            <option key={i.id} value={i.id}>
+              {i.nome}{i.workspaceId === 'haras' ? ' (haras)' : ''}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+        <FormField label="Dia da indução *">
+          <input type="date" value={dados.dataInducaoOvulacao || ''} onChange={e => setDado('dataInducaoOvulacao', e.target.value)} style={inputStyle} />
+        </FormField>
+        <FormField label="Hora">
+          <input type="time" value={dados.horaInducaoOvulacao || ''} onChange={e => setDado('horaInducaoOvulacao', e.target.value)} style={inputStyle} />
+        </FormField>
+      </div>
+      <div style={{ fontSize: 11, color: '#6b21a8', lineHeight: 1.4 }}>
+        O indutor é cobrado como injetável (agulha + seringa + álcool). O evento aparece na agenda e vira notificação push no dia às 06h.
+      </div>
+    </div>
+  );
+}
+
 // Bloco compartilhado — configura descartáveis obrigatórios do
 // serviço (usado no form de Cadastros → Serviços). Mesma estrutura
 // {insumoId, qtd} do insumosUsados. Ao criar registro do caderno,
@@ -1320,6 +1450,10 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         }
       }
     };
+    // 0) Se marcou indutor de ovulação no CF, empilha o indutor.
+    if (tipo === 'controle_folicular' && dados.indutorOvulacaoId) {
+      empilhar([{ insumoId: dados.indutorOvulacaoId, qtd: 1 }]);
+    }
     // 1) Descartáveis obrigatórios do próprio serviço vinculado (fonte
     //    da verdade — configurado pelo vet em Cadastros → Serviços).
     const padrao = servicosPadrao(servicos);
@@ -1565,6 +1699,9 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           <FormField label="Edema uterino">
             <input value={dados.edemaUterino || ''} onChange={e => setDado('edemaUterino', e.target.value)} style={inputStyle} placeholder="Ex: 0, +, ++, +++" />
           </FormField>
+
+          <BlocoInduzirOvulacao dados={dados} setDado={setDado} insumos={insumos} data={data} inputStyle={inputStyle} />
+
           <FormField label="Data de retorno">
             <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
           </FormField>
@@ -1712,6 +1849,11 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
             <DetalheLinha label="OD" valor={d.ovarioDireito} />
             <DetalheLinha label="OE" valor={d.ovarEsquerdo} />
             <DetalheLinha label="Edema uterino" valor={d.edemaUterino} />
+            {d.dataInducaoOvulacao && (
+              <DetalheLinha label="Indução ovulação" valor={
+                `${fmtDataBr(d.dataInducaoOvulacao)}${d.horaInducaoOvulacao ? ` · ${d.horaInducaoOvulacao}` : ''}`
+              } />
+            )}
           </>
         )}
         {registro.tipo === 'diagnostico_gestacao' && (
@@ -2274,6 +2416,9 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
     }
     if (dados.dataColetaAgendada && !coletaCumprida(r, registrosRepro)) {
       add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, ...eventoBase(r) });
+    }
+    if (dados.dataInducaoOvulacao && !inducaoCumprida(r, registrosRepro)) {
+      add(dados.dataInducaoOvulacao, { r, tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', ...eventoBase(r) });
     }
   }
 
@@ -2982,7 +3127,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
   const [importando, setImportando] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ nome: '', valor: '', injetavel: false, descartaveisObrigatorios: [] });
+  const [form, setForm] = useState({ nome: '', valor: '', injetavel: false, indutorOvulacao: false, descartaveisObrigatorios: [] });
 
   const doHaras = itens.filter(i => (i.workspaceId || 'haras') === 'haras');
   const doRepro = itens.filter(i => i.workspaceId === 'repro');
@@ -3013,7 +3158,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 
   const abrirNovo = () => {
     setEditId(null);
-    setForm({ nome: '', valor: '', injetavel: false, descartaveisObrigatorios: [] });
+    setForm({ nome: '', valor: '', injetavel: false, indutorOvulacao: false, descartaveisObrigatorios: [] });
     setShowForm(true);
   };
   const abrirEditar = (i) => {
@@ -3022,6 +3167,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
       nome: i.nome,
       valor: String(tipo === 'insumos' ? (i.valorVenda ?? 0) : (i.valor ?? 0)),
       injetavel: !!i.injetavel,
+      indutorOvulacao: !!i.indutorOvulacao,
       descartaveisObrigatorios: Array.isArray(i.descartaveisObrigatorios) ? i.descartaveisObrigatorios : [],
     });
     setShowForm(true);
@@ -3029,14 +3175,16 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
   const salvar = () => {
     if (!form.nome.trim()) return;
     const valorNum = parseFloat(String(form.valor).replace(',', '.')) || 0;
+    // Indutor de ovulação é sempre injetável (cobra agulha/seringa/álcool).
+    const injetavelFinal = !!form.injetavel || !!form.indutorOvulacao;
     if (editId) {
       const patch = tipo === 'insumos'
-        ? { nome: form.nome.trim(), valorVenda: valorNum, injetavel: !!form.injetavel }
+        ? { nome: form.nome.trim(), valorVenda: valorNum, injetavel: injetavelFinal, indutorOvulacao: !!form.indutorOvulacao }
         : { nome: form.nome.trim(), valor: valorNum, descartaveisObrigatorios: form.descartaveisObrigatorios };
       updateItem(editId, patch);
     } else {
       const base = tipo === 'insumos'
-        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, injetavel: !!form.injetavel, workspaceId: 'repro' }
+        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, injetavel: injetavelFinal, indutorOvulacao: !!form.indutorOvulacao, workspaceId: 'repro' }
         : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro', descartaveisObrigatorios: form.descartaveisObrigatorios };
       addItem(base);
     }
@@ -3113,23 +3261,43 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
           </FormField>
 
           {tipo === 'insumos' && (
-            <label style={{
-              display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
-              background: 'var(--soft)', borderRadius: 10, marginBottom: 12, cursor: 'pointer',
-            }}>
-              <input
-                type="checkbox"
-                checked={!!form.injetavel}
-                onChange={e => setForm(f => ({ ...f, injetavel: e.target.checked }))}
-                style={{ width: 16, height: 16, cursor: 'pointer' }}
-              />
-              <div style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>
-                Insumo injetável 💉
-                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-                  Cada uso cobra automaticamente 1 agulha + 1 seringa + 1 algodão com álcool.
+            <>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                background: 'var(--soft)', borderRadius: 10, marginBottom: 8, cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.injetavel || !!form.indutorOvulacao}
+                  disabled={!!form.indutorOvulacao}
+                  onChange={e => setForm(f => ({ ...f, injetavel: e.target.checked }))}
+                  style={{ width: 16, height: 16, cursor: form.indutorOvulacao ? 'not-allowed' : 'pointer' }}
+                />
+                <div style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>
+                  Insumo injetável 💉
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                    Cada uso cobra automaticamente 1 agulha + 1 seringa + 1 algodão com álcool.
+                  </div>
                 </div>
-              </div>
-            </label>
+              </label>
+              <label style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                background: 'var(--soft)', borderRadius: 10, marginBottom: 12, cursor: 'pointer',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={!!form.indutorOvulacao}
+                  onChange={e => setForm(f => ({ ...f, indutorOvulacao: e.target.checked }))}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+                <div style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>
+                  Indutor de ovulação 🥚
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                    Aparece no bloco "Induzir Ovulação" do Controle Folicular. Marca automaticamente como injetável.
+                  </div>
+                </div>
+              </label>
+            </>
           )}
 
           {tipo === 'servicos' && (
@@ -3191,8 +3359,8 @@ export function ReproApp({
       // coleta agendada → próximo passo é registrar a TE (coleta) do embrião
       tipoSugerido = 'transferencia_embriao';
       dadosSugeridos = { iaOrigemId: ev.registro?.id };
-    } else if (ev.tipoEv === 'retorno') {
-      // retorno de qualquer coisa → controle folicular pra ver a égua
+    } else if (ev.tipoEv === 'retorno' || ev.tipoEv === 'inducao') {
+      // retorno/indução → controle folicular pra ver a égua no dia
       tipoSugerido = 'controle_folicular';
     } else if (ev.tipoEv === 'procedimento') {
       tipoSugerido = ev.tipo || 'controle_folicular';

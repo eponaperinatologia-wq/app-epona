@@ -54,6 +54,7 @@ export const fromDbInsumo = r => ({
   valorFrasco: Number(r.valor_frasco) || 0,
   validadeAposAbertaDias: Number(r.validade_apos_aberta_dias) || 0,
   capacidadePorFrasco: Number(r.capacidade_por_frasco) || 0,
+  indutorOvulacao: !!r.indutor_ovulacao,
   workspaceId: r.workspace_id || 'haras',
 });
 
@@ -251,6 +252,7 @@ export const toDbInsumo = i => ({
   valor_frasco: Number(i.valorFrasco) || 0,
   validade_apos_aberta_dias: Number(i.validadeAposAbertaDias) || 0,
   capacidade_por_frasco: Number(i.capacidadePorFrasco) || 0,
+  indutor_ovulacao: !!i.indutorOvulacao,
   workspace_id: i.workspaceId || 'haras',
 });
 
@@ -769,7 +771,7 @@ export const toDbProgesteronaAplicacao = a => ({
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
 const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro' };
-const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco', workspaceId: 'workspace_id' };
+const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco', indutorOvulacao: 'indutor_ovulacao', workspaceId: 'workspace_id' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios', workspaceId: 'workspace_id' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
 const FUNCIONARIO_MAP = { salarioBase: 'salario_base', regimePagamento: 'regime_pagamento', encargosPct: 'encargos_pct' };

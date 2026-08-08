@@ -82,6 +82,11 @@ module.exports = async function handler(req, res) {
     if (dados.dataColetaAgendada === hoje) {
       eventos.push({ title: `Coleta de embrião hoje: ${egua}${local}`, body: CHECKLIST_TE });
     }
+
+    if (dados.dataInducaoOvulacao === hoje) {
+      const hora = dados.horaInducaoOvulacao ? ` às ${dados.horaInducaoOvulacao}` : '';
+      eventos.push({ title: `Indução de ovulação hoje${hora}: ${egua}${local}`, body: '' });
+    }
   }
 
   // Aviso persistente (RESERVAR RECEPTORA...) — inclui na notificação
