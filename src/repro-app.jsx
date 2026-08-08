@@ -8,6 +8,7 @@ import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
 import { calcFaturaRepro, dividirFatura } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
+import { SwitcherContas } from './multiSessionUi';
 
 const CORES_TAB_ATIVA = '#7c2d8c';
 
@@ -390,7 +391,7 @@ function fmtDataBrCurto(iso) {
 // ─────────────────────────────────────────────────────────────
 // Conta (dados + trocar senha + sair)
 // ─────────────────────────────────────────────────────────────
-function ReproConta({ currentUser, onLogout }) {
+function ReproConta({ currentUser, onLogout, sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession }) {
   const confirmarSair = () => {
     if (window.confirm('Deseja realmente sair da sua conta?')) onLogout();
   };
@@ -398,6 +399,16 @@ function ReproConta({ currentUser, onLogout }) {
     <div>
       <TopBar title="Minha conta" />
       <div style={{ padding: '14px 20px 24px' }}>
+        {sessions.length > 0 && (
+          <SwitcherContas
+            sessions={sessions}
+            activeKey={activeKey}
+            currentUser={currentUser}
+            onSwitch={onSwitchSession}
+            onAddAccount={onAddAccount}
+            onRemoveSession={onRemoveSession}
+          />
+        )}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
             <div style={{
@@ -2696,6 +2707,7 @@ export function ReproApp({
   addInsumo, updateInsumo, deleteInsumo,
   addServico, updateServico, deleteServico,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession,
   onLogout,
 }) {
   const [screen, setScreen] = useState('repro-home');
@@ -2811,7 +2823,15 @@ export function ReproApp({
       empresaInfo={empresaInfo}
     />;
   } else if (screen === 'repro-conta') {
-    content = <ReproConta currentUser={currentUser} onLogout={onLogout} />;
+    content = <ReproConta
+      currentUser={currentUser}
+      onLogout={onLogout}
+      sessions={sessions}
+      activeKey={activeKey}
+      onSwitchSession={onSwitchSession}
+      onAddAccount={onAddAccount}
+      onRemoveSession={onRemoveSession}
+    />;
   }
 
   return (

@@ -74,6 +74,7 @@ import {
   partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
 } from './utils/db';
 import { subscribeToPush, sendPush } from './utils/push';
+import { getActiveSession, getSessions, upsertActive, updateActiveUser, switchTo, removeSession, clearAllSessions } from './utils/multiSession';
 
 const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
@@ -343,15 +344,8 @@ const loadAllData = async () => {
     const initializeApp = async () => {
       try {
         setLoading(true);
-        const savedUserStr = localStorage.getItem('epona_user');
-        let parsedUser = null;
-        if (savedUserStr) {
-          try {
-            parsedUser = JSON.parse(savedUserStr);
-          } catch (e) {
-            localStorage.removeItem('epona_user');
-          }
-        }
+        const activeSess = getActiveSession();
+        const parsedUser = activeSess?.user || null;
         await loadAllData();
         if (parsedUser) {
           setCurrentUser(parsedUser);
@@ -1063,12 +1057,24 @@ const loadAllData = async () => {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
-  // ── Auth ──────────────────────────────────────────────────────
-      const handleLogin = async (user) => {
+  // ── Auth (multi-sessão) ───────────────────────────────────
+  const [adicionandoConta, setAdicionandoConta] = useState(false);
+  const [sessions, setSessions] = useState(() => getSessions());
+  const [activeKey, setActiveKey] = useState(() => {
+    const s = getActiveSession();
+    return s ? s.key : null;
+  });
+  const refreshSessoes = () => {
+    setSessions(getSessions());
+    const a = getActiveSession();
+    setActiveKey(a ? a.key : null);
+  };
+  const handleLogin = async (user) => {
     setCurrentUser(user);
     // NUNCA persistir _sessionPassword no localStorage — só vive em memória.
-    const { _sessionPassword, ...userSafe } = user;
-    localStorage.setItem('epona_user', JSON.stringify(userSafe));
+    upsertActive(user);
+    refreshSessoes();
+    setAdicionandoConta(false);
     await loadAllData();
     subscribeToPush(user.login || user.nome, user.role);
     if (user.role === 'operacional') {
@@ -1077,13 +1083,52 @@ const loadAllData = async () => {
       setScreen('home'); setTab('home');
     }
   };
+  // Sai só desta conta (mantém as outras). Se sobrar 0 → tela de login.
   const handleLogout = () => {
-  setCurrentUser(null);
-  localStorage.removeItem('epona_user');
-  sessionStorage.removeItem('epona_session');
-  setScreen('login');
-  setTab('home');
-};
+    const active = getActiveSession();
+    const nextUser = active ? removeSession(active.key) : null;
+    refreshSessoes();
+    sessionStorage.removeItem('epona_session');
+    if (nextUser) {
+      setCurrentUser(nextUser);
+      subscribeToPush(nextUser.login || nextUser.nome, nextUser.role);
+      if (nextUser.role === 'operacional') { setScreen('avisos'); setTab('avisos'); }
+      else { setScreen('home'); setTab('home'); }
+    } else {
+      setCurrentUser(null);
+      setScreen('login'); setTab('home');
+    }
+  };
+  const handleSwitchSession = (key) => {
+    const u = switchTo(key);
+    if (!u) return;
+    setCurrentUser(u);
+    refreshSessoes();
+    sessionStorage.removeItem('epona_session');
+    subscribeToPush(u.login || u.nome, u.role);
+    if (u.role === 'operacional') { setScreen('avisos'); setTab('avisos'); }
+    else { setScreen('home'); setTab('home'); }
+  };
+  const handleRemoveSessao = (key) => {
+    removeSession(key);
+    refreshSessoes();
+  };
+  const handleAddAccount = () => {
+    // Mantém as sessões salvas — só sai da tela atual e mostra login.
+    setAdicionandoConta(true);
+    setCurrentUser(null);
+    sessionStorage.removeItem('epona_session');
+    setScreen('login'); setTab('home');
+  };
+  // eslint-disable-next-line no-unused-vars
+  const handleSairDeTodas = () => {
+    clearAllSessions();
+    refreshSessoes();
+    setCurrentUser(null);
+    setAdicionandoConta(false);
+    sessionStorage.removeItem('epona_session');
+    setScreen('login'); setTab('home');
+  };
 
   // ── Registros ─────────────────────────────────────────────────
   const addRegistro = (r) => {
@@ -1559,11 +1604,15 @@ const loadAllData = async () => {
     if (!currentUser) return;
     const fn = funcionarios.find(f => f.id === currentUser.id);
     if (fn) updateFuncionario(fn.id, { ...fn, ...data });
-    setCurrentUser(prev => ({
-      ...prev,
-      nome: data.nome || prev.nome,
-      iniciais: (data.nome || prev.nome).split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase(),
-    }));
+    setCurrentUser(prev => {
+      const next = {
+        ...prev,
+        nome: data.nome || prev.nome,
+        iniciais: (data.nome || prev.nome).split(' ').map(n => n[0]).filter(Boolean).slice(0, 2).join('').toUpperCase(),
+      };
+      updateActiveUser(next);
+      return next;
+    });
   };
 
   // ── Auto-fechar faturas dos meses anteriores ─────────────────
@@ -1741,7 +1790,11 @@ const loadAllData = async () => {
       </div>
     );
   } else if (!currentUser) {
-    content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} />;
+    content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} onCancelAddAccount={adicionandoConta && sessions.length > 0 ? () => {
+      setAdicionandoConta(false);
+      const a = sessions.find(s => s.key === activeKey) || sessions[0];
+      if (a) handleSwitchSession(a.key);
+    } : null} />;
   }
   // ─── Gates de onboarding do proprietário ────────────────────
   // ORDEM RÍGIDA: senha → cadastro → contrato.
@@ -1757,7 +1810,7 @@ const loadAllData = async () => {
     content = <TrocarSenhaScreen
       currentUser={currentUser}
       onComplete={(patch) => {
-        setCurrentUser(u => ({ ...u, ...patch }));
+        setCurrentUser(u => { const next = { ...u, ...patch }; updateActiveUser(next); return next; });
         refetchProprietario(currentUser.id);
       }}
       onLogout={handleLogout}
@@ -1774,7 +1827,7 @@ const loadAllData = async () => {
       proprietarioAtual={propAtual}
       onComplete={async (patch) => {
         await updateProprietario(currentUser.id, patch);
-        setCurrentUser(u => ({ ...u, cadastroCompleto: true }));
+        setCurrentUser(u => { const next = { ...u, cadastroCompleto: true }; updateActiveUser(next); return next; });
       }}
       onLogout={handleLogout}
     />;
@@ -1791,7 +1844,7 @@ const loadAllData = async () => {
       proprietarioAtual={propAtual}
       onComplete={async (patch) => {
         await updateProprietario(currentUser.id, patch);
-        setCurrentUser(u => ({ ...u, contratoStatus: patch.contratoStatus }));
+        setCurrentUser(u => { const next = { ...u, contratoStatus: patch.contratoStatus }; updateActiveUser(next); return next; });
       }}
       onLogout={handleLogout}
     />;
@@ -1849,6 +1902,11 @@ const loadAllData = async () => {
       addServico={addServico}
       updateServico={updateServico}
       deleteServico={deleteServico}
+      sessions={sessions}
+      activeKey={activeKey}
+      onSwitchSession={handleSwitchSession}
+      onAddAccount={handleAddAccount}
+      onRemoveSession={handleRemoveSessao}
       onLogout={handleLogout}
     />;
   }
@@ -1878,6 +1936,11 @@ const loadAllData = async () => {
         protocolosVermifugacao, vermifugacoesAnimais, opgs,
         progProgramas, progAplicacoes,
       }}
+      sessions={sessions}
+      activeKey={activeKey}
+      onSwitchSession={handleSwitchSession}
+      onAddAccount={handleAddAccount}
+      onRemoveSession={handleRemoveSessao}
       onLogout={handleLogout}
     />;
   }
@@ -1909,7 +1972,7 @@ const loadAllData = async () => {
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'cadVetsExternos') content = <CadVetsExternosScreen setScreen={goScreen} vetsExternos={vetsExternos} addVetExterno={addVetExterno} updateVetExterno={updateVetExterno} deleteVetExterno={deleteVetExterno} refetchVetExterno={refetchVetExterno} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
-  else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} />;
+  else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} sessions={sessions} activeKey={activeKey} onSwitchSession={handleSwitchSession} onAddAccount={handleAddAccount} onRemoveSession={handleRemoveSessao} />;
   else if (screen === 'cronogramaVet') content = <VeterinariaScreen initialSecao="cronograma" setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
   else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalos} proprietarios={proprietarios} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalos} proprietarios={proprietarios} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;

@@ -14,6 +14,7 @@ import { EguaGestanteDetalheScreen } from './gestacao';
 import { PartoDetalheScreen } from './partos';
 import { VeterinariaScreen } from './veterinaria';
 import { NutricionalScreen } from './nutricional';
+import { SwitcherContas } from './multiSessionUi';
 
 // ─────────────────────────────────────────────────────────────
 // Filtro central: só cavalos que o proprietário logado possui.
@@ -299,7 +300,7 @@ function ProprietarioCavalos({ currentUser, cavalos, setScreen, setSelected }) {
 // ─────────────────────────────────────────────────────────────
 // Tela: Conta (dados + trocar senha + sair)
 // ─────────────────────────────────────────────────────────────
-function ProprietarioConta({ currentUser, proprietarioAtual, onLogout }) {
+function ProprietarioConta({ currentUser, proprietarioAtual, onLogout, sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession }) {
   const p = proprietarioAtual || {};
   const confirmarSair = () => {
     if (window.confirm('Deseja realmente sair da sua conta?')) onLogout();
@@ -308,6 +309,16 @@ function ProprietarioConta({ currentUser, proprietarioAtual, onLogout }) {
     <div>
       <TopBar title="Minha conta" />
       <div style={{ padding: '14px 20px 24px' }}>
+        {sessions.length > 0 && (
+          <SwitcherContas
+            sessions={sessions}
+            activeKey={activeKey}
+            currentUser={currentUser}
+            onSwitch={onSwitchSession}
+            onAddAccount={onAddAccount}
+            onRemoveSession={onRemoveSession}
+          />
+        )}
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 4 }}>Nome</div>
           <div style={{ fontSize: 15, color: 'var(--ink)', marginBottom: 12 }}>{p.nomeCompleto || currentUser.nome}</div>
@@ -344,6 +355,7 @@ export function ProprietarioApp({
   // Bundle de dados veterinários pra alimentar a aba "Cuidados". Repassados
   // do app.jsx pra evitar 40 props sem sentido no shell.
   vetData = {},
+  sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession,
   onLogout,
 }) {
   const [screen, setScreen] = useState('proprietario-home');
@@ -597,6 +609,11 @@ export function ProprietarioApp({
         currentUser={currentUser}
         proprietarioAtual={proprietarioAtual}
         onLogout={onLogout}
+        sessions={sessions}
+        activeKey={activeKey}
+        onSwitchSession={onSwitchSession}
+        onAddAccount={onAddAccount}
+        onRemoveSession={onRemoveSession}
       />
     );
   }

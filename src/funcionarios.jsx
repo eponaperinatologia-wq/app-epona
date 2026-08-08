@@ -4,6 +4,7 @@ import { Icon } from './icons';
 import { TopBar } from './screens';
 import { ESCALA_VAZIA } from './data';
 import { ROLE_COLORS, ROLE_LABELS } from './auth';
+import { SwitcherContas } from './multiSessionUi';
 
 const DIAS = [
   { key: 'seg', label: 'Seg', full: 'Segunda-feira' },
@@ -1099,7 +1100,7 @@ const ContaLabel = ({ t }) => (
   <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>{t}</div>
 );
 
-export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, setScreen }) {
+export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, setScreen, sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession }) {
   const fn = funcionarios.find(f => f.id === currentUser.id);
 
   const [nome, setNome] = useState(fn?.nome || currentUser.nome || '');
@@ -1129,6 +1130,17 @@ export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, 
     <div style={{ paddingBottom: 100 }}>
       <TopBar title="Minha conta" onBack={() => setScreen(backScreen)} />
       <div style={{ padding: '20px 16px 0' }}>
+
+        {sessions.length > 0 && (
+          <SwitcherContas
+            sessions={sessions}
+            activeKey={activeKey}
+            currentUser={currentUser}
+            onSwitch={onSwitchSession}
+            onAddAccount={onAddAccount}
+            onRemoveSession={onRemoveSession}
+          />
+        )}
 
         {/* Avatar */}
         {fn && (

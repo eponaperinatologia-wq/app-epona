@@ -27,7 +27,7 @@ export const ROLE_COLORS = {
   repro: '#7c2d8c',
 };
 
-export function LoginScreen({ onLogin, usuarios }) {
+export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
   const lista = (usuarios && usuarios.length > 0) ? usuarios : USERS;
   // Modos: 'perfil' (seleção equipe vs proprietário) | 'equipe-select' | 'equipe-senha' | 'proprietario-form'
   const [modo, setModo] = useState('perfil');
@@ -135,10 +135,24 @@ export function LoginScreen({ onLogin, usuarios }) {
         </div>
       </div>
 
+      {onCancelAddAccount && (
+        <button
+          onClick={onCancelAddAccount}
+          style={{
+            width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 12, padding: '10px 14px', color: 'var(--ink-2)', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'var(--sans)',
+            fontSize: 13, marginBottom: 16,
+          }}
+        >
+          ← Voltar sem adicionar
+        </button>
+      )}
+
       {modo === 'perfil' && (
         <div>
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-            Como você acessa?
+            {onCancelAddAccount ? 'Nova conta — como você acessa?' : 'Como você acessa?'}
           </div>
           <button onClick={() => setModo('equipe-select')} style={{
             width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
