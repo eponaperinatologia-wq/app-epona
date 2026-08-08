@@ -5,7 +5,7 @@
 -- Fluxo:
 -- 1. Job pg_cron chama notificar_inducoes_15min() a cada 15 min
 -- 2. Função procura induções cujo (dataInducaoOvulacao, horaInducaoOvulacao)
---    cai na janela [agora, agora+15min] em America/Sao_Paulo
+--    cai na janela [agora-15min, agora+2min] em America/Sao_Paulo
 -- 3. Faz HTTP POST em /api/send-push (target='repro') via pg_net
 -- 4. Marca dados.inducaoNotificadaEm pra não repetir
 --
@@ -13,28 +13,23 @@
 -- - Habilite as extensions no Supabase Dashboard:
 --     Database → Extensions → pg_cron   [enable]
 --     Database → Extensions → pg_net    [enable]
--- - Substitua APP_URL abaixo pela URL de produção do Vercel:
---     Ex.: https://app-epona.vercel.app
+-- - Substitua vercel_url dentro da função pela URL do seu Vercel
+--   se for diferente de https://app-epona.vercel.app
+--
+-- Nota: usamos URL hardcoded na função em vez de GUC (ALTER DATABASE)
+-- porque o SQL Editor do Supabase roda como role sem permissão pra
+-- ALTER DATABASE. Pra rotate de domínio, basta rodar CREATE OR REPLACE
+-- FUNCTION de novo com a URL nova.
 -- ─────────────────────────────────────────────────────────────
 
--- Idempotência
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
-
--- Guarda a URL do app numa GUC de sessão — muda uma vez, todas as
--- funções pegam via current_setting. Facilita rotate de domínio.
---
--- ⚠️ SUBSTITUA a URL abaixo pela sua URL de produção do Vercel:
-ALTER DATABASE postgres SET app.vercel_url = 'https://app-epona.vercel.app';
-
--- Recarrega settings da sessão atual (efeito imediato em runtime)
--- (as próximas conexões já lêem o novo valor)
 
 CREATE OR REPLACE FUNCTION notificar_inducoes_15min()
 RETURNS void AS $$
 DECLARE
   rec RECORD;
-  vercel_url TEXT := current_setting('app.vercel_url', TRUE);
+  vercel_url TEXT := 'https://app-epona.vercel.app';
   agora_sp TIMESTAMP := (NOW() AT TIME ZONE 'America/Sao_Paulo');
   -- Janela [agora-15min, agora+2min]: pega tudo que "passou da hora"
   -- na última janela + margem de +2min. Combinado com o flag
@@ -47,11 +42,6 @@ DECLARE
   titulo TEXT;
   corpo TEXT;
 BEGIN
-  IF vercel_url IS NULL OR vercel_url = '' THEN
-    RAISE NOTICE 'app.vercel_url não configurado — aborta';
-    RETURN;
-  END IF;
-
   FOR rec IN
     SELECT r.id, r.egua_id, r.dados,
            ((r.dados->>'dataInducaoOvulacao')::DATE
@@ -66,8 +56,8 @@ BEGIN
   LOOP
     ts_ind := rec.ts_evento;
     SELECT nome INTO nome_egua FROM cavalos WHERE id = rec.egua_id;
-    titulo := '🥚 Induzir ovulação: ' || COALESCE(nome_egua, 'égua');
-    corpo := 'Horário programado: ' || TO_CHAR(ts_ind, 'HH24:MI');
+    titulo := 'Induzir ovulacao: ' || COALESCE(nome_egua, 'egua');
+    corpo := 'Horario programado: ' || TO_CHAR(ts_ind, 'HH24:MI');
 
     PERFORM net.http_post(
       url := vercel_url || '/api/send-push',
