@@ -796,7 +796,7 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
 // ─────────────────────────────────────────────────────────────
 // Éguas do Repro (workspace='repro')
 // ─────────────────────────────────────────────────────────────
-function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCavalo, deleteCavalo }) {
+function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCavalo, deleteCavalo, onOpenHistorico }) {
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -895,6 +895,14 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
                   {local ? ` · ${local.nome}` : ''}
                 </div>
               </div>
+              {onOpenHistorico && (
+                <button onClick={() => onOpenHistorico(e)} title="Histórico reprodutivo" style={{
+                  width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
+                  background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
+                }}>
+                  <Icon name="clock" size={14} />
+                </button>
+              )}
               <button onClick={() => abrirEditar(e)} style={{
                 width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
                 background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
@@ -956,8 +964,38 @@ const TIPO_META = {
   transferencia_embriao:  { label: 'Coleta de Embrião', short: 'CE', cor: '#0e7490', bg: '#cffafe' },
   controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
   diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
-  servico_avulso:         { label: 'Serviço avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
+  tratamento_uterino:     { label: 'Tratamento Uterino', short: 'TU', cor: '#b91c1c', bg: '#fee2e2' },
+  servico_avulso:         { label: 'Diagnóstico / Avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
 };
+
+// Matchers usados pra localizar serviços/insumos padrão do Tratamento
+// Uterino no catálogo. Buscam por nome case/accent insensitive.
+const TU_MATCHERS = {
+  // Serviços cobrados adicionalmente à linha base "Tratamento Uterino":
+  servTratamentoUterino: /tratamento.*uter/i,
+  servOzonio:            /ozonio/i,
+  servPrp:               /(prp).*(intra|uter)/i,
+  // Insumos:
+  ringer:                /ringer.*lact/i,
+  aguaOxig:              /(agua|água).*oxigen/i,
+  dmso:                  /dmso/i,
+  riodeine:              /riodeine|riodine|iodo.*degerm/i,
+  botukiller:            /botukiller/i,
+  luvaPalpacao:          /luva.*palpa|palpa.*luva/i,
+  pipetaRigida:          /pipeta.*r[ií]gida|r[ií]gida.*pipeta/i,
+  misoprostol:           /misoprostol/i,
+};
+
+function resolverPorMatcher(insumos, regex) {
+  const repro = insumos.filter(i => i.workspaceId === 'repro' && regex.test(i.nome || ''));
+  const haras = insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && regex.test(i.nome || ''));
+  return repro[0] || haras[0] || null;
+}
+function resolverServicoPorMatcher(servicos, regex) {
+  const repro = servicos.filter(s => (s.workspaceId || 'haras') === 'repro' && regex.test(s.nome || ''));
+  const haras = servicos.filter(s => (s.workspaceId || 'haras') === 'haras' && regex.test(s.nome || ''));
+  return repro[0] || haras[0] || null;
+}
 
 const fmtDataBr = (iso) => {
   if (!iso) return '';
@@ -1178,6 +1216,414 @@ function dedupPorNome(items) {
   return [...byNome.values()];
 }
 
+// ─────────────────────────────────────────────────────────────
+// Tratamento Uterino — acordeão com 3 sub-procedimentos: Lavagem,
+// Infusão, Misoprostol. Cada um empilha insumos + serviços extras
+// no payload; o handleSave lê `dados.tu` pra montar tudo. O
+// registro salva o tipo `tratamento_uterino` e cobra:
+//   - serviço "Tratamento Uterino" (obrigatório, sempre)
+//   - serviços extras (Ozonioterapia, PRP) quando marcados
+//   - insumos escolhidos + luva palpação (sempre) + pipeta rígida
+//     (obrigatória em Infusão)
+// ─────────────────────────────────────────────────────────────
+function BlocoTratamentoUterino({ dados, setDado, insumos, servicos, inputStyle }) {
+  const tu = dados.tu || {};
+  const setTu = (patch) => setDado('tu', { ...tu, ...patch });
+  const [aberto, setAberto] = useState({
+    lavagem: !!tu.lavagem,
+    infusao: !!tu.infusao,
+    misoprostol: !!tu.misoprostol,
+  });
+
+  // Verifica se serviço base "Tratamento Uterino" está cadastrado
+  const svcTratamento = resolverServicoPorMatcher(servicos, TU_MATCHERS.servTratamentoUterino);
+
+  const toggleAcordeao = (k) => {
+    const novoAberto = !aberto[k];
+    setAberto({ ...aberto, [k]: novoAberto });
+    if (novoAberto && !tu[k]) {
+      setTu({ [k]: { ativo: true } });
+    }
+  };
+  const removerSub = (k) => {
+    setAberto({ ...aberto, [k]: false });
+    const cp = { ...tu }; delete cp[k];
+    setDado('tu', cp);
+  };
+
+  return (
+    <>
+      {!svcTratamento && (
+        <div style={{
+          background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 10,
+          padding: '10px 12px', fontSize: 12, color: '#991b1b', lineHeight: 1.4, marginBottom: 12,
+        }}>
+          ⚠ Nenhum serviço com nome "Tratamento Uterino" cadastrado. Cadastre em Cadastros → Serviços pra que a fatura cobre o procedimento base.
+        </div>
+      )}
+
+      <FormField label="Motivo do tratamento">
+        <textarea value={tu.motivo || ''} onChange={e => setTu({ motivo: e.target.value })} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} placeholder="Ex: endometrite pós-cobertura, secreção anormal…" />
+      </FormField>
+
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+        Procedimentos aplicados
+      </div>
+
+      {/* Acordeão: Lavagem */}
+      <AcordeaoTU
+        titulo="1. Lavagem Uterina"
+        cor="#0e7490"
+        aberto={aberto.lavagem}
+        onToggle={() => toggleAcordeao('lavagem')}
+        onRemover={() => removerSub('lavagem')}
+      >
+        {aberto.lavagem && (
+          <SubLavagem tu={tu} setTu={setTu} insumos={insumos} servicos={servicos} inputStyle={inputStyle} />
+        )}
+      </AcordeaoTU>
+
+      {/* Acordeão: Infusão */}
+      <AcordeaoTU
+        titulo="2. Infusão Uterina"
+        cor="#7c2d8c"
+        aberto={aberto.infusao}
+        onToggle={() => toggleAcordeao('infusao')}
+        onRemover={() => removerSub('infusao')}
+      >
+        {aberto.infusao && (
+          <SubInfusao tu={tu} setTu={setTu} insumos={insumos} servicos={servicos} inputStyle={inputStyle} />
+        )}
+      </AcordeaoTU>
+
+      {/* Acordeão: Misoprostol */}
+      <AcordeaoTU
+        titulo="3. Misoprostol"
+        cor="#c2410c"
+        aberto={aberto.misoprostol}
+        onToggle={() => toggleAcordeao('misoprostol')}
+        onRemover={() => removerSub('misoprostol')}
+      >
+        {aberto.misoprostol && (
+          <SubMisoprostol tu={tu} setTu={setTu} insumos={insumos} />
+        )}
+      </AcordeaoTU>
+
+      <div style={{
+        background: '#fee2e2', border: '1px solid #fecaca', borderRadius: 8,
+        padding: '10px 12px', fontSize: 11, color: '#991b1b', lineHeight: 1.5, marginTop: 4,
+      }}>
+        Ao salvar, o sistema cobra <strong>Tratamento Uterino</strong>, os serviços extras marcados (Ozonioterapia, PRP), <strong>luva de palpação</strong> (sempre) e todos os insumos declarados. Infusão adiciona <strong>1× Pipeta Rígida</strong>.
+      </div>
+    </>
+  );
+}
+
+function AcordeaoTU({ titulo, cor, aberto, onToggle, onRemover, children }) {
+  return (
+    <div style={{
+      background: aberto ? cor + '10' : 'var(--card)',
+      border: `1px solid ${aberto ? cor : 'var(--line)'}`,
+      borderRadius: 10, padding: aberto ? 12 : 0, marginBottom: 8,
+    }}>
+      <button type="button" onClick={onToggle} style={{
+        width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+        padding: aberto ? '0 0 10px' : '12px 14px',
+        borderBottom: aberto ? `1px solid ${cor}44` : 'none',
+        background: 'none', border: 'none', cursor: 'pointer', color: cor, fontFamily: 'var(--sans)',
+      }}>
+        <Icon name={aberto ? 'chevron-down' : 'chevron-right'} size={14} color={cor} />
+        <div style={{ flex: 1, textAlign: 'left', fontSize: 13, fontWeight: 700 }}>{titulo}</div>
+        {aberto && (
+          <span onClick={(e) => { e.stopPropagation(); onRemover(); }} style={{
+            fontSize: 10, color: cor, opacity: 0.7, cursor: 'pointer', padding: '2px 6px', borderRadius: 4,
+          }}>remover</span>
+        )}
+      </button>
+      {aberto && <div style={{ paddingTop: 10 }}>{children}</div>}
+    </div>
+  );
+}
+
+// Subcomponente reutilizável: botão-toggle pra insumo com input de qtd
+function BotaoInsumoQtd({ label, ativo, onToggle, valor, onChange, cor, unidade = 'un' }) {
+  return (
+    <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
+      <button type="button" onClick={onToggle} style={{
+        flex: 1, textAlign: 'left', padding: '9px 12px', borderRadius: 8,
+        border: `1.5px solid ${ativo ? cor : 'var(--line)'}`,
+        background: ativo ? cor + '22' : 'var(--card)',
+        color: ativo ? cor : 'var(--ink-2)',
+        fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+      }}>{ativo ? '✓ ' : '+ '}{label}</button>
+      {ativo && (
+        <input type="number" min="0" step="0.5" value={valor || ''} onChange={e => onChange(e.target.value)}
+          placeholder={unidade} style={{
+            width: 90, padding: '8px 10px', borderRadius: 8, border: `1px solid ${cor}55`,
+            background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', textAlign: 'right', fontFamily: 'var(--sans)', outline: 'none',
+          }} />
+      )}
+    </div>
+  );
+}
+
+function SubLavagem({ tu, setTu, insumos, servicos, inputStyle }) {
+  const lav = tu.lavagem || {};
+  const setLav = (patch) => setTu({ lavagem: { ...lav, ...patch } });
+  const items = [
+    { slug: 'ringer', label: 'Ringer Lactato', unidade: 'mL', regex: TU_MATCHERS.ringer, cor: '#0e7490' },
+    { slug: 'aguaOxig', label: 'Água Oxigenada', unidade: 'mL', regex: TU_MATCHERS.aguaOxig, cor: '#0e7490' },
+    { slug: 'dmso', label: 'DMSO', unidade: 'mL', regex: TU_MATCHERS.dmso, cor: '#0e7490' },
+    { slug: 'riodeine', label: 'Riodeine Degermante', unidade: 'mL', regex: TU_MATCHERS.riodeine, cor: '#0e7490' },
+  ];
+  const svcOzonio = resolverServicoPorMatcher(servicos, TU_MATCHERS.servOzonio);
+  return (
+    <div>
+      {items.map(m => {
+        const ins = resolverPorMatcher(insumos, m.regex);
+        const ativo = lav[m.slug] !== undefined;
+        return (
+          <div key={m.slug}>
+            <BotaoInsumoQtd
+              label={`${m.label}${ins ? '' : ' (não cadastrado)'}`}
+              ativo={ativo}
+              onToggle={() => {
+                if (!ins) return;
+                if (ativo) { const cp = { ...lav }; delete cp[m.slug]; setLav({ ...cp, [m.slug]: undefined }); }
+                else setLav({ [m.slug]: '' });
+              }}
+              valor={lav[m.slug]}
+              onChange={(v) => setLav({ [m.slug]: v })}
+              cor={m.cor}
+              unidade={m.unidade}
+            />
+          </div>
+        );
+      })}
+      <div style={{ marginTop: 10 }}>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+          background: '#f5e8ff', border: `1px solid ${lav.ozonio ? '#7c2d8c' : '#d8b4fe55'}`,
+          borderRadius: 8, cursor: svcOzonio ? 'pointer' : 'not-allowed', opacity: svcOzonio ? 1 : 0.55,
+        }}>
+          <input type="checkbox" checked={!!lav.ozonio} disabled={!svcOzonio}
+            onChange={e => setLav({ ozonio: e.target.checked })}
+            style={{ width: 16, height: 16 }} />
+          <div style={{ flex: 1, fontSize: 12, color: '#6b21a8' }}>
+            <strong>+ Ozonioterapia</strong>
+            <div style={{ fontSize: 10, marginTop: 2 }}>{svcOzonio ? 'Cobra o serviço "Ozonioterapia" adicionalmente ao Tratamento Uterino.' : 'Cadastre serviço "Ozonioterapia" pra habilitar.'}</div>
+          </div>
+        </label>
+      </div>
+      <FormField label="Insumos adicionais (opcional)">
+        <input type="text" value={lav.obs || ''} onChange={e => setLav({ obs: e.target.value })} style={inputStyle} placeholder="Anote itens fora dos botões" />
+      </FormField>
+    </div>
+  );
+}
+
+function SubInfusao({ tu, setTu, insumos, servicos }) {
+  const inf = tu.infusao || {};
+  const setInf = (patch) => setTu({ infusao: { ...inf, ...patch } });
+  const svcPrp = resolverServicoPorMatcher(servicos, TU_MATCHERS.servPrp);
+  const insPipetaRig = resolverPorMatcher(insumos, TU_MATCHERS.pipetaRigida);
+
+  return (
+    <div>
+      <BotaoInsumoQtd
+        label={`Botukiller${resolverPorMatcher(insumos, TU_MATCHERS.botukiller) ? '' : ' (não cadastrado)'}`}
+        ativo={inf.botukiller !== undefined}
+        onToggle={() => {
+          if (!resolverPorMatcher(insumos, TU_MATCHERS.botukiller)) return;
+          if (inf.botukiller !== undefined) { const cp = { ...inf }; delete cp.botukiller; setInf({ ...cp, botukiller: undefined }); }
+          else setInf({ botukiller: '' });
+        }}
+        valor={inf.botukiller}
+        onChange={(v) => setInf({ botukiller: v })}
+        cor="#7c2d8c"
+        unidade="mL"
+      />
+      <div style={{ marginTop: 6, marginBottom: 6 }}>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px',
+          background: '#f5e8ff', border: `1px solid ${inf.prp ? '#7c2d8c' : '#d8b4fe55'}`,
+          borderRadius: 8, cursor: svcPrp ? 'pointer' : 'not-allowed', opacity: svcPrp ? 1 : 0.55,
+        }}>
+          <input type="checkbox" checked={!!inf.prp} disabled={!svcPrp}
+            onChange={e => setInf({ prp: e.target.checked })}
+            style={{ width: 16, height: 16 }} />
+          <div style={{ flex: 1, fontSize: 12, color: '#6b21a8' }}>
+            <strong>+ PRP Intrauterino</strong>
+            <div style={{ fontSize: 10, marginTop: 2 }}>{svcPrp ? 'Cobra o serviço "PRP Intrauterino" adicionalmente.' : 'Cadastre serviço "PRP Intrauterino" pra habilitar.'}</div>
+          </div>
+        </label>
+      </div>
+
+      {/* Antibioticoterapia: lista de {insumoId, qtd} */}
+      <div style={{ marginTop: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+          Antibioticoterapia
+        </div>
+        <BlocoInsumosRepro
+          insumos={insumos}
+          insumosUsados={inf.antibioticos || []}
+          setInsumosUsados={(v) => setInf({ antibioticos: v })}
+        />
+      </div>
+
+      <div style={{
+        marginTop: 8, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8,
+        padding: '8px 10px', fontSize: 11, color: '#78350f', lineHeight: 1.4,
+      }}>
+        Infusão sempre cobra <strong>1× Pipeta Rígida</strong>{insPipetaRig ? '' : ' — cadastre esse insumo em Insumos'}.
+      </div>
+    </div>
+  );
+}
+
+function SubMisoprostol({ tu, setTu, insumos }) {
+  const mis = tu.misoprostol || {};
+  const setMis = (patch) => setTu({ misoprostol: { ...mis, ...patch } });
+  const insMiso = resolverPorMatcher(insumos, TU_MATCHERS.misoprostol);
+  if (!insMiso) {
+    return (
+      <div style={{
+        background: '#fee2e2', border: '1px solid #fca5a5', borderRadius: 8,
+        padding: '10px 12px', fontSize: 12, color: '#991b1b', lineHeight: 1.4,
+      }}>
+        ⚠ Insumo "Misoprostol" não cadastrado. Cadastre em Cadastros → Insumos pra habilitar.
+      </div>
+    );
+  }
+  const btn = (chave, label) => {
+    const ativo = !!mis[chave];
+    return (
+      <button type="button" onClick={() => setMis({ [chave]: !ativo })} style={{
+        flex: 1, padding: '12px 8px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+        border: `1.5px solid ${ativo ? '#c2410c' : 'var(--line)'}`,
+        background: ativo ? '#fed7aa' : 'var(--card)',
+        color: ativo ? '#7c2d12' : 'var(--ink-2)',
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+      }}>{ativo ? '✓ ' : ''}{label}</button>
+    );
+  };
+  const total = (mis.cornoDireito ? 1 : 0) + (mis.cornoEsquerdo ? 1 : 0);
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        {btn('cornoDireito', 'Corno Direito')}
+        {btn('cornoEsquerdo', 'Corno Esquerdo')}
+      </div>
+      {total > 0 && (
+        <div style={{ fontSize: 11, color: '#c2410c', fontWeight: 600 }}>
+          {total}× unidade(s) de Misoprostol na fatura.
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Bloco "Medicamentos rápidos" — 3 botões no CF pra registrar
+// Ciosin (mL), Ocitocina (doses de 3 mL) e Firovet (doses). Cada um
+// abre um mini-form. Quando salvar, os mL/doses são gravados em
+// dados.medRapidos.<slug> e os insumos + descartáveis de injeção
+// entram no insumosUsados. Ocitocina cobra 1 kit descartáveis POR
+// DOSE (regra do time).
+const MED_RAPIDO = [
+  { slug: 'ciosin', label: 'Ciosin', unidade: 'mL', regex: /ciosin/i, cor: '#7c2d8c', modo: 'ml' },
+  { slug: 'ocitocina', label: 'Ocitocina', unidade: 'doses', regex: /ocitocina/i, cor: '#0e7490', modo: 'doses', mlPorDose: 3, descartaveisPorDose: true },
+  { slug: 'firovet', label: 'Firovet', unidade: 'doses', regex: /firovet/i, cor: '#c2410c', modo: 'doses' },
+];
+
+function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
+  const medRapidos = dados.medRapidos || {};
+  const setMed = (slug, valor) => setDado('medRapidos', { ...medRapidos, [slug]: valor });
+  const remover = (slug) => {
+    const cp = { ...medRapidos }; delete cp[slug];
+    setDado('medRapidos', cp);
+  };
+
+  const resolverInsumo = (regex) => {
+    const repro = insumos.filter(i => i.workspaceId === 'repro' && regex.test(i.nome || ''));
+    const haras = insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && regex.test(i.nome || ''));
+    return repro[0] || haras[0] || null;
+  };
+
+  return (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+        Medicamentos aplicados
+      </div>
+
+      {/* Botões inline pra abrir cada medicamento */}
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        {MED_RAPIDO.map(m => {
+          const ativo = medRapidos[m.slug] !== undefined;
+          const ins = resolverInsumo(m.regex);
+          return (
+            <button key={m.slug} type="button" onClick={() => {
+              if (ativo) return;
+              setMed(m.slug, m.modo === 'ml' ? { ml: '' } : { doses: '' });
+            }} disabled={ativo || !ins} title={!ins ? `Cadastre o insumo "${m.label}" primeiro em Cadastros → Insumos` : ''} style={{
+              padding: '8px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
+              border: `1px solid ${ativo ? m.cor : 'var(--line)'}`,
+              background: ativo ? m.cor + '22' : (!ins ? 'var(--soft)' : 'var(--card)'),
+              color: !ins ? 'var(--ink-3)' : (ativo ? m.cor : 'var(--ink-2)'),
+              cursor: (ativo || !ins) ? 'default' : 'pointer', fontFamily: 'var(--sans)', opacity: !ins ? 0.6 : 1,
+            }}>
+              💉 {m.label}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Formulários abertos */}
+      {MED_RAPIDO.filter(m => medRapidos[m.slug] !== undefined).map(m => {
+        const v = medRapidos[m.slug];
+        const ins = resolverInsumo(m.regex);
+        return (
+          <div key={m.slug} style={{
+            background: m.cor + '15', border: `1px solid ${m.cor}55`,
+            borderRadius: 10, padding: 10, marginBottom: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: m.cor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                💉 {m.label}
+              </div>
+              <button type="button" onClick={() => remover(m.slug)} style={{
+                width: 22, height: 22, borderRadius: 6, border: 'none', background: 'transparent',
+                color: m.cor, cursor: 'pointer', display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="x" size={10} />
+              </button>
+            </div>
+            {m.modo === 'ml' && (
+              <FormField label={`Quantidade (${m.unidade}) *`}>
+                <input type="number" min="0" step="0.5" value={v.ml || ''} onChange={e => setMed(m.slug, { ml: e.target.value })} style={inputStyle} placeholder="Ex: 2" />
+              </FormField>
+            )}
+            {m.modo === 'doses' && (
+              <>
+                <FormField label={`Doses (${m.unidade}) *`}>
+                  <input type="number" min="1" step="1" value={v.doses || ''} onChange={e => setMed(m.slug, { doses: e.target.value })} style={inputStyle} placeholder="Ex: 1" />
+                </FormField>
+                {m.mlPorDose && v.doses > 0 && (
+                  <div style={{ fontSize: 11, color: m.cor, marginBottom: 4 }}>
+                    Total: {Number(v.doses) * m.mlPorDose} mL{m.descartaveisPorDose ? ` · ${v.doses}× kit descartáveis (agulha+seringa+álcool)` : ''}
+                  </div>
+                )}
+              </>
+            )}
+            <div style={{ fontSize: 10, color: m.cor, opacity: 0.85 }}>
+              Cobrado como insumo injetável — agulha, seringa e algodão-álcool empilhados automaticamente.
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Bloco "Induzir Ovulação" — usado no form do Controle Folicular.
 // Só lista insumos marcados como indutorOvulacao=true. O indutor
 // escolhido é empilhado no insumosUsados na hora de salvar (via
@@ -1394,23 +1840,57 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
 
 function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
   const hoje = new Date().toISOString().slice(0, 10);
-  // Prioridade: editando um registro > novoBase (vindo da agenda) > padrão vazio.
-  const init = registro || {
+  // Chave do rascunho: por id (editando) ou por sessão nova.
+  // Rascunho protege contra crash/queda de rede — restaurado no next open.
+  const draftKey = registro?.id
+    ? `epona_repro_draft_edit_${registro.id}`
+    : `epona_repro_draft_new_${currentUser?.id || 'anon'}`;
+
+  const carregarRascunho = () => {
+    try {
+      const raw = localStorage.getItem(draftKey);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (!parsed || parsed.__savedAt) return parsed;
+      return parsed;
+    } catch { return null; }
+  };
+  const rascunho = carregarRascunho();
+
+  // Prioridade: editando um registro > rascunho > novoBase (agenda) > padrão vazio.
+  const init = registro ? {
+    ...registro,
+    // Se há rascunho da edição, usa (permite continuar de onde parou)
+    ...(rascunho || {}),
+  } : (rascunho || {
     data: novoBase?.data || hoje,
     tipo: novoBase?.tipo || 'inseminacao_artificial',
     dados: novoBase?.dados || {},
     dataRetorno: '',
     eguaId: novoBase?.eguaId || '',
     localId: novoBase?.localId || '',
-  };
+  });
 
-  const [tipo, setTipo] = useState(init.tipo);
-  const [data, setData] = useState(init.data);
+  const [tipo, setTipo] = useState(init.tipo || 'inseminacao_artificial');
+  const [data, setData] = useState(init.data || hoje);
   const [eguaId, setEguaId] = useState(init.eguaId || '');
   const [localId, setLocalId] = useState(init.localId || '');
   const [dados, setDados] = useState(init.dados || {});
   const [dataRetorno, setDataRetorno] = useState(init.dataRetorno || '');
-  const [insumosUsados, setInsumosUsados] = useState(registro?.insumosUsados || []);
+  const [insumosUsados, setInsumosUsados] = useState(init.insumosUsados || registro?.insumosUsados || []);
+  const [rascunhoIndicador, setRascunhoIndicador] = useState(!!rascunho);
+
+  // Auto-save: grava rascunho no localStorage a cada mudança. Debounced
+  // no proximo tick de render — não bloqueia digitação.
+  useEffect(() => {
+    try {
+      localStorage.setItem(draftKey, JSON.stringify({
+        tipo, data, eguaId, localId, dados, dataRetorno, insumosUsados,
+      }));
+      setRascunhoIndicador(true);
+    } catch {}
+  }, [tipo, data, eguaId, localId, dados, dataRetorno, insumosUsados, draftKey]);
+  const limparRascunho = () => { try { localStorage.removeItem(draftKey); } catch {}; setRascunhoIndicador(false); };
 
   const eguaSel = eguasRepro.find(e => e.id === eguaId);
 
@@ -1450,12 +1930,98 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         }
       }
     };
-    // 0) Se marcou indutor de ovulação no CF, empilha o indutor.
+    // empilharSomando: quando o insumo já existe, soma a qtd
+    // (necessário pra Ocitocina 3× kit descartáveis etc)
+    const empilharSomando = (arr, qtdMult = 1) => {
+      for (const item of (arr || [])) {
+        if (!item?.insumoId) continue;
+        const idx = finalInsumos.findIndex(u => u.insumoId === item.insumoId);
+        const q = (Number(item.qtd) || 1) * qtdMult;
+        if (idx >= 0) finalInsumos[idx] = { ...finalInsumos[idx], qtd: (Number(finalInsumos[idx].qtd) || 0) + q };
+        else finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: q }];
+      }
+    };
+    // Kits de descartáveis de injeção — resolvidos 1 vez pra reutilizar
+    const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
+
+    // 0) Indutor de ovulação (CF)
     if (tipo === 'controle_folicular' && dados.indutorOvulacaoId) {
       empilhar([{ insumoId: dados.indutorOvulacaoId, qtd: 1 }]);
     }
-    // 1) Descartáveis obrigatórios do próprio serviço vinculado (fonte
-    //    da verdade — configurado pelo vet em Cadastros → Serviços).
+
+    // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
+    if (tipo === 'controle_folicular' && dados.medRapidos) {
+      for (const m of MED_RAPIDO) {
+        const v = dados.medRapidos[m.slug];
+        if (!v) continue;
+        const ins = (insumos.filter(i => i.workspaceId === 'repro' && m.regex.test(i.nome || ''))[0])
+          || (insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && m.regex.test(i.nome || ''))[0]);
+        if (!ins) continue;
+        if (m.modo === 'ml') {
+          const qml = Number(v.ml) || 0;
+          if (qml > 0) empilharSomando([{ insumoId: ins.id, qtd: qml }]);
+          // 1 kit de descartáveis por aplicação
+          empilharSomando(descInj, 1);
+        } else if (m.modo === 'doses') {
+          const nd = Number(v.doses) || 0;
+          if (nd <= 0) continue;
+          const qtdInsumo = m.mlPorDose ? nd * m.mlPorDose : nd;
+          empilharSomando([{ insumoId: ins.id, qtd: qtdInsumo }]);
+          // Se descartaveisPorDose=true → 1 kit por dose; senão 1 kit total
+          empilharSomando(descInj, m.descartaveisPorDose ? nd : 1);
+        }
+      }
+    }
+
+    // 0c) Tratamento Uterino: empilha todos os insumos configurados
+    //     nos acordeões (lavagem, infusão, misoprostol). Serviços extras
+    //     (Ozonio, PRP) são consumidos direto na fatura via dados.tu.*.
+    if (tipo === 'tratamento_uterino' && dados.tu) {
+      const t = dados.tu;
+      // Luva de palpação sempre
+      const insLuva = resolverPorMatcher(insumos, TU_MATCHERS.luvaPalpacao);
+      if (insLuva) empilharSomando([{ insumoId: insLuva.id, qtd: 1 }]);
+      // Lavagem
+      if (t.lavagem) {
+        const lav = t.lavagem;
+        const matchers = [
+          ['ringer', TU_MATCHERS.ringer],
+          ['aguaOxig', TU_MATCHERS.aguaOxig],
+          ['dmso', TU_MATCHERS.dmso],
+          ['riodeine', TU_MATCHERS.riodeine],
+        ];
+        for (const [slug, rgx] of matchers) {
+          const q = Number(lav[slug]) || 0;
+          if (q <= 0) continue;
+          const ins = resolverPorMatcher(insumos, rgx);
+          if (ins) empilharSomando([{ insumoId: ins.id, qtd: q }]);
+        }
+      }
+      // Infusão: botukiller + antibioticoterapia + pipeta rígida obrigatória
+      if (t.infusao) {
+        const inf = t.infusao;
+        const qBotu = Number(inf.botukiller) || 0;
+        if (qBotu > 0) {
+          const insBotu = resolverPorMatcher(insumos, TU_MATCHERS.botukiller);
+          if (insBotu) empilharSomando([{ insumoId: insBotu.id, qtd: qBotu }]);
+        }
+        if (Array.isArray(inf.antibioticos)) {
+          empilharSomando(inf.antibioticos);
+        }
+        const insPipeta = resolverPorMatcher(insumos, TU_MATCHERS.pipetaRigida);
+        if (insPipeta) empilharSomando([{ insumoId: insPipeta.id, qtd: 1 }]);
+      }
+      // Misoprostol: 1 unidade por corno marcado
+      if (t.misoprostol) {
+        const nMiso = (t.misoprostol.cornoDireito ? 1 : 0) + (t.misoprostol.cornoEsquerdo ? 1 : 0);
+        if (nMiso > 0) {
+          const insMiso = resolverPorMatcher(insumos, TU_MATCHERS.misoprostol);
+          if (insMiso) empilharSomando([{ insumoId: insMiso.id, qtd: nMiso }]);
+        }
+      }
+    }
+
+    // 1) Descartáveis obrigatórios do próprio serviço vinculado
     const padrao = servicosPadrao(servicos);
     let svcVinculado = null;
     if (tipo === 'inseminacao_artificial') svcVinculado = padrao.ia;
@@ -1466,21 +2032,17 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     if (svcVinculado?.descartaveisObrigatorios?.length > 0) {
       empilhar(svcVinculado.descartaveisObrigatorios);
     } else if (tipo === 'inseminacao_artificial') {
-      // Fallback pra IA (compat): matcher por nome de insumo se o serviço
-      // não tem descartáveis configurados ainda.
       const { encontrados } = resolverDescartaveisIa(insumos);
       empilhar(encontrados);
     }
-    // 2) Para cada insumo injetável adicionado, empilha 1 agulha +
-    //    1 seringa + 1 dose de algodão com álcool (regra do haras).
+
+    // 2) Para cada insumo injetável adicionado manualmente pelo vet
+    //    (que ainda não vem de medRapidos), garante 1 kit descartáveis.
     const temInjetavel = finalInsumos.some(u => {
       const ins = insumos.find(i => i.id === u.insumoId);
       return ins && ins.injetavel;
     });
-    if (temInjetavel) {
-      const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
-      empilhar(descInj);
-    }
+    if (temInjetavel) empilhar(descInj);
     const payload = {
       id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
       eguaId, data, tipo, dados, dataRetorno: dataRetorno || null,
@@ -1492,6 +2054,13 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       localId: localId || null,
     };
     onSave(payload);
+    limparRascunho();
+  };
+
+  const handleCancel = () => {
+    // Cancelar preserva o rascunho (usuário pode ter só saído sem querer).
+    // Só descarta ao clicar em "Descartar" no indicador.
+    onCancel();
   };
 
   const inputStyle = {
@@ -1696,9 +2265,37 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
               <input value={dados.ovarEsquerdo || ''} onChange={e => setDado('ovarEsquerdo', e.target.value)} style={inputStyle} placeholder="Ex: Vf12" />
             </FormField>
           </div>
-          <FormField label="Edema uterino">
-            <input value={dados.edemaUterino || ''} onChange={e => setDado('edemaUterino', e.target.value)} style={inputStyle} placeholder="Ex: 0, +, ++, +++" />
-          </FormField>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Edema uterino">
+              <input value={dados.edemaUterino || ''} onChange={e => setDado('edemaUterino', e.target.value)} style={inputStyle} placeholder="0, +, ++, +++" />
+            </FormField>
+            <FormField label="Presença de líquido">
+              <select value={dados.presencaLiquido || ''} onChange={e => setDado('presencaLiquido', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                <option value="ausente">Ausente</option>
+                <option value="discreta">Discreta</option>
+                <option value="moderada">Moderada</option>
+                <option value="acentuada">Acentuada</option>
+              </select>
+            </FormField>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Tônus uterino">
+              <select value={dados.tonusUterino || ''} onChange={e => setDado('tonusUterino', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Tônus cervical">
+              <select value={dados.tonusCervical || ''} onChange={e => setDado('tonusCervical', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </FormField>
+          </div>
+
+          {/* Botões de medicamentos rápidos (mesmo padrão do "Induzir Ovulação") */}
+          <BlocoMedicamentosRapidos dados={dados} setDado={setDado} insumos={insumos} inputStyle={inputStyle} />
 
           <BlocoInduzirOvulacao dados={dados} setDado={setDado} insumos={insumos} data={data} inputStyle={inputStyle} />
 
@@ -1732,6 +2329,10 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         </>
       )}
 
+      {tipo === 'tratamento_uterino' && (
+        <BlocoTratamentoUterino dados={dados} setDado={setDado} insumos={insumos} servicos={servicos} inputStyle={inputStyle} />
+      )}
+
       {tipo === 'servico_avulso' && (
         <>
           <FormField label="Serviço *">
@@ -1753,7 +2354,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
             background: '#fed7aa', border: '1px solid #fdba74', borderRadius: 10,
             padding: '10px 12px', fontSize: 12, color: '#7c2d12', lineHeight: 1.5, marginBottom: 12,
           }}>
-            Serviços avulsos (ex. lavagem uterina) são <strong>100% do vet</strong> na divisão da equipe.
+            Área de <strong>Diagnóstico / avulsos</strong>. Serviços avulsos são <strong>100% do vet</strong> na divisão da equipe. (Para tratamento uterino, use o tipo <strong>Tratamento Uterino</strong>.)
           </div>
         </>
       )}
@@ -1771,8 +2372,27 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         <textarea value={dados.observacoes || ''} onChange={e => setDado('observacoes', e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
       </FormField>
 
+      {rascunhoIndicador && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '6px 10px', background: '#dcfce7', border: '1px solid #86efac',
+          borderRadius: 8, fontSize: 11, color: '#15803d', marginTop: 4, marginBottom: 4,
+        }}>
+          <span style={{ fontSize: 10 }}>●</span>
+          <span style={{ flex: 1 }}>Rascunho salvo automaticamente</span>
+          <button type="button" onClick={() => {
+            if (window.confirm('Descartar rascunho e limpar o formulário?')) {
+              limparRascunho();
+              onCancel();
+            }
+          }} style={{
+            background: 'none', border: 'none', color: '#166534', fontSize: 10,
+            cursor: 'pointer', textDecoration: 'underline',
+          }}>descartar</button>
+        </div>
+      )}
       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
-        <button onClick={onCancel} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+        <button onClick={handleCancel} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Fechar</button>
         <button onClick={handleSave} disabled={!canSave} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: canSave ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: canSave ? 1 : 0.5 }}>
           {registro ? 'Salvar' : 'Registrar'}
         </button>
@@ -1849,6 +2469,17 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
             <DetalheLinha label="OD" valor={d.ovarioDireito} />
             <DetalheLinha label="OE" valor={d.ovarEsquerdo} />
             <DetalheLinha label="Edema uterino" valor={d.edemaUterino} />
+            <DetalheLinha label="Presença líquido" valor={d.presencaLiquido} />
+            <DetalheLinha label="Tônus uterino" valor={d.tonusUterino} />
+            <DetalheLinha label="Tônus cervical" valor={d.tonusCervical} />
+            {d.medRapidos && Object.entries(d.medRapidos).map(([slug, v]) => {
+              const m = MED_RAPIDO.find(x => x.slug === slug);
+              if (!m || !v) return null;
+              const desc = m.modo === 'ml'
+                ? `${v.ml} mL`
+                : `${v.doses} dose(s)${m.mlPorDose ? ` = ${Number(v.doses) * m.mlPorDose} mL` : ''}`;
+              return <DetalheLinha key={slug} label={m.label} valor={desc} />;
+            })}
             {d.dataInducaoOvulacao && (
               <DetalheLinha label="Indução ovulação" valor={
                 `${fmtDataBr(d.dataInducaoOvulacao)}${d.horaInducaoOvulacao ? ` · ${d.horaInducaoOvulacao}` : ''}`
@@ -1932,6 +2563,7 @@ function ReproCadastros({
   vetKmLocais,
   subInicial = 'locais',
   onOpenLocal,
+  onOpenHistoricoEgua,
 }) {
   const [sub, setSub] = useState(subInicial);
 
@@ -1987,6 +2619,7 @@ function ReproCadastros({
           addCavalo={addCavalo}
           updateCavalo={updateCavalo}
           deleteCavalo={deleteCavalo}
+          onOpenHistorico={onOpenHistoricoEgua}
         />
       )}
       {sub === 'insumos' && (
@@ -2544,6 +3177,183 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
           })}
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// Histórico reprodutivo da égua — linha do tempo agrupada por mês.
+// Cada evento mostra tipo, cor do vet, campos resumo (garanhão, DG
+// resultado, medicamentos etc). Click no card abre o detalhe.
+// ─────────────────────────────────────────────────────────────
+function HistoricoEgua({ egua, registrosRepro, vetsExternos, locaisRepro, propRepro, onBack, onOpenRegistro }) {
+  const [tipoFiltro, setTipoFiltro] = useState('');
+  const meus = (registrosRepro || [])
+    .filter(r => r.eguaId === egua.id)
+    .filter(r => !tipoFiltro || r.tipo === tipoFiltro)
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+
+  const prop = propRepro.find(p => p.id === egua.proprietarioId || (egua.proprietarioIds || []).includes(p.id));
+
+  // Agrupa por mês
+  const grupos = new Map();
+  const mesesLabels = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  for (const r of meus) {
+    const [y, m] = (r.data || '----').split('-');
+    const k = `${y}-${m}`;
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(r);
+  }
+  const gruposOrd = [...grupos.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+
+  // Contagens por tipo pra mostrar filtros com badge
+  const contagens = {};
+  for (const r of meus) contagens[r.tipo] = (contagens[r.tipo] || 0) + 1;
+
+  const resumoCard = (r) => {
+    const d = r.dados || {};
+    switch (r.tipo) {
+      case 'inseminacao_artificial':
+        return [
+          d.garanhao && `Garanhão: ${d.garanhao}`,
+          d.qtdPalhetas && `${d.qtdPalhetas} palheta(s)`,
+          d.momento && d.momento,
+          d.destino === 'transferencia' ? '→ Coleta' : (d.destino === 'prenhez' ? '→ Prenhez' : null),
+        ].filter(Boolean).join(' · ');
+      case 'transferencia_embriao':
+        return [
+          d.resultado === 'positivo' ? '✓ Positiva' : d.resultado === 'negativo' ? '✗ Negativa' : null,
+          d.receptora && `Rec.: ${d.receptora}`,
+          d.ringerLactatoL && `${d.ringerLactatoL} L Ringer`,
+        ].filter(Boolean).join(' · ');
+      case 'controle_folicular':
+        return [
+          d.ovarioDireito && `OD: ${d.ovarioDireito}`,
+          d.ovarEsquerdo && `OE: ${d.ovarEsquerdo}`,
+          d.edemaUterino && `edema: ${d.edemaUterino}`,
+        ].filter(Boolean).join(' · ');
+      case 'diagnostico_gestacao':
+        return [
+          d.resultado === 'positivo' ? '✓ Gestante' : d.resultado === 'negativo' ? '✗ Vazio' : null,
+          d.tamanhoVesicula && `${d.tamanhoVesicula}`,
+        ].filter(Boolean).join(' · ');
+      case 'tratamento_uterino': {
+        const partes = [];
+        if (d.tu?.lavagem) partes.push('lavagem');
+        if (d.tu?.infusao) partes.push('infusão');
+        if (d.tu?.misoprostol) partes.push('misoprostol');
+        return partes.join(' + ') || 'tratamento uterino';
+      }
+      case 'servico_avulso':
+        return d.servicoId ? '(serviço)' : '';
+      default: return '';
+    }
+  };
+
+  return (
+    <div>
+      <TopBar title={egua.nome} subtitle={`Histórico reprodutivo${prop ? ' · ' + prop.nome : ''}`} />
+      <div style={{ padding: '4px 20px 0' }}>
+        <button onClick={onBack} style={{
+          background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
+          padding: '6px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="arrow-left" size={14} /> Voltar
+        </button>
+      </div>
+
+      {/* Sumário */}
+      <div style={{ padding: '4px 20px 8px' }}>
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+          padding: '10px 14px', display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap',
+        }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 22 }}>{meus.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+            registro(s) no total
+          </div>
+        </div>
+      </div>
+
+      {/* Filtro por tipo */}
+      <div style={{ padding: '0 20px 8px', display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        <button onClick={() => setTipoFiltro('')} style={filtroBtn(!tipoFiltro)}>Todos</button>
+        {Object.entries(contagens).map(([t, n]) => {
+          const meta = TIPO_META[t] || {};
+          const ativo = tipoFiltro === t;
+          return (
+            <button key={t} onClick={() => setTipoFiltro(ativo ? '' : t)} style={{
+              ...filtroBtn(ativo),
+              borderColor: ativo ? meta.cor : 'var(--line)',
+              color: ativo ? meta.cor : 'var(--ink-3)',
+            }}>{meta.short || t} · {n}</button>
+          );
+        })}
+      </div>
+
+      <div style={{ padding: '4px 20px 20px' }}>
+        {meus.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            Sem registros no caderno.
+          </div>
+        )}
+        {gruposOrd.map(([mesKey, regs]) => {
+          const [y, m] = mesKey.split('-');
+          const mesLbl = mesKey === '----' ? 'sem data' : `${mesesLabels[Number(m) - 1]} · ${y}`;
+          return (
+            <div key={mesKey} style={{ marginBottom: 14 }}>
+              <div style={{
+                fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase',
+                letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6, padding: '0 4px',
+              }}>{mesLbl}</div>
+              {regs.map(r => {
+                const meta = TIPO_META[r.tipo] || {};
+                const vet = vetsExternos.find(v => v.id === r.vetId);
+                const local = locaisRepro.find(l => l.id === r.localId);
+                return (
+                  <button key={r.id} onClick={() => onOpenRegistro && onOpenRegistro(r)} style={{
+                    width: '100%', textAlign: 'left', cursor: onOpenRegistro ? 'pointer' : 'default',
+                    background: 'var(--card)', border: '1px solid var(--line)',
+                    borderLeft: `3px solid ${vet?.cor || meta.cor || CORES_TAB_ATIVA}`,
+                    borderRadius: 10, padding: '10px 12px', marginBottom: 6, color: 'var(--ink)',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+                      <span style={{
+                        fontSize: 10, background: meta.bg || 'var(--soft)', color: meta.cor || 'var(--ink)',
+                        padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                      }}>{meta.short || r.tipo}</span>
+                      <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmtDataBr(r.data)}</span>
+                      {vet && (
+                        <span style={{ fontSize: 10, color: '#fff', background: vet.cor, padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>
+                          {vet.nome.split(' ')[0]}
+                        </span>
+                      )}
+                      {local && (
+                        <span style={{ fontSize: 10, color: 'var(--ink-3)' }}>· {local.nome}</span>
+                      )}
+                    </div>
+                    <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)' }}>
+                      {resumoCard(r)}
+                    </div>
+                    {/* DG marcados no detalhe (DG15/30/45) */}
+                    {r.dados && ['dg15', 'dg30', 'dg45'].some(k => r.dados[k]) && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                        {['dg15', 'dg30', 'dg45'].map(k => r.dados[k] && (
+                          <span key={k} style={{
+                            fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                            background: r.dados[k] === 'positivo' ? '#dcfce7' : '#fee2e2',
+                            color: r.dados[k] === 'positivo' ? '#15803d' : '#991b1b',
+                          }}>{k.toUpperCase()} {r.dados[k] === 'positivo' ? '+' : '-'}</span>
+                        ))}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -3345,6 +4155,7 @@ export function ReproApp({
   const [tab, setTab] = useState('home');
   const [cadSub, setCadSub] = useState('locais');
   const [localSelecionado, setLocalSelecionado] = useState(null);
+  const [historicoEguaId, setHistoricoEguaId] = useState(null);
   // Pré-preenchimento do form do caderno quando vindo da agenda/calendário
   const [preFillCaderno, setPreFillCaderno] = useState(null);
 
@@ -3402,7 +4213,28 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
     />;
   } else if (screen === 'repro-cadastros') {
-    if (localSelecionado) {
+    if (historicoEguaId) {
+      const eg = eguasRepro.find(x => x.id === historicoEguaId);
+      if (!eg) { setHistoricoEguaId(null); content = null; }
+      else {
+        content = <HistoricoEgua
+          egua={eg}
+          registrosRepro={registrosRepro}
+          vetsExternos={vetsExternos}
+          locaisRepro={locaisRepro}
+          propRepro={propRepro}
+          onBack={() => setHistoricoEguaId(null)}
+          onOpenRegistro={(r) => {
+            // Abre o form pra edição rápida
+            setHistoricoEguaId(null);
+            setPreFillCaderno({
+              eguaId: r.eguaId, localId: r.localId, data: r.data, tipo: r.tipo, dados: r.dados || {},
+            });
+            setTab('caderno'); setScreen('repro-caderno');
+          }}
+        />;
+      }
+    } else if (localSelecionado) {
       const l = locaisRepro.find(x => x.id === localSelecionado) || null;
       if (!l) {
         setLocalSelecionado(null);
@@ -3443,6 +4275,7 @@ export function ReproApp({
         deleteServico={deleteServico}
         subInicial={cadSub}
         onOpenLocal={(l) => setLocalSelecionado(l.id)}
+        onOpenHistoricoEgua={(e) => setHistoricoEguaId(e.id)}
       />;
     }
   } else if (screen === 'repro-caderno') {

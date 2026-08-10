@@ -229,16 +229,45 @@ export function calcFaturaRepro(propId, ref, deps) {
   }
   const procedimentosTotal = procedimentosLinhas.reduce((s, l) => s + l.valor, 0);
 
-  // ── 4) Serviços avulsos (do mês, proprietário atual)
+  // ── 4) Serviços avulsos + Tratamento Uterino (do mês, propr. atual)
   const avulsosLinhas = [];
+  // Matchers pra pegar preço dos serviços de Tratamento Uterino do catálogo
+  const svcTratamento = servicos.find(s => /tratamento.*uter/i.test(norm(s.nome || '')));
+  const svcOzonio = servicos.find(s => /ozonio/i.test(norm(s.nome || '')));
+  const svcPrp = servicos.find(s => /(prp).*(intra|uter)/i.test(norm(s.nome || '')));
+
   for (const r of regsMesProp) {
-    if (r.tipo !== 'servico_avulso') continue;
-    const sv = servicos.find(s => s.id === r.dados?.servicoId);
-    const valor = Number(r.dados?.valorCobrado) || Number(sv?.valor) || 0;
-    avulsosLinhas.push({
-      data: r.data, registroId: r.id, vetId: r.vetId, servicoId: r.dados?.servicoId || null,
-      descricao: sv?.nome || 'Serviço avulso', valor,
-    });
+    if (r.tipo === 'servico_avulso') {
+      const sv = servicos.find(s => s.id === r.dados?.servicoId);
+      const valor = Number(r.dados?.valorCobrado) || Number(sv?.valor) || 0;
+      avulsosLinhas.push({
+        data: r.data, registroId: r.id, vetId: r.vetId, servicoId: r.dados?.servicoId || null,
+        descricao: sv?.nome || 'Serviço avulso', valor,
+      });
+      continue;
+    }
+    if (r.tipo === 'tratamento_uterino') {
+      // Serviço base
+      if (svcTratamento) {
+        avulsosLinhas.push({
+          data: r.data, registroId: r.id, vetId: r.vetId, servicoId: svcTratamento.id,
+          descricao: svcTratamento.nome, valor: Number(svcTratamento.valor) || 0,
+        });
+      }
+      // Serviços adicionais marcados
+      if (r.dados?.tu?.lavagem?.ozonio && svcOzonio) {
+        avulsosLinhas.push({
+          data: r.data, registroId: r.id, vetId: r.vetId, servicoId: svcOzonio.id,
+          descricao: svcOzonio.nome, valor: Number(svcOzonio.valor) || 0,
+        });
+      }
+      if (r.dados?.tu?.infusao?.prp && svcPrp) {
+        avulsosLinhas.push({
+          data: r.data, registroId: r.id, vetId: r.vetId, servicoId: svcPrp.id,
+          descricao: svcPrp.nome, valor: Number(svcPrp.valor) || 0,
+        });
+      }
+    }
   }
   const avulsosTotal = avulsosLinhas.reduce((s, l) => s + l.valor, 0);
 
