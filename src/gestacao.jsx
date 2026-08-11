@@ -543,6 +543,9 @@ export function GestacaoPartosScreen({
   addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
   updateProgesteronaAplicacao,
   addRegistro, deleteRegistro, addAtividade,
+  // Callback opcional: se fornecido, mostra botão "+" que cadastra
+  // uma égua gestante direto dessa tela (usado no Repro Team).
+  onCadastrarGestante = null,
 }) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
@@ -577,7 +580,16 @@ export function GestacaoPartosScreen({
   return (
     <div>
       <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg)' }}>
-        <TopBar title="Gestação e Partos" onBack={onBack || (() => setScreen('home'))} />
+        <TopBar title="Gestação e Partos" onBack={onBack || (() => setScreen('home'))} action={
+          onCadastrarGestante ? (
+            <button onClick={onCadastrarGestante} title="Cadastrar égua gestante" style={{
+              width: 36, height: 36, borderRadius: 12, background: 'var(--accent)', color: '#fff',
+              display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+            }}>
+              <Icon name="plus" size={18} color="#fff" />
+            </button>
+          ) : undefined
+        } />
         <SubTabBar
           tabs={[
             { id:'gestacoes', label:`Gestações (${gestantesDentro.length})` },

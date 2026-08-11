@@ -987,53 +987,139 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
 // ─────────────────────────────────────────────────────────────
 // Éguas do Repro (workspace='repro')
 // ─────────────────────────────────────────────────────────────
-function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCavalo, deleteCavalo, onOpenHistorico }) {
+// Categorias que fazem sentido no repro team (sem "Escola", "Potro
+// ao pé", etc — foco em reprodução).
+const CATEGORIAS_REPRO = ['Égua', 'Gestante', 'Doadora', 'Receptora', 'Potro', 'Garanhão', 'Reprodutor', 'Fora do plantel'];
+const PELAGENS_REPRO = ['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha', 'Palomino', 'Pampa', 'Cremello'];
+
+function ReproEguas({
+  eguasRepro, propRepro, locaisRepro,
+  addCavalo, updateCavalo, deleteCavalo,
+  onOpenHistorico,
+  // Modo controlado externamente (usado pelo botão + em Gestação e Parto)
+  formAbertoExterno = false, onFecharFormExterno,
+  preFillCategoria = null,
+}) {
   const [busca, setBusca] = useState('');
-  const [showForm, setShowForm] = useState(false);
+  const [filtroCat, setFiltroCat] = useState('all');
+  const [showFormInterno, setShowFormInterno] = useState(false);
+  const showForm = showFormInterno || formAbertoExterno;
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ nome: '', pelagem: 'Tordilho', proprietarioId: '', localId: '', observacoes: '' });
+
+  const formInicial = {
+    nome: '',
+    pelagem: 'Tordilho',
+    sexo: 'F',
+    proprietarioId: '',
+    localId: '',
+    nascimento: '',
+    categorias: preFillCategoria ? new Set(['Égua', preFillCategoria]) : new Set(['Égua']),
+    // Gestação
+    dataCobricao: '',
+    pai: '',
+    // Genealogia
+    mae: '',
+    obs: '',
+  };
+  const [form, setForm] = useState(formInicial);
+
+  const fecharForm = () => {
+    setShowFormInterno(false);
+    setEditId(null);
+    if (onFecharFormExterno) onFecharFormExterno();
+  };
 
   const lista = [...eguasRepro]
+    .filter(e => filtroCat === 'all' || (e.categorias || [e.categoria]).includes(filtroCat))
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
     .filter(e => {
       if (!busca.trim()) return true;
-      const prop = propRepro.find(p => p.id === e.proprietarioId);
+      const prop = propRepro.find(p => p.id === e.proprietarioId || (e.proprietarioIds || []).includes(p.id));
       return norm(`${e.nome || ''} ${prop?.nome || ''}`).includes(norm(busca.trim()));
     });
 
-  const abrirNovo = () => {
+  const abrirNovo = (categoriaExtra = null) => {
     setEditId(null);
-    setForm({ nome: '', pelagem: 'Tordilho', proprietarioId: propRepro[0]?.id || '', localId: locaisRepro[0]?.id || '', observacoes: '' });
-    setShowForm(true);
+    setForm({
+      ...formInicial,
+      proprietarioId: propRepro[0]?.id || '',
+      localId: locaisRepro[0]?.id || '',
+      categorias: categoriaExtra
+        ? new Set(['Égua', categoriaExtra])
+        : (preFillCategoria ? new Set(['Égua', preFillCategoria]) : new Set(['Égua'])),
+    });
+    setShowFormInterno(true);
   };
   const abrirEditar = (e) => {
     setEditId(e.id);
+    const cats = e.categorias && e.categorias.length ? e.categorias : (e.categoria ? [e.categoria] : ['Égua']);
     setForm({
-      nome: e.nome, pelagem: e.pelagem || 'Tordilho',
+      nome: e.nome || '',
+      pelagem: e.pelagem || 'Tordilho',
+      sexo: e.sexo || 'F',
       proprietarioId: e.proprietarioId || (e.proprietarioIds || [])[0] || '',
       localId: e.localId || '',
-      observacoes: e.obs || '',
+      nascimento: e.nascimento || '',
+      categorias: new Set(cats),
+      dataCobricao: e.gestacao?.dataCobricao || '',
+      pai: e.gestacao?.pai || e.pai || '',
+      mae: e.mae || '',
+      obs: e.obs || '',
     });
-    setShowForm(true);
+    setShowFormInterno(true);
   };
+
+  // Ao abrir por callback externo (botão + em Gestação e Parto):
+  useEffect(() => {
+    if (formAbertoExterno && !editId) {
+      setForm({
+        ...formInicial,
+        proprietarioId: propRepro[0]?.id || '',
+        localId: locaisRepro[0]?.id || '',
+        categorias: new Set(['Égua', preFillCategoria || 'Gestante']),
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formAbertoExterno]);
+
+  const toggleCategoria = (cat) => {
+    setForm(f => {
+      const nova = new Set(f.categorias);
+      if (nova.has(cat)) nova.delete(cat);
+      else nova.add(cat);
+      // Se marcou Égua fêmea, sexo=F automático
+      return { ...f, categorias: nova };
+    });
+  };
+
   const salvar = () => {
     if (!form.nome.trim() || !form.proprietarioId) return;
+    const cats = [...form.categorias];
+    const ehGestante = cats.includes('Gestante');
     const payload = {
-      nome: form.nome.trim(), pelagem: form.pelagem, sexo: 'F',
-      categoria: 'Égua', categorias: ['Égua'],
+      nome: form.nome.trim(),
+      pelagem: form.pelagem,
+      sexo: form.sexo,
+      categoria: cats[0] || 'Égua',
+      categorias: cats,
       proprietarioId: form.proprietarioId,
       proprietarioIds: [form.proprietarioId],
-      obs: form.observacoes,
-      // Guardamos localId no obs? Melhor extender: adiciono no update abaixo
+      localId: form.localId || null,
+      nascimento: form.nascimento || null,
+      mae: form.mae || null,
+      obs: form.obs || null,
       workspaceId: 'repro',
       presente: true,
     };
-    if (editId) {
-      updateCavalo(editId, { ...payload, localId: form.localId });
-    } else {
-      addCavalo({ ...payload, localId: form.localId });
+    if (ehGestante) {
+      payload.gestacao = { dataCobricao: form.dataCobricao || null, pai: form.pai || null };
     }
-    setShowForm(false);
+    if (editId) {
+      updateCavalo(editId, payload);
+    } else {
+      addCavalo(payload);
+    }
+    fecharForm();
   };
 
   const inputStyle = {
@@ -1042,10 +1128,14 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
     fontFamily: 'var(--sans)', outline: 'none',
   };
 
+  const catsFiltroChips = [{ id: 'all', nome: 'Todos', cor: 'var(--ink-2)' }, ...CATEGORIAS_REPRO.map(c => ({ id: c, nome: c, cor: c === 'Gestante' ? '#7c2d8c' : 'var(--ink-2)' }))];
+
+  const ehGestanteForm = form.categorias.has('Gestante');
+
   return (
     <div>
       <TopBar title="Éguas" subtitle="Epona Repro Team" action={
-        <button onClick={abrirNovo} disabled={propRepro.length === 0} style={{
+        <button onClick={() => abrirNovo()} disabled={propRepro.length === 0} style={{
           width: 36, height: 36, borderRadius: 12, background: propRepro.length === 0 ? 'var(--soft)' : CORES_TAB_ATIVA,
           display: 'grid', placeItems: 'center', border: 'none', cursor: propRepro.length === 0 ? 'default' : 'pointer',
         }}>
@@ -1054,6 +1144,17 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
       } />
       <div style={{ padding: '12px 20px 0' }}>
         <SearchBar value={busca} onChange={setBusca} placeholder="Buscar égua ou proprietário…" />
+      </div>
+      <div style={{ padding: '10px 20px 0', display: 'flex', gap: 6, overflowX: 'auto' }}>
+        {catsFiltroChips.map(c => (
+          <button key={c.id} onClick={() => setFiltroCat(c.id)} style={{
+            padding: '6px 12px', borderRadius: 999, fontSize: 11, fontWeight: 500,
+            border: '1px solid ' + (filtroCat === c.id ? c.cor : 'var(--line)'),
+            background: filtroCat === c.id ? c.cor : 'var(--card)',
+            color: filtroCat === c.id ? '#fff' : 'var(--ink-2)',
+            whiteSpace: 'nowrap', flexShrink: 0, fontFamily: 'var(--sans)', cursor: 'pointer',
+          }}>{c.nome}</button>
+        ))}
       </div>
       <div style={{ padding: '12px 20px 0' }}>
         {propRepro.length === 0 && (
@@ -1069,6 +1170,8 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
         {lista.map(e => {
           const prop = propRepro.find(p => p.id === e.proprietarioId || (e.proprietarioIds || []).includes(p.id));
           const local = locaisRepro.find(l => l.id === e.localId);
+          const cats = e.categorias || (e.categoria ? [e.categoria] : []);
+          const ehGestante = cats.includes('Gestante');
           return (
             <div key={e.id} style={{
               background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
@@ -1078,9 +1181,18 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
               <div style={{
                 width: 42, height: 42, borderRadius: 12, background: 'var(--soft)',
                 display: 'grid', placeItems: 'center', fontSize: 20,
-              }}>🐴</div>
+              }}>{ehGestante ? '🤰' : '🐴'}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{e.nome}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                  <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{e.nome}</div>
+                  {cats.filter(c => c !== 'Égua').map(c => (
+                    <span key={c} style={{
+                      fontSize: 9, padding: '2px 6px', borderRadius: 3, fontWeight: 700,
+                      background: c === 'Gestante' ? '#f5e8ff' : 'var(--soft)',
+                      color: c === 'Gestante' ? '#7c2d8c' : 'var(--ink-3)',
+                    }}>{c.toUpperCase()}</span>
+                  ))}
+                </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
                   {prop?.nome || 'sem proprietário'}
                   {local ? ` · ${local.nome}` : ''}
@@ -1106,16 +1218,32 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
       </div>
 
       {showForm && (
-        <Modal onClose={() => setShowForm(false)}>
+        <Modal onClose={fecharForm}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 14 }}>
-            {editId ? 'Editar égua' : 'Nova égua'}
+            {editId ? 'Editar égua' : (preFillCategoria === 'Gestante' ? 'Nova égua gestante' : 'Nova égua')}
           </div>
-          <FormField label="Nome"><input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} autoFocus /></FormField>
+
+          <FormField label="Nome *">
+            <input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} autoFocus />
+          </FormField>
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Sexo">
+              <select value={form.sexo} onChange={e => setForm(f => ({ ...f, sexo: e.target.value }))} style={inputStyle}>
+                <option value="F">Fêmea</option>
+                <option value="M">Macho</option>
+              </select>
+            </FormField>
             <FormField label="Pelagem">
               <select value={form.pelagem} onChange={e => setForm(f => ({ ...f, pelagem: e.target.value }))} style={inputStyle}>
-                {['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha'].map(p => <option key={p} value={p}>{p}</option>)}
+                {PELAGENS_REPRO.map(p => <option key={p} value={p}>{p}</option>)}
               </select>
+            </FormField>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Nascimento">
+              <input type="date" value={form.nascimento} onChange={e => setForm(f => ({ ...f, nascimento: e.target.value }))} style={inputStyle} />
             </FormField>
             <FormField label="Local">
               <select value={form.localId} onChange={e => setForm(f => ({ ...f, localId: e.target.value }))} style={inputStyle}>
@@ -1124,18 +1252,74 @@ function ReproEguas({ eguasRepro, propRepro, locaisRepro, addCavalo, updateCaval
               </select>
             </FormField>
           </div>
-          <FormField label="Proprietário">
+
+          <FormField label="Proprietário *">
             <select value={form.proprietarioId} onChange={e => setForm(f => ({ ...f, proprietarioId: e.target.value }))} style={inputStyle}>
               <option value="">— Selecionar —</option>
               {propRepro.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
             </select>
           </FormField>
-          <FormField label="Observações"><textarea value={form.observacoes} onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} /></FormField>
+
+          <FormField label="Categorias">
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              {CATEGORIAS_REPRO.map(cat => {
+                const ativo = form.categorias.has(cat);
+                const isGest = cat === 'Gestante';
+                return (
+                  <button key={cat} type="button" onClick={() => toggleCategoria(cat)} style={{
+                    padding: '7px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600,
+                    border: `1px solid ${ativo ? (isGest ? '#7c2d8c' : 'var(--ink)') : 'var(--line)'}`,
+                    background: ativo ? (isGest ? '#f5e8ff' : 'var(--card)') : 'transparent',
+                    color: ativo ? (isGest ? '#7c2d8c' : 'var(--ink)') : 'var(--ink-3)',
+                    cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>{ativo ? '✓ ' : ''}{cat}</button>
+                );
+              })}
+            </div>
+          </FormField>
+
+          {ehGestanteForm && (
+            <div style={{
+              background: '#f5e8ff', border: '1px solid #d8b4fe',
+              borderRadius: 10, padding: 12, marginBottom: 12,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 10 }}>
+                🤰 Dados da gestação
+              </div>
+              <FormField label="Data da cobrição">
+                <input type="date" value={form.dataCobricao} onChange={e => setForm(f => ({ ...f, dataCobricao: e.target.value }))} style={inputStyle} />
+              </FormField>
+              <FormField label="Garanhão (pai do embrião)">
+                <input value={form.pai} onChange={e => setForm(f => ({ ...f, pai: e.target.value }))} style={inputStyle} placeholder="Nome do garanhão" />
+              </FormField>
+              {form.dataCobricao && (
+                <div style={{ fontSize: 11, color: '#6b21a8', marginTop: 4 }}>
+                  Previsão de parto: aprox. 340 dias a partir da cobrição.
+                </div>
+              )}
+            </div>
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Mãe">
+              <input value={form.mae} onChange={e => setForm(f => ({ ...f, mae: e.target.value }))} style={inputStyle} placeholder="Nome da mãe" />
+            </FormField>
+            {!ehGestanteForm && (
+              <FormField label="Pai">
+                <input value={form.pai} onChange={e => setForm(f => ({ ...f, pai: e.target.value }))} style={inputStyle} placeholder="Nome do pai" />
+              </FormField>
+            )}
+          </div>
+
+          <FormField label="Observações">
+            <textarea value={form.obs} onChange={e => setForm(f => ({ ...f, obs: e.target.value }))} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
+          </FormField>
+
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {editId && deleteCavalo && (
-              <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteCavalo(editId); setShowForm(false); } }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640', background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Excluir</button>
+              <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteCavalo(editId); fecharForm(); } }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640', background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Excluir</button>
             )}
-            <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+            <button onClick={fecharForm} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
             <button onClick={salvar} disabled={!form.nome.trim() || !form.proprietarioId} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: (form.nome.trim() && form.proprietarioId) ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: (form.nome.trim() && form.proprietarioId) ? 1 : 0.5 }}>{editId ? 'Salvar' : 'Criar'}</button>
           </div>
         </Modal>
@@ -2961,6 +3145,7 @@ function ReproCadastros({
   subInicial = 'locais',
   onOpenLocal,
   onOpenHistoricoEgua,
+  abrirGestanteForm = false, onConsumirGestanteForm,
 }) {
   const [sub, setSub] = useState(subInicial);
 
@@ -3017,6 +3202,9 @@ function ReproCadastros({
           updateCavalo={updateCavalo}
           deleteCavalo={deleteCavalo}
           onOpenHistorico={onOpenHistoricoEgua}
+          formAbertoExterno={abrirGestanteForm}
+          onFecharFormExterno={onConsumirGestanteForm}
+          preFillCategoria={abrirGestanteForm ? 'Gestante' : null}
         />
       )}
       {sub === 'insumos' && (
@@ -4676,6 +4864,9 @@ export function ReproApp({
   // mostram apenas dados relacionados a esse local. localFiltroId=''
   // significa "todos os locais".
   const [localFiltroId, setLocalFiltroId] = useState('');
+  // Sinaliza pra abrir o form de nova égua com "Gestante" pré-marcado.
+  // Setado quando clicar no + em Gestação e Partos.
+  const [abrirGestanteForm, setAbrirGestanteForm] = useState(false);
 
   // Traduz um evento (retorno/coleta/procedimento) no rascunho de um NOVO
   // registro do caderno pra continuar aquele fluxo.
@@ -4733,6 +4924,13 @@ export function ReproApp({
   const servicosRepro = servicos;
 
   const goCadastros = (sub = 'locais') => { setCadSub(sub); setLocalSelecionado(null); setTab('cadastros'); setScreen('repro-cadastros'); };
+  const abrirCadastroGestante = () => {
+    setCadSub('eguas');
+    setLocalSelecionado(null);
+    setAbrirGestanteForm(true);
+    setTab('cadastros');
+    setScreen('repro-cadastros');
+  };
 
   let content;
   if (screen === 'repro-home') {
@@ -4815,6 +5013,8 @@ export function ReproApp({
         subInicial={cadSub}
         onOpenLocal={(l) => setLocalSelecionado(l.id)}
         onOpenHistoricoEgua={(e) => setHistoricoEguaId(e.id)}
+        abrirGestanteForm={abrirGestanteForm}
+        onConsumirGestanteForm={() => setAbrirGestanteForm(false)}
       />;
     }
   } else if (screen === 'repro-caderno') {
@@ -4863,6 +5063,7 @@ export function ReproApp({
       setScreen={() => {}}
       setSelected={() => {}}
       onOpenReproducao={() => { setTab('vet'); setScreen('repro-vet-reproducao'); }}
+      onCadastrarGestante={abrirCadastroGestante}
       partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}
       cavalos={eguasRepro}
       proprietarios={propRepro}

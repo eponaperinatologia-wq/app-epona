@@ -591,6 +591,9 @@ export function VeterinariaScreen({
   // de abrir o ReproducaoScreen padrão. Uso: repro team abre o Caderno
   // novo (UI Repro Team) em vez do módulo antigo.
   onOpenReproducao = null,
+  // Se fornecido, mostra botão "+" em Gestação e Partos pra abrir
+  // cadastro de nova égua gestante (usado no repro team).
+  onCadastrarGestante = null,
 }) {
   const [secao, setSecao] = useState(initialSecao);
 
@@ -624,6 +627,7 @@ export function VeterinariaScreen({
         updateProgesteronaAplicacao={updateProgesteronaAplicacao}
         addRegistro={addRegistro} deleteRegistro={deleteRegistro} addAtividade={addAtividade}
         onBack={() => setSecao(null)}
+        onCadastrarGestante={onCadastrarGestante}
       />
     );
   }
