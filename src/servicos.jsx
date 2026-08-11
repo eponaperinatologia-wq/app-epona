@@ -3,7 +3,7 @@ import React, { useState } from 'react';
 import { Icon } from './icons';
 import {
   CAVALOS, INSUMOS, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS,
-  getInsumo, formatBRL, norm,
+  getInsumo, formatBRL, norm, dedupPorNome,
 } from './data';
 import { TopBar, HorseAvatar } from './screens';
 import { dataParaMesDestino } from './register';
@@ -23,8 +23,10 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const [descartaveis, setDescartaveis] = useState([]);
   const [descSearch, setDescSearch] = useState('');
 
-  const insumosBase = insumosProp.length > 0 ? insumosProp : INSUMOS;
-  const lista = (catFilter === 'all' ? servicos : servicos.filter(s => s.categoria === catFilter))
+  const insumosBase = dedupPorNome(insumosProp.length > 0 ? insumosProp : INSUMOS);
+  // Dedup por nome também nos serviços — evita duplicatas visuais
+  const servicosDedup = dedupPorNome(servicos);
+  const lista = (catFilter === 'all' ? servicosDedup : servicosDedup.filter(s => s.categoria === catFilter))
     .filter(s => !busca.trim() || norm(s.nome || '').includes(norm(busca.trim())))
     .slice()
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));

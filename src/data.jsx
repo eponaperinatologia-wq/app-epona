@@ -512,6 +512,35 @@ const PARTOS = [];
 
 const norm = (s) => (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
 
+// Dedup por nome — retorna 1 item por nome normalizado, preferindo
+// o com melhor score (mais campos preenchidos). Usado nos cadastros
+// pra evitar duplicatas visuais quando o banco tem entradas repetidas.
+function _scoreItem(it) {
+  let s = 0;
+  if ((it.workspaceId || 'haras') === 'haras') s += 2; // Preferir workspace haras
+  if (Array.isArray(it.descartaveisObrigatorios) && it.descartaveisObrigatorios.length > 0) s += 3;
+  if (Array.isArray(it.descartaveis) && it.descartaveis.length > 0) s += 2;
+  if (Number(it.valorVenda ?? it.valor) > 0) s += 1;
+  if (Number(it.valorCompra) > 0) s += 1;
+  if (it.fornecedor) s += 1;
+  if (it.injetavel) s += 1;
+  if (it.indutorOvulacao) s += 1;
+  return s;
+}
+function dedupPorNome(items) {
+  const norm2 = (s) => norm(String(s || '').trim());
+  const byNome = new Map();
+  for (const it of (items || [])) {
+    const k = norm2(it.nome);
+    if (!k) continue;
+    const existente = byNome.get(k);
+    if (!existente || _scoreItem(it) > _scoreItem(existente)) {
+      byNome.set(k, it);
+    }
+  }
+  return [...byNome.values()];
+}
+
 // Cria registros para descartáveis automaticamente. A quantidade de descartável
 // NÃO escala com o volume do insumo: 1 aplicação = 1 agulha/seringa/algodão,
 // independente de aplicar 1ml ou 10ml. qtdBase é mantido na assinatura por
@@ -536,5 +565,5 @@ export {
   FUNCIONARIOS, ESCALA_VAZIA, EVENTOS, PARTOS,
   getCavalo, getProprietario, getInsumo, getCategoria, idade, formatBRL,
   diasNoMes, proporcaoMensalidade, findInsumo, consumoDiarioCavalo, cobrancaPerfilMes,
-  norm, addDescartaveis,
+  norm, addDescartaveis, dedupPorNome,
 };

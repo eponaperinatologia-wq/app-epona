@@ -8,7 +8,7 @@ import {
   CAVALOS, PROPRIETARIOS, INSUMOS, CATEGORIAS_CAVALO, CATEGORIAS_INSUMOS,
   AVISOS, ATIVIDADES, CATEGORIAS_SERVICOS, SERVICOS,
   getCavalo, getInsumo, getCategoria, idade, formatBRL,
-  consumoDiarioCavalo, norm,
+  consumoDiarioCavalo, norm, dedupPorNome,
 } from './data';
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -1737,7 +1737,11 @@ const CadInsumosScreen = ({ setScreen, setSelected, insumos = [], addInsumo, upd
   const [filtro, setFiltro] = useState('all');
   const [busca, setBusca] = useState('');
   const cats = [{ id: 'all', nome: 'Todos', cor: '#3d6043' }, ...CATEGORIAS_INSUMOS];
-  const filtered = (filtro === 'all' ? insumos : insumos.filter(i => i.categoria === filtro))
+  // Dedup por nome — remove duplicatas visuais (herança do sistema
+  // antigo com workspace repro/haras). Editar/excluir opera no item
+  // visível (com melhor score).
+  const insumosDedup = dedupPorNome(insumos);
+  const filtered = (filtro === 'all' ? insumosDedup : insumosDedup.filter(i => i.categoria === filtro))
     .filter(i => !busca.trim() || norm(i.nome).includes(norm(busca.trim())))
     .slice()
     .sort((a, b) => (a.nome||'').localeCompare(b.nome||'', 'pt'));
