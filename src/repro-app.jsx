@@ -2801,7 +2801,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
             </select>
           </FormField>
           <FormField label="Aspecto da vagina">
-            <input value={dados.aspectoVagina || ''} onChange={e => setDado('aspectoVagina', e.target.value)} style={inputStyle} placeholder="Ex: normal, hiperêmica…" />
+            <input value={dados.aspectoVagina || ''} onChange={e => setDado('aspectoVagina', e.target.value)} style={inputStyle} placeholder="Ex: brilhante, fosca…" />
           </FormField>
           <FormField label="Ringer Lactato (L)">
             <input type="number" min="0" step="0.5" value={dados.ringerLactatoL || ''} onChange={e => setDado('ringerLactatoL', e.target.value)} style={inputStyle} placeholder="Ex: 2" />
