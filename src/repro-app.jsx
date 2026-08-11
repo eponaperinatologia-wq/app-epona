@@ -9,6 +9,7 @@ import { trocarSenhaVetExterno } from './auth-vet-externo';
 import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { SwitcherContas } from './multiSessionUi';
+import { VeterinariaScreen } from './veterinaria';
 
 const CORES_TAB_ATIVA = '#7c2d8c';
 
@@ -90,7 +91,7 @@ export function TrocarSenhaVetScreen({ currentUser, onComplete, onLogout }) {
 function TabBar({ tab, setTab, setScreen }) {
   const abas = [
     { id: 'home', label: 'Início', icon: 'home', screen: 'repro-home' },
-    { id: 'caderno', label: 'Caderno', icon: 'edit', screen: 'repro-caderno' },
+    { id: 'vet', label: 'Veterinária', icon: 'stethoscope', screen: 'repro-vet' },
     { id: 'cadastros', label: 'Cadastros', icon: 'menu', screen: 'repro-cadastros' },
     { id: 'painel', label: 'Painel', icon: 'sparkle', screen: 'repro-painel' },
     { id: 'cobrancas', label: 'Cobranças', icon: 'doc', screen: 'repro-cobrancas' },
@@ -1207,6 +1208,21 @@ function resolverDescartaveisInjecao(insumos) {
 // insensitive), priorizando entradas do workspace 'repro' sobre 'haras'.
 // Usado nos dropdowns do form pra evitar mostrar o mesmo item 2 vezes
 // quando o vet importou o catálogo do haras.
+// Dedup por nome — retorna 1 item por nome normalizado. Estratégia:
+// preferir o que tem MAIS informação (score baseado em campos
+// preenchidos). Assim, mesmo que existam entradas duplicadas no
+// banco (uma do haras e outra do repro), o cadastro mostra apenas 1
+// com o melhor dado disponível.
+function scoreItem(it) {
+  let s = 0;
+  if (it.workspaceId === 'haras') s += 2; // Preferir workspace haras (source of truth)
+  if (Array.isArray(it.descartaveisObrigatorios) && it.descartaveisObrigatorios.length > 0) s += 3;
+  if (Number(it.valorVenda ?? it.valor) > 0) s += 1;
+  if (it.fornecedor) s += 1;
+  if (it.injetavel) s += 1;
+  if (it.indutorOvulacao) s += 1;
+  return s;
+}
 function dedupPorNome(items) {
   const norm2 = (s) => norm(String(s || '').trim());
   const byNome = new Map();
@@ -1214,11 +1230,9 @@ function dedupPorNome(items) {
     const k = norm2(it.nome);
     if (!k) continue;
     const existente = byNome.get(k);
-    if (!existente) { byNome.set(k, it); continue; }
-    // repro tem prioridade
-    const ehRepro = it.workspaceId === 'repro';
-    const existeRepro = existente.workspaceId === 'repro';
-    if (ehRepro && !existeRepro) byNome.set(k, it);
+    if (!existente || scoreItem(it) > scoreItem(existente)) {
+      byNome.set(k, it);
+    }
   }
   return [...byNome.values()];
 }
@@ -1932,7 +1946,7 @@ function BlocoDescartaveisObrigatorios({ insumos, descartaveis, setDescartaveis 
         Todo registro do caderno com este serviço cobra automaticamente estes insumos na fatura.
       </div>
       {(descartaveis || []).map((u, i) => (
-        <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 60px 32px', gap: 6, marginBottom: 6 }}>
+        <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 56px 28px', gap: 4, marginBottom: 6, alignItems: 'center' }}>
           <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
             <option value="">— Insumo —</option>
             {opcoes.map(o => (
@@ -1948,11 +1962,11 @@ function BlocoDescartaveisObrigatorios({ insumos, descartaveis, setDescartaveis 
             placeholder="qtd"
           />
           <button onClick={() => remover(i)} style={{
-            width: 32, height: 32, borderRadius: 8, border: '1px solid var(--line)',
+            width: 28, height: 28, borderRadius: 6, border: '1px solid var(--line)',
             background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
-            display: 'grid', placeItems: 'center',
+            display: 'grid', placeItems: 'center', padding: 0,
           }}>
-            <Icon name="x" size={12} />
+            <Icon name="x" size={11} />
           </button>
         </div>
       ))}
@@ -1997,7 +2011,7 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
       {insumosUsados.map((u, i) => {
         const ins = insumos.find(x => x.id === u.insumoId);
         return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 70px 32px', gap: 6, marginBottom: 6 }}>
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 64px 28px', gap: 4, marginBottom: 6, alignItems: 'center' }}>
             <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
               <option value="">— Selecionar insumo —</option>
               {opcoes.map(o => (
@@ -4162,7 +4176,10 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
   const cats = tipo === 'insumos' ? CATEGORIAS_INSUMOS : CATEGORIAS_SERVICOS;
   const filtroCats = [{ id: 'all', nome: 'Todos', cor: 'var(--ink-2)' }, ...cats];
 
-  const lista = [...itens]
+  // Dedup na exibição — se houver 2 itens com mesmo nome (herança
+  // do sistema antigo com workspace repro/haras), mostra apenas 1
+  // com melhor score. Editar/excluir opera no visível.
+  const lista = dedupPorNome([...itens])
     .filter(i => filtroCat === 'all' || i.categoria === filtroCat)
     .filter(i => !busca.trim() || norm(i.nome || '').includes(norm(busca.trim())))
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
@@ -4419,6 +4436,7 @@ export function ReproApp({
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   sessions = [], activeKey, onSwitchSession, onAddAccount, onRemoveSession,
   onLogout,
+  vetBundle = {},
 }) {
   const [screen, setScreen] = useState('repro-home');
   const [tab, setTab] = useState('home');
@@ -4427,6 +4445,10 @@ export function ReproApp({
   const [historicoEguaId, setHistoricoEguaId] = useState(null);
   // Pré-preenchimento do form do caderno quando vindo da agenda/calendário
   const [preFillCaderno, setPreFillCaderno] = useState(null);
+  // Filtro global de local — quando setado, todas as telas do repro
+  // mostram apenas dados relacionados a esse local. localFiltroId=''
+  // significa "todos os locais".
+  const [localFiltroId, setLocalFiltroId] = useState('');
 
   // Traduz um evento (retorno/coleta/procedimento) no rascunho de um NOVO
   // registro do caderno pra continuar aquele fluxo.
@@ -4457,9 +4479,25 @@ export function ReproApp({
   };
 
   // Filtra dados por workspace='repro'
-  const propRepro = useMemo(() => proprietarios.filter(p => p.workspaceId === 'repro'), [proprietarios]);
-  const eguasRepro = useMemo(() => cavalos.filter(c => c.workspaceId === 'repro'), [cavalos]);
-  const registrosRepro = useMemo(() => (registrosReproducao || []).filter(r => r.workspaceId === 'repro'), [registrosReproducao]);
+  // Datasets base do workspace repro
+  const propReproTodos = useMemo(() => proprietarios.filter(p => p.workspaceId === 'repro'), [proprietarios]);
+  const eguasReproTodas = useMemo(() => cavalos.filter(c => c.workspaceId === 'repro'), [cavalos]);
+  const registrosReproTodos = useMemo(() => (registrosReproducao || []).filter(r => r.workspaceId === 'repro'), [registrosReproducao]);
+  // Datasets filtrados pelo local selecionado (se houver)
+  const propRepro = useMemo(() => {
+    if (!localFiltroId) return propReproTodos;
+    // Um proprietário é do local se possui alguma égua nesse local
+    const idsProps = new Set(eguasReproTodas.filter(c => c.localId === localFiltroId).flatMap(c =>
+      c.proprietarioIds && c.proprietarioIds.length ? c.proprietarioIds : (c.proprietarioId ? [c.proprietarioId] : []),
+    ));
+    return propReproTodos.filter(p => idsProps.has(p.id));
+  }, [propReproTodos, eguasReproTodas, localFiltroId]);
+  const eguasRepro = useMemo(() => (
+    localFiltroId ? eguasReproTodas.filter(c => c.localId === localFiltroId) : eguasReproTodas
+  ), [eguasReproTodas, localFiltroId]);
+  const registrosRepro = useMemo(() => (
+    localFiltroId ? registrosReproTodos.filter(r => r.localId === localFiltroId) : registrosReproTodos
+  ), [registrosReproTodos, localFiltroId]);
   // Catálogo unificado (Fase 4): repro passa a ler TODOS os insumos
   // e serviços do banco, sem filtro de workspace. Novos itens criados
   // via repro salvam com workspace=haras — vet e admin operam sobre
@@ -4567,6 +4605,99 @@ export function ReproApp({
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
     />;
+  } else if (screen === 'repro-vet') {
+    // Veterinária completa no repro — reusa a mesma VeterinariaScreen
+    // do haras, com datasets filtrados pelo workspace repro e pelo
+    // localFiltroId global. Registros de reprodução vão junto pro
+    // sub-módulo Reprodução; o resto (anotações, vacinação, gestação,
+    // exames, cronograma, emergências, desenvolvimento) segue por ali.
+    const filtroEguasIds = new Set(eguasRepro.map(c => c.id));
+    const filtraPorEgua = (arr = [], campoId = 'cavaloId') =>
+      (arr || []).filter(r => filtroEguasIds.has(r[campoId]));
+    content = <VeterinariaScreen
+      setScreen={() => {}}
+      setSelected={() => {}}
+      partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}
+      cavalos={eguasRepro}
+      proprietarios={propRepro}
+      movimentacoes={filtraPorEgua(vetBundle.movimentacoes)}
+      insumos={insumosRepro}
+      servicos={servicosRepro}
+      registros={filtraPorEgua(vetBundle.registros)}
+      procedimentos={filtraPorEgua(vetBundle.procedimentos)}
+      empresaInfo={empresaInfo}
+      currentUser={currentUser}
+      addRegistro={vetBundle.addRegistro}
+      addAtividade={vetBundle.addAtividade}
+      addProcedimento={vetBundle.addProcedimento}
+      addAviso={vetBundle.addAviso}
+      deleteRegistro={vetBundle.deleteRegistro}
+      deleteProcedimento={vetBundle.deleteProcedimento}
+      protocolosVacinacao={vetBundle.protocolosVacinacao}
+      vacinacoesAnimais={filtraPorEgua(vetBundle.vacinacoesAnimais)}
+      addProtocoloVacinacao={vetBundle.addProtocoloVacinacao}
+      updateProtocoloVacinacao={vetBundle.updateProtocoloVacinacao}
+      deleteProtocoloVacinacao={vetBundle.deleteProtocoloVacinacao}
+      upsertVacinacaoAnimal={vetBundle.upsertVacinacaoAnimal}
+      protocolosVermifugacao={vetBundle.protocolosVermifugacao}
+      vermifugacoesAnimais={filtraPorEgua(vetBundle.vermifugacoesAnimais)}
+      opgs={filtraPorEgua(vetBundle.opgs)}
+      addProtocoloVermifugacao={vetBundle.addProtocoloVermifugacao}
+      updateProtocoloVermifugacao={vetBundle.updateProtocoloVermifugacao}
+      deleteProtocoloVermifugacao={vetBundle.deleteProtocoloVermifugacao}
+      addVermifugacaoAnimal={vetBundle.addVermifugacaoAnimal}
+      addOpg={vetBundle.addOpg}
+      updateOpg={vetBundle.updateOpg}
+      deleteOpg={vetBundle.deleteOpg}
+      medicoes={filtraPorEgua(vetBundle.medicoes)}
+      addMedicao={vetBundle.addMedicao}
+      updateMedicao={vetBundle.updateMedicao}
+      deleteMedicao={vetBundle.deleteMedicao}
+      anotacoesClinicas={filtraPorEgua(vetBundle.anotacoesClinicas)}
+      addAnotacaoClinica={vetBundle.addAnotacaoClinica}
+      updateAnotacaoClinica={vetBundle.updateAnotacaoClinica}
+      deleteAnotacaoClinica={vetBundle.deleteAnotacaoClinica}
+      exames={filtraPorEgua(vetBundle.exames)}
+      uploadExame={vetBundle.uploadExame}
+      deleteExame={vetBundle.deleteExame}
+      registrosReproducao={registrosRepro}
+      addRegistroReproducao={addRegistroReproducao}
+      updateRegistroReproducao={updateRegistroReproducao}
+      deleteRegistroReproducao={deleteRegistroReproducao}
+      emergencias={(vetBundle.emergencias || []).filter(e => filtroEguasIds.has(e.cavaloId))}
+      emergMedicacoes={vetBundle.emergMedicacoes}
+      emergAgendas={vetBundle.emergAgendas}
+      emergParametros={vetBundle.emergParametros}
+      emergNotas={vetBundle.emergNotas}
+      emergExames={vetBundle.emergExames}
+      addEmergencia={vetBundle.addEmergencia}
+      updateEmergencia={vetBundle.updateEmergencia}
+      encerrarEmergencia={vetBundle.encerrarEmergencia}
+      deleteEmergencia={vetBundle.deleteEmergencia}
+      addEmergMedicacao={vetBundle.addEmergMedicacao}
+      updateEmergMedicacao={vetBundle.updateEmergMedicacao}
+      deleteEmergMedicacao={vetBundle.deleteEmergMedicacao}
+      addEmergAgenda={vetBundle.addEmergAgenda}
+      updateEmergAgenda={vetBundle.updateEmergAgenda}
+      deleteEmergAgenda={vetBundle.deleteEmergAgenda}
+      addEmergParametro={vetBundle.addEmergParametro}
+      updateEmergParametro={vetBundle.updateEmergParametro}
+      deleteEmergParametro={vetBundle.deleteEmergParametro}
+      addEmergNota={vetBundle.addEmergNota}
+      updateEmergNota={vetBundle.updateEmergNota}
+      deleteEmergNota={vetBundle.deleteEmergNota}
+      uploadEmergExame={vetBundle.uploadEmergExame}
+      deleteEmergExame={vetBundle.deleteEmergExame}
+      frascosAbertos={vetBundle.frascosAbertos}
+      addFrascoAberto={vetBundle.addFrascoAberto}
+      updateFrascoAberto={vetBundle.updateFrascoAberto}
+      progProgramas={(vetBundle.progProgramas || []).filter(p => filtroEguasIds.has(p.cavaloId))}
+      progAplicacoes={vetBundle.progAplicacoes}
+      addProgesteronaPrograma={vetBundle.addProgesteronaPrograma}
+      encerrarProgesteronaPrograma={vetBundle.encerrarProgesteronaPrograma}
+      deleteProgesteronaPrograma={vetBundle.deleteProgesteronaPrograma}
+      updateProgesteronaAplicacao={vetBundle.updateProgesteronaAplicacao}
+    />;
   } else if (screen === 'repro-painel') {
     content = <ReproPainel
       registrosRepro={registrosRepro}
@@ -4608,8 +4739,39 @@ export function ReproApp({
     />;
   }
 
+  const localAtual = localFiltroId ? locaisRepro.find(l => l.id === localFiltroId) : null;
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Barra global de filtro por local — visível em todas as telas */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 8,
+        padding: '6px 14px', background: localFiltroId ? '#f5e8ff' : 'var(--bg)',
+        borderBottom: `1px solid ${localFiltroId ? '#d8b4fe' : 'var(--line)'}`,
+        flexShrink: 0,
+      }}>
+        <Icon name="building" size={12} color={localFiltroId ? '#6b21a8' : 'var(--ink-3)'} />
+        <div style={{ fontSize: 10, color: localFiltroId ? '#6b21a8' : 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700 }}>
+          Local:
+        </div>
+        <select value={localFiltroId} onChange={e => setLocalFiltroId(e.target.value)} style={{
+          flex: 1, minWidth: 0, padding: '5px 8px', borderRadius: 6,
+          border: '1px solid var(--line)', background: 'var(--card)',
+          fontSize: 12, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+        }}>
+          <option value="">Todos os locais</option>
+          {[...locaisRepro].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(l => (
+            <option key={l.id} value={l.id}>{l.nome}</option>
+          ))}
+        </select>
+        {localFiltroId && (
+          <button onClick={() => setLocalFiltroId('')} style={{
+            fontSize: 10, padding: '4px 8px', borderRadius: 4, border: 'none',
+            background: '#6b21a8', color: '#fff', cursor: 'pointer', fontFamily: 'var(--sans)', fontWeight: 700,
+          }}>Limpar</button>
+        )}
+      </div>
+
       <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
         {content}
       </div>
@@ -4682,17 +4844,20 @@ export function ReproHarasView({
 
   // Filtra por workspace haras (padrão). Se um registro não tiver
   // workspace, também conta como haras (backward-compat).
+  // Aceita workspaceId ausente, null, '', 'haras' — tudo que NÃO é
+  // 'repro' pertence ao haras.
   const registrosHaras = useMemo(
-    () => (registrosReproducao || []).filter(r => (r.workspaceId || 'haras') === 'haras'),
+    () => (registrosReproducao || []).filter(r => r.workspaceId !== 'repro'),
     [registrosReproducao],
   );
   // Igual ao módulo Reprodução original: pega todos os cavalos
   // presentes do haras (o vet decide qual é égua no combobox).
+  // Aceita workspaceId ausente/null como haras.
   const eguasHaras = useMemo(
-    () => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras' && c.presente !== false),
+    () => cavalos.filter(c => c.workspaceId !== 'repro' && c.presente !== false),
     [cavalos],
   );
-  const propHaras = useMemo(() => proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras'), [proprietarios]);
+  const propHaras = useMemo(() => proprietarios.filter(p => p.workspaceId !== 'repro'), [proprietarios]);
 
   // Local "Epona Stud" virtual — sempre presente.
   const localVirtual = { id: 'local_epona_stud', nome: 'Epona Stud', endereco: '', cidade: '', estado: '' };

@@ -1908,6 +1908,30 @@ const loadAllData = async () => {
       onAddAccount={handleAddAccount}
       onRemoveSession={handleRemoveSessao}
       onLogout={handleLogout}
+      vetBundle={{
+        partos, movimentacoes, registros, procedimentos, custosFixos,
+        addRegistro, addAtividade, addProcedimento, addAviso,
+        deleteRegistro, deleteProcedimento,
+        protocolosVacinacao, vacinacoesAnimais, addProtocoloVacinacao,
+        updateProtocoloVacinacao, deleteProtocoloVacinacao, upsertVacinacaoAnimal,
+        protocolosVermifugacao, vermifugacoesAnimais, opgs,
+        addProtocoloVermifugacao, updateProtocoloVermifugacao, deleteProtocoloVermifugacao,
+        addVermifugacaoAnimal, addOpg, updateOpg, deleteOpg,
+        medicoes, addMedicao, updateMedicao, deleteMedicao,
+        anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+        exames, uploadExame, deleteExame,
+        emergencias, emergMedicacoes, emergAgendas, emergParametros, emergNotas, emergExames,
+        addEmergencia, updateEmergencia, encerrarEmergencia, deleteEmergencia,
+        addEmergMedicacao, updateEmergMedicacao, deleteEmergMedicacao,
+        addEmergAgenda, updateEmergAgenda, deleteEmergAgenda,
+        addEmergParametro, updateEmergParametro, deleteEmergParametro,
+        addEmergNota, updateEmergNota, deleteEmergNota,
+        uploadEmergExame, deleteEmergExame,
+        frascosAbertos, addFrascoAberto, updateFrascoAberto,
+        progProgramas, progAplicacoes,
+        addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
+        updateProgesteronaAplicacao,
+      }}
     />;
   }
   // Todos os gates passaram → app read-only do proprietário
