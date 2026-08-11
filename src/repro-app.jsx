@@ -123,7 +123,7 @@ function TabBar({ tab, setTab, setScreen }) {
 function ReproHome({
   currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
-  setScreen, setTab, goCadastros, onSelectEvento,
+  setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -202,7 +202,7 @@ function ReproHome({
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} vetBundle={vetBundle} />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
           Click no card do topo abre a versão completa dentro do Painel. */}
@@ -228,6 +228,7 @@ function ReproHome({
             locaisRepro={locaisRepro}
             vetsExternos={vetsExternos}
             onSelectEvento={onSelectEvento}
+            vetBundle={vetBundle}
           />
         </div>
       </div>
@@ -306,10 +307,30 @@ function MuralAvisos({ avisos, onResolver }) {
 // via dataRetorno ou dados.dataColetaAgendada, e ainda não foi
 // "cumprido" por um registro subsequente da mesma égua.
 // ─────────────────────────────────────────────────────────────
-function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento }) {
+function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundle = null }) {
   const hoje = new Date().toLocaleDateString('sv-SE');
 
-  const eventos = eventosPendentes(registros, hoje);
+  const eventosBase = eventosPendentes(registros, hoje);
+  // Se vetBundle fornecido, adiciona eventos vet SEM filtrar por
+  // "cumprido" (não faz sentido). Filtra os que caem em [hoje-30d, +30d]
+  // pra não poluir a agenda horizontal.
+  let eventos = [...eventosBase];
+  if (vetBundle) {
+    const eguasIds = new Set((eguasRepro || []).map(c => c.id));
+    const janelaIni = addDias(hoje, -30);
+    const janelaFim = addDias(hoje, 30);
+    const evsVet = eventosVetTodos({
+      procedimentos: (vetBundle.procedimentos || []).filter(p => eguasIds.has(p.cavaloId)),
+      anotacoesClinicas: (vetBundle.anotacoesClinicas || []).filter(a => eguasIds.has(a.cavaloId)),
+      vacinacoesAnimais: (vetBundle.vacinacoesAnimais || []).filter(v => eguasIds.has(v.cavaloId)),
+      vermifugacoesAnimais: (vetBundle.vermifugacoesAnimais || []).filter(v => eguasIds.has(v.cavaloId)),
+      exames: (vetBundle.exames || []).filter(e => eguasIds.has(e.cavaloId)),
+      medicoes: (vetBundle.medicoes || []).filter(m => eguasIds.has(m.cavaloId)),
+      emergencias: (vetBundle.emergencias || []).filter(em => eguasIds.has(em.cavaloId)),
+      opgs: (vetBundle.opgs || []).filter(o => eguasIds.has(o.cavaloId)),
+    }).filter(ev => ev.dataEv >= janelaIni && ev.dataEv <= janelaFim);
+    eventos = eventos.concat(evsVet);
+  }
 
   // Agrupa por chave (atrasado | hoje | dataISO)
   const buckets = new Map();
@@ -382,25 +403,27 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento }) {
                 {evs.map((ev, i) => {
                   const vet = vetsExternos.find(v => v.id === ev.vetId);
                   const egua = eguasRepro.find(e => e.id === ev.eguaId);
-                  const rotulo = rotuloEvento(ev);
+                  const rotulo = rotuloEventoAmpliado(ev);
+                  const cor = corEventoAmpliado(ev, vet);
+                  const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
                   return (
                     <button
                       key={i}
-                      onClick={() => onSelectEvento && onSelectEvento(ev)}
+                      onClick={() => canOpen && onSelectEvento(ev)}
                       style={{
-                        width: '100%', textAlign: 'left', cursor: onSelectEvento ? 'pointer' : 'default',
+                        width: '100%', textAlign: 'left', cursor: canOpen ? 'pointer' : 'default',
                         background: 'var(--card)', border: '1px solid var(--line)',
-                        borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                        borderLeft: `3px solid ${cor}`,
                         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
                       }}
                     >
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                         {rotulo}
                       </div>
                       <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25 }}>
                         {egua?.nome || 'égua'}
                       </div>
-                      {vet && (
+                      {vet && ev.fonte !== 'vet' && (
                         <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
                           {vet.nome.split(' ')[0]}
                         </div>
@@ -460,6 +483,91 @@ function inducaoCumprida(reg, todosRegistros) {
     && (other.workspaceId || 'haras') === 'repro'
     && other.data && other.data >= dataAg,
   );
+}
+
+// Cores por tipo de fonte vet (usadas no calendário/planner)
+const VET_TIPO_META = {
+  procedimento_vet: { label: 'Procedimento', short: 'Proc', cor: '#0e7490', bg: '#cffafe' },
+  anotacao_clinica: { label: 'Anotação clínica', short: 'Anot', cor: '#0284c7', bg: '#e0f2fe' },
+  vacinacao:        { label: 'Vacinação', short: 'Vac', cor: '#0f766e', bg: '#ccfbf1' },
+  vermifugacao:     { label: 'Vermifugação', short: 'Verm', cor: '#15803d', bg: '#dcfce7' },
+  exame:            { label: 'Exame', short: 'Exm', cor: '#7c3aed', bg: '#ede9fe' },
+  medicao:          { label: 'Medição', short: 'Med', cor: '#4b5563', bg: '#f3f4f6' },
+  emergencia:       { label: 'Emergência', short: 'Emg', cor: '#dc2626', bg: '#fee2e2' },
+  opg:              { label: 'OPG', short: 'OPG', cor: '#166534', bg: '#dcfce7' },
+};
+
+// Agrega eventos veterinários (passados + programados) em uma lista
+// unificada. Cada evento tem { id, dataEv, eguaId, vetId, tipoEv,
+// fonte, extra } — mesmo formato usado pelo Planner/Calendário.
+// Aplica-se a QUALQUER conjunto de dados (repro ou haras).
+function eventosVetTodos({
+  registros = [], // reproducao_registros
+  procedimentos = [],
+  anotacoesClinicas = [],
+  vacinacoesAnimais = [],
+  vermifugacoesAnimais = [],
+  exames = [],
+  medicoes = [],
+  emergencias = [],
+  opgs = [],
+  filtroWorkspace = null, // null|'repro'|'haras' — filtra registros repro por workspace
+} = {}) {
+  const out = [];
+  const push = (o) => { if (o.dataEv) out.push(o); };
+
+  // 1) Registros de reprodução — 4 variantes de evento
+  for (const r of (registros || [])) {
+    if (filtroWorkspace && (r.workspaceId || 'haras') !== filtroWorkspace) continue;
+    const dados = r.dados || {};
+    if (r.data) push({ id: r.id + ':p', dataEv: r.data, eguaId: r.eguaId, vetId: r.vetId, tipoEv: 'procedimento', tipo: r.tipo, registro: r, fonte: 'repro' });
+    if (r.dataRetorno) push({ id: r.id + ':r', dataEv: r.dataRetorno, eguaId: r.eguaId, vetId: r.vetId, tipoEv: 'retorno', tipo: r.tipo, registro: r, fonte: 'repro' });
+    if (dados.dataColetaAgendada) push({ id: r.id + ':c', dataEv: dados.dataColetaAgendada, eguaId: r.eguaId, vetId: r.vetId, tipoEv: 'coleta', tipo: r.tipo, registro: r, fonte: 'repro' });
+    if (dados.dataInducaoOvulacao) push({ id: r.id + ':i', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao, eguaId: r.eguaId, vetId: r.vetId, tipoEv: 'inducao', tipo: r.tipo, registro: r, fonte: 'repro' });
+  }
+  // 2) Procedimentos vet
+  for (const p of (procedimentos || [])) {
+    push({ id: 'proc_' + p.id, dataEv: p.data, eguaId: p.cavaloId, tipoEv: 'procedimento_vet', extra: p, fonte: 'vet' });
+  }
+  // 3) Anotações clínicas
+  for (const a of (anotacoesClinicas || [])) {
+    push({ id: 'anot_' + a.id, dataEv: a.data, eguaId: a.cavaloId, tipoEv: 'anotacao_clinica', extra: a, fonte: 'vet' });
+  }
+  // 4) Vacinações aplicadas
+  for (const v of (vacinacoesAnimais || [])) {
+    push({ id: 'vac_' + (v.id || `${v.cavaloId}_${v.data}`), dataEv: v.data, eguaId: v.cavaloId, tipoEv: 'vacinacao', extra: v, fonte: 'vet' });
+  }
+  // 5) Vermifugações aplicadas
+  for (const v of (vermifugacoesAnimais || [])) {
+    push({ id: 'verm_' + (v.id || `${v.cavaloId}_${v.data}`), dataEv: v.data, eguaId: v.cavaloId, tipoEv: 'vermifugacao', extra: v, fonte: 'vet' });
+  }
+  // 6) Exames complementares
+  for (const e of (exames || [])) {
+    push({ id: 'ex_' + e.id, dataEv: e.data, eguaId: e.cavaloId, tipoEv: 'exame', extra: e, fonte: 'vet' });
+  }
+  // 7) Medições (desenvolvimento)
+  for (const m of (medicoes || [])) {
+    push({ id: 'med_' + m.id, dataEv: m.dataRegistro, eguaId: m.cavaloId, tipoEv: 'medicao', extra: m, fonte: 'vet' });
+  }
+  // 8) OPGs
+  for (const o of (opgs || [])) {
+    push({ id: 'opg_' + o.id, dataEv: o.data, eguaId: o.cavaloId, tipoEv: 'opg', extra: o, fonte: 'vet' });
+  }
+  // 9) Emergências (usa data de abertura)
+  for (const em of (emergencias || [])) {
+    const d = em.dataAbertura || em.data;
+    if (d) push({ id: 'emg_' + em.id, dataEv: d, eguaId: em.cavaloId, tipoEv: 'emergencia', extra: em, fonte: 'vet' });
+  }
+  return out;
+}
+
+function rotuloEventoAmpliado(ev) {
+  if (ev.fonte === 'vet') return (VET_TIPO_META[ev.tipoEv]?.short) || '—';
+  return rotuloEvento(ev);
+}
+function corEventoAmpliado(ev, vet) {
+  if (ev.fonte === 'vet') return VET_TIPO_META[ev.tipoEv]?.cor || 'var(--ink-3)';
+  return vet?.cor || CORES_TAB_ATIVA;
 }
 
 // Retorna a lista de eventos que ainda estão pendentes (agendados
@@ -2934,6 +3042,7 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 function ReproPainel({
   registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
   currentUser, updateRegistroReproducao, onSelectEvento,
+  vetBundle = null, apenasReproducao = false,
 }) {
   const [sub, setSub] = useState('dashboard');
   const abas = [
@@ -2978,6 +3087,8 @@ function ReproPainel({
           locaisRepro={locaisRepro}
           vetsExternos={vetsExternos}
           onSelectEvento={onSelectEvento}
+          vetBundle={vetBundle}
+          apenasReproducao={apenasReproducao}
         />
       )}
     </div>
@@ -3220,7 +3331,7 @@ function ReproCruzamentos({ registrosRepro, eguasRepro, propRepro, vetsExternos,
   );
 }
 // ── Calendário mensal (grid 7×N) ─────────────────────────────
-function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, onSelectEvento }) {
+function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos, onSelectEvento, vetBundle = null, apenasReproducao = false }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [diaAberto, setDiaAberto] = useState(null); // iso YYYY-MM-DD
@@ -3228,7 +3339,6 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
   // Gera 42 células (6 semanas) a partir da 1ª segunda antes/no dia 1
   const primeiroDia = new Date(mesRef.ano, mesRef.mes - 1, 1);
   const primeiroSemana = new Date(primeiroDia);
-  // desloca até o domingo anterior (grid começa no domingo)
   primeiroSemana.setDate(primeiroSemana.getDate() - primeiroDia.getDay());
   const celulas = [];
   for (let i = 0; i < 42; i++) {
@@ -3244,21 +3354,36 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
     if (!eventosPorDia.has(iso)) eventosPorDia.set(iso, []);
     eventosPorDia.get(iso).push(ev);
   };
-  // Regras de "cumprimento" — retorno/coleta consumidos NÃO viram
-  // evento no calendário. Procedimentos passados aparecem como
-  // historico (é a linha do tempo de fato).
+  // Registros de reprodução: procedimentos passados aparecem sempre,
+  // retorno/coleta/indução só quando ainda não cumpridos.
   for (const r of (registrosRepro || [])) {
     const dados = r.dados || {};
-    if (r.data) add(r.data, { r, tipoEv: 'procedimento', dataEv: r.data, ...eventoBase(r) });
+    if (r.data) add(r.data, { r, tipoEv: 'procedimento', dataEv: r.data, fonte: 'repro', ...eventoBase(r) });
     if (r.dataRetorno && !retornoCumprido(r, registrosRepro)) {
-      add(r.dataRetorno, { r, tipoEv: 'retorno', dataEv: r.dataRetorno, ...eventoBase(r) });
+      add(r.dataRetorno, { r, tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro', ...eventoBase(r) });
     }
     if (dados.dataColetaAgendada && !coletaCumprida(r, registrosRepro)) {
-      add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, ...eventoBase(r) });
+      add(dados.dataColetaAgendada, { r, tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro', ...eventoBase(r) });
     }
     if (dados.dataInducaoOvulacao && !inducaoCumprida(r, registrosRepro)) {
-      add(dados.dataInducaoOvulacao, { r, tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', ...eventoBase(r) });
+      add(dados.dataInducaoOvulacao, { r, tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', fonte: 'repro', ...eventoBase(r) });
     }
+  }
+  // Eventos vet extras (quando vetBundle é fornecido e apenasReproducao=false):
+  // procedimentos, anotações, vacinações, vermifugações, exames, medições, emergências, OPGs
+  if (vetBundle && !apenasReproducao) {
+    const eguasIds = new Set((eguasRepro || []).map(c => c.id));
+    const eventosVet = eventosVetTodos({
+      procedimentos: (vetBundle.procedimentos || []).filter(p => eguasIds.has(p.cavaloId)),
+      anotacoesClinicas: (vetBundle.anotacoesClinicas || []).filter(a => eguasIds.has(a.cavaloId)),
+      vacinacoesAnimais: (vetBundle.vacinacoesAnimais || []).filter(v => eguasIds.has(v.cavaloId)),
+      vermifugacoesAnimais: (vetBundle.vermifugacoesAnimais || []).filter(v => eguasIds.has(v.cavaloId)),
+      exames: (vetBundle.exames || []).filter(e => eguasIds.has(e.cavaloId)),
+      medicoes: (vetBundle.medicoes || []).filter(m => eguasIds.has(m.cavaloId)),
+      emergencias: (vetBundle.emergencias || []).filter(em => eguasIds.has(em.cavaloId)),
+      opgs: (vetBundle.opgs || []).filter(o => eguasIds.has(o.cavaloId)),
+    });
+    for (const ev of eventosVet) add(ev.dataEv, ev);
   }
 
   const isoDe = (d) => d.toISOString().slice(0, 10);
@@ -3309,11 +3434,11 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
                 {bolinhas.length > 0 && (
                   <div style={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'flex-start' }}>
                     {bolinhas.map((ev, j) => {
-                      const vet = vetsExternos.find(v => v.id === ev.r.vetId);
+                      const vet = vetsExternos.find(v => v.id === (ev.vetId || ev.r?.vetId));
                       return (
                         <div key={j} style={{
                           width: 6, height: 6, borderRadius: 6,
-                          background: vet?.cor || CORES_TAB_ATIVA,
+                          background: corEventoAmpliado(ev, vet),
                         }} />
                       );
                     })}
@@ -3341,6 +3466,19 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
             </div>
           </div>
         )}
+        {vetBundle && !apenasReproducao && (
+          <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10 }}>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, fontWeight: 700 }}>Categorias</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {Object.entries(VET_TIPO_META).map(([k, m]) => (
+                <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-2)' }}>
+                  <div style={{ width: 8, height: 8, borderRadius: 8, background: m.cor }} />
+                  {m.label}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       {diaAberto && (
@@ -3352,26 +3490,32 @@ function ReproCalendario({ registrosRepro, eguasRepro, locaisRepro, vetsExternos
             <div style={{ color: 'var(--ink-3)', fontSize: 13, padding: '10px 0' }}>Sem eventos.</div>
           )}
           {eventosDia.map((ev, i) => {
-            const vet = vetsExternos.find(v => v.id === ev.r.vetId);
-            const egua = eguasRepro.find(e => e.id === ev.r.eguaId);
-            const local = locaisRepro.find(l => l.id === ev.r.localId);
-            const rot = rotuloEvento(ev);
+            const vetId = ev.vetId || ev.r?.vetId;
+            const eguaId = ev.eguaId || ev.r?.eguaId;
+            const localId = ev.r?.localId;
+            const vet = vetsExternos.find(v => v.id === vetId);
+            const egua = eguasRepro.find(e => e.id === eguaId);
+            const local = locaisRepro.find(l => l.id === localId);
+            const rot = rotuloEventoAmpliado(ev);
+            const cor = corEventoAmpliado(ev, vet);
+            const canOpen = ev.fonte === 'repro' && !!onSelectEvento;
             return (
               <button
                 key={i}
                 onClick={() => {
+                  if (!canOpen) return;
                   setDiaAberto(null);
-                  onSelectEvento && onSelectEvento(ev);
+                  onSelectEvento(ev);
                 }}
                 style={{
-                  width: '100%', textAlign: 'left', cursor: onSelectEvento ? 'pointer' : 'default',
+                  width: '100%', textAlign: 'left', cursor: canOpen ? 'pointer' : 'default',
                   background: 'var(--card)', border: '1px solid var(--line)',
-                  borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                  borderLeft: `3px solid ${cor}`,
                   borderRadius: 10, padding: '10px 12px', marginBottom: 8,
                   color: 'var(--ink)',
                 }}
               >
-                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+                <div style={{ fontSize: 10, color: cor, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
                   {rot}
                 </div>
                 <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)', marginTop: 2 }}>{egua?.nome || '—'}</div>
@@ -4522,6 +4666,7 @@ export function ReproApp({
       setTab={setTab}
       goCadastros={goCadastros}
       onSelectEvento={abrirCadernoDoEvento}
+      vetBundle={vetBundle}
     />;
   } else if (screen === 'repro-cadastros') {
     if (historicoEguaId) {
@@ -4617,6 +4762,7 @@ export function ReproApp({
     content = <VeterinariaScreen
       setScreen={() => {}}
       setSelected={() => {}}
+      onOpenReproducao={() => { setTab('caderno'); setScreen('repro-caderno'); }}
       partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}
       cavalos={eguasRepro}
       proprietarios={propRepro}
@@ -4708,6 +4854,7 @@ export function ReproApp({
       currentUser={currentUser}
       updateRegistroReproducao={updateRegistroReproducao}
       onSelectEvento={abrirCadernoDoEvento}
+      vetBundle={vetBundle}
     />;
   } else if (screen === 'repro-cobrancas') {
     content = <ReproCobrancas
@@ -4935,6 +5082,7 @@ export function ReproHarasView({
       currentUser={currentUser}
       updateRegistroReproducao={wrapUpdate}
       onSelectEvento={abrirCadernoDoEvento}
+      apenasReproducao={true}
     />;
   } else if (screen === 'rh-historico') {
     const eg = eguasHaras.find(x => x.id === historicoEguaId);

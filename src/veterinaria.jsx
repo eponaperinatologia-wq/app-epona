@@ -587,6 +587,10 @@ export function VeterinariaScreen({
   // Se fornecido, filtra o hub para mostrar apenas essas seções
   // (uso: proprietário só vê áreas permitidas — sem emergências/cronograma).
   sectionsAllowed = null,
+  // Se fornecido, ao clicar em Reprodução dispara este callback em vez
+  // de abrir o ReproducaoScreen padrão. Uso: repro team abre o Caderno
+  // novo (UI Repro Team) em vez do módulo antigo.
+  onOpenReproducao = null,
 }) {
   const [secao, setSecao] = useState(initialSecao);
 
@@ -855,7 +859,13 @@ export function VeterinariaScreen({
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           {cardsMostrados.map(card => (
-            <button key={card.id} onClick={() => !card.emBreve && setSecao(card.id)} style={{
+            <button key={card.id} onClick={() => {
+              if (card.emBreve) return;
+              // Se veio callback custom pra reprodução (uso repro team),
+              // dispara ele em vez de abrir a tela antiga
+              if (card.id === 'reproducao' && onOpenReproducao) return onOpenReproducao();
+              setSecao(card.id);
+            }} style={{
               background: card.emBreve ? 'var(--soft)' : 'var(--card)',
               border: `1.5px solid ${card.emBreve ? 'var(--line)' : card.bg}`,
               borderRadius: 18, padding: '20px 16px',
