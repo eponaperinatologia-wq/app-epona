@@ -135,11 +135,39 @@ export function dg30PositivosDoMes(registros, ref) {
   return out;
 }
 
-export function calcFaturaRepro(propId, ref, deps) {
+// Retorna nova lista de insumos com descartáveis agrupados numa
+// única linha "Descartáveis". Usada nas faturas admin/repro.
+// Preserva as linhas originais em `.detalhe` pra debug / re-expansão.
+export function agruparDescartaveisLinhas(insumosLinhas, insumosCatalogo = []) {
+  const isDesc = (l) => {
+    const ins = insumosCatalogo.find(i => i.id === l.insumoId);
+    return ins && ins.categoria === 'descartavel';
+  };
+  const descartaveis = insumosLinhas.filter(isDesc);
+  const outros = insumosLinhas.filter(l => !isDesc(l));
+  if (descartaveis.length === 0) return outros;
+  const totalDesc = descartaveis.reduce((s, l) => s + l.valor, 0);
+  const linhaAgg = {
+    data: descartaveis[0].data,
+    registroId: null,
+    insumoId: '__descartaveis__',
+    nome: 'Descartáveis',
+    qtd: descartaveis.reduce((s, l) => s + (Number(l.qtd) || 0), 0),
+    unidade: 'itens',
+    unitario: 0,
+    valor: totalDesc,
+    agrupado: true,
+    detalhe: descartaveis,
+  };
+  return [linhaAgg, ...outros];
+}
+
+export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   const {
     registros = [], cavalos = [], proprietarios = [],
     servicos = [], insumos = [], vetKmLocais = [], locais = [],
   } = deps;
+  const { agruparDescartaveis = false } = opts;
 
   const prop = proprietarios.find(p => p.id === propId);
   const cavalosProp = cavalos.filter(c =>
@@ -268,6 +296,22 @@ export function calcFaturaRepro(propId, ref, deps) {
         });
       }
     }
+    if (r.tipo === 'diagnostico_avulso') {
+      const svcBio = servicos.find(s => /bi[oó]psia.*endometr/i.test(norm(s.nome || '')));
+      const svcCul = servicos.find(s => /cultura.*antibiograma/i.test(norm(s.nome || '')));
+      if (r.dados?.dx?.biopsia && svcBio) {
+        avulsosLinhas.push({
+          data: r.data, registroId: r.id, vetId: r.vetId, servicoId: svcBio.id,
+          descricao: svcBio.nome, valor: Number(svcBio.valor) || 0,
+        });
+      }
+      if (r.dados?.dx?.cultura && svcCul) {
+        avulsosLinhas.push({
+          data: r.data, registroId: r.id, vetId: r.vetId, servicoId: svcCul.id,
+          descricao: svcCul.nome, valor: Number(svcCul.valor) || 0,
+        });
+      }
+    }
   }
   const avulsosTotal = avulsosLinhas.reduce((s, l) => s + l.valor, 0);
 
@@ -289,11 +333,15 @@ export function calcFaturaRepro(propId, ref, deps) {
 
   const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal + resultadosTotal;
 
+  const insumosLinhasFinais = agruparDescartaveis
+    ? agruparDescartaveisLinhas(insumosLinhas, insumos)
+    : insumosLinhas;
+
   return {
     proprietario: prop,
     ref,
     visitasLinhas, visitasTotal,
-    insumosLinhas, insumosTotal,
+    insumosLinhas: insumosLinhasFinais, insumosTotal,
     procedimentosLinhas, procedimentosTotal,
     avulsosLinhas, avulsosTotal,
     resultadosLinhas, resultadosTotal,

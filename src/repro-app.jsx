@@ -965,7 +965,14 @@ const TIPO_META = {
   controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
   diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
   tratamento_uterino:     { label: 'Tratamento Uterino', short: 'TU', cor: '#b91c1c', bg: '#fee2e2' },
-  servico_avulso:         { label: 'Diagnóstico / Avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
+  diagnostico_avulso:     { label: 'Diagnóstico', short: 'DX', cor: '#0284c7', bg: '#e0f2fe' },
+  servico_avulso:         { label: 'Outro serviço avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
+};
+
+// Matchers para serviços dos botões de Diagnóstico
+const DIAG_MATCHERS = {
+  biopsia:  /bi[oó]psia.*endometr|endometr.*bi[oó]psia/i,
+  cultura:  /cultura.*antibiograma|antibiograma.*cultura/i,
 };
 
 // Matchers usados pra localizar serviços/insumos padrão do Tratamento
@@ -987,14 +994,10 @@ const TU_MATCHERS = {
 };
 
 function resolverPorMatcher(insumos, regex) {
-  const repro = insumos.filter(i => i.workspaceId === 'repro' && regex.test(i.nome || ''));
-  const haras = insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && regex.test(i.nome || ''));
-  return repro[0] || haras[0] || null;
+  return insumos.find(i => regex.test(i.nome || '')) || null;
 }
 function resolverServicoPorMatcher(servicos, regex) {
-  const repro = servicos.filter(s => (s.workspaceId || 'haras') === 'repro' && regex.test(s.nome || ''));
-  const haras = servicos.filter(s => (s.workspaceId || 'haras') === 'haras' && regex.test(s.nome || ''));
-  return repro[0] || haras[0] || null;
+  return servicos.find(s => regex.test(s.nome || '')) || null;
 }
 
 const fmtDataBr = (iso) => {
@@ -1346,6 +1349,211 @@ function AcordeaoTU({ titulo, cor, aberto, onToggle, onRemover, children }) {
 }
 
 // Subcomponente reutilizável: botão-toggle pra insumo com input de qtd
+// ─────────────────────────────────────────────────────────────
+// Diagnóstico — botões pré-configurados (Biópsia Endometrial,
+// Cultura+Antibiograma) + upload de PDF/imagem do resultado. Ao
+// salvar, cada botão marcado cobra o serviço correspondente + seus
+// descartáveis obrigatórios (configurados em Cadastros → Serviços).
+// ─────────────────────────────────────────────────────────────
+function BlocoDiagnostico({ dados, setDado, servicos, eguaId, inputStyle }) {
+  const dx = dados.dx || {};
+  const setDx = (patch) => setDado('dx', { ...dx, ...patch });
+
+  const svcBiopsia = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.biopsia);
+  const svcCultura = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.cultura);
+
+  const anexos = dados.anexos || [];
+  const [uploading, setUploading] = useState(false);
+
+  const fazerUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!eguaId) { alert('Selecione a égua antes de fazer upload.'); return; }
+    setUploading(true);
+    try {
+      // eslint-disable-next-line global-require
+      const { supabase } = require('./utils/supabase');
+      const ts = Date.now();
+      const clean = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const path = `repro/${eguaId}/${ts}_${clean}`;
+      const { error: upErr } = await supabase.storage.from('exames').upload(path, file, {
+        upsert: false, contentType: file.type,
+      });
+      if (upErr) {
+        alert('Erro no upload: ' + upErr.message);
+        return;
+      }
+      const { data: pub } = supabase.storage.from('exames').getPublicUrl(path);
+      const novo = {
+        id: 'anx_' + ts.toString(36),
+        nome: file.name,
+        url: pub.publicUrl,
+        tipo: file.type,
+        criadoEm: new Date().toISOString(),
+      };
+      setDado('anexos', [...anexos, novo]);
+    } finally {
+      setUploading(false);
+      e.target.value = '';
+    }
+  };
+
+  const removerAnexo = (id) => {
+    if (!window.confirm('Remover este anexo do registro? (o arquivo continua no Storage)')) return;
+    setDado('anexos', anexos.filter(a => a.id !== id));
+  };
+
+  const btn = (chave, label, svc, cor) => {
+    const ativo = !!dx[chave];
+    return (
+      <button type="button" onClick={() => svc && setDx({ [chave]: !ativo })} disabled={!svc}
+        title={!svc ? `Cadastre serviço "${label}" primeiro em Cadastros → Serviços` : ''}
+        style={{
+          flex: 1, padding: '12px 8px', borderRadius: 10, fontSize: 12, fontWeight: 700,
+          border: `1.5px solid ${ativo ? cor : 'var(--line)'}`,
+          background: ativo ? cor + '22' : (!svc ? 'var(--soft)' : 'var(--card)'),
+          color: !svc ? 'var(--ink-3)' : (ativo ? cor : 'var(--ink-2)'),
+          cursor: svc ? 'pointer' : 'not-allowed', fontFamily: 'var(--sans)',
+          opacity: !svc ? 0.6 : 1,
+        }}>{ativo ? '✓ ' : ''}{label}</button>
+    );
+  };
+
+  return (
+    <>
+      <FormField label="Motivo / observação inicial">
+        <textarea value={dx.motivo || ''} onChange={e => setDx({ motivo: e.target.value })} style={{ ...inputStyle, minHeight: 50, resize: 'vertical' }} placeholder="Ex: repetição de cio, secreção anormal…" />
+      </FormField>
+
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+        Exames solicitados
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        {btn('biopsia', 'Biópsia Endometrial', svcBiopsia, '#0284c7')}
+        {btn('cultura', 'Cultura e Antibiograma', svcCultura, '#0284c7')}
+      </div>
+
+      {/* Anexos */}
+      <div style={{
+        background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+        padding: 12, marginBottom: 12,
+      }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+          Resultado do exame (anexos)
+        </div>
+        {anexos.length === 0 && (
+          <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '4px 0 8px' }}>
+            Nenhum arquivo anexado. Faça upload do PDF ou imagem do resultado.
+          </div>
+        )}
+        {anexos.map(a => (
+          <div key={a.id} style={{
+            display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
+            borderTop: '1px solid var(--line-soft, var(--line))',
+          }}>
+            <div style={{ width: 26, height: 26, borderRadius: 6, background: 'var(--soft)', display: 'grid', placeItems: 'center', color: 'var(--ink-3)' }}>
+              <Icon name="doc" size={13} />
+            </div>
+            <a href={a.url} target="_blank" rel="noopener noreferrer" style={{
+              flex: 1, minWidth: 0, fontSize: 12, color: 'var(--ink)', textDecoration: 'none',
+              whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+            }}>{a.nome}</a>
+            <button type="button" onClick={() => removerAnexo(a.id)} style={{
+              width: 26, height: 26, borderRadius: 6, border: '1px solid var(--line)',
+              background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+              display: 'grid', placeItems: 'center',
+            }}>
+              <Icon name="x" size={11} />
+            </button>
+          </div>
+        ))}
+        <label style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+          padding: '10px', marginTop: 6, borderRadius: 8, border: '1px dashed var(--line)',
+          cursor: uploading ? 'default' : 'pointer', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+          fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="plus" size={12} />
+          {uploading ? 'Enviando…' : 'Anexar PDF ou imagem'}
+          <input type="file" accept="application/pdf,image/*" onChange={fazerUpload} disabled={uploading} style={{ display: 'none' }} />
+        </label>
+      </div>
+    </>
+  );
+}
+
+// Bloco "Insumos adicionais" pros sub-formulários da Lavagem/Infusão.
+// Reusa o BlocoInsumosRepro mas com título contextual.
+function BlocoInsumosAdicionaisTU({ rotulo = 'Insumos adicionais', insumos, lista, setLista }) {
+  const [aberto, setAberto] = useState((lista || []).length > 0);
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => { setAberto(true); if (!lista?.length) setLista([{ insumoId: '', qtd: 1 }]); }} style={{
+        width: '100%', marginTop: 10, padding: '9px 12px', borderRadius: 8,
+        border: '1px dashed var(--line)', background: 'transparent',
+        color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      }}>
+        <Icon name="plus" size={12} /> {rotulo}
+      </button>
+    );
+  }
+  return (
+    <div style={{ marginTop: 10, padding: 10, background: 'var(--soft)', borderRadius: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700 }}>
+          {rotulo}
+        </div>
+        <button type="button" onClick={() => { setAberto(false); setLista([]); }} style={{
+          width: 22, height: 22, borderRadius: 6, border: 'none', background: 'transparent',
+          color: 'var(--ink-3)', cursor: 'pointer', display: 'grid', placeItems: 'center',
+        }}>
+          <Icon name="x" size={10} />
+        </button>
+      </div>
+      <BlocoInsumosRepro insumos={insumos} insumosUsados={lista || []} setInsumosUsados={setLista} />
+    </div>
+  );
+}
+
+// Botão toggle da Antibioticoterapia — expande pra picker de insumos.
+function BotaoToggleAntibiotico({ insumos, antibioticos, setAntibioticos }) {
+  const [aberto, setAberto] = useState((antibioticos || []).length > 0);
+  if (!aberto) {
+    return (
+      <button type="button" onClick={() => { setAberto(true); if (!antibioticos?.length) setAntibioticos([{ insumoId: '', qtd: 1 }]); }} style={{
+        width: '100%', marginTop: 8, padding: '10px 12px', borderRadius: 8,
+        border: '1px solid var(--line)', background: 'var(--card)',
+        color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+      }}>
+        <Icon name="plus" size={12} /> + Antibioticoterapia
+      </button>
+    );
+  }
+  return (
+    <div style={{
+      marginTop: 8, padding: 10, background: '#f5e8ff',
+      border: '1px solid #d8b4fe', borderRadius: 10,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: '#6b21a8', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700 }}>
+          Antibioticoterapia
+        </div>
+        <button type="button" onClick={() => { setAberto(false); setAntibioticos([]); }} style={{
+          width: 22, height: 22, borderRadius: 6, border: 'none', background: 'transparent',
+          color: '#6b21a8', cursor: 'pointer', display: 'grid', placeItems: 'center',
+        }}>
+          <Icon name="x" size={10} />
+        </button>
+      </div>
+      <BlocoInsumosRepro insumos={insumos} insumosUsados={antibioticos || []} setInsumosUsados={setAntibioticos} />
+    </div>
+  );
+}
+
 function BotaoInsumoQtd({ label, ativo, onToggle, valor, onChange, cor, unidade = 'un' }) {
   return (
     <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 6 }}>
@@ -1367,14 +1575,14 @@ function BotaoInsumoQtd({ label, ativo, onToggle, valor, onChange, cor, unidade 
   );
 }
 
-function SubLavagem({ tu, setTu, insumos, servicos, inputStyle }) {
+function SubLavagem({ tu, setTu, insumos, servicos }) {
   const lav = tu.lavagem || {};
   const setLav = (patch) => setTu({ lavagem: { ...lav, ...patch } });
   const items = [
-    { slug: 'ringer', label: 'Ringer Lactato', unidade: 'mL', regex: TU_MATCHERS.ringer, cor: '#0e7490' },
-    { slug: 'aguaOxig', label: 'Água Oxigenada', unidade: 'mL', regex: TU_MATCHERS.aguaOxig, cor: '#0e7490' },
-    { slug: 'dmso', label: 'DMSO', unidade: 'mL', regex: TU_MATCHERS.dmso, cor: '#0e7490' },
-    { slug: 'riodeine', label: 'Riodeine Degermante', unidade: 'mL', regex: TU_MATCHERS.riodeine, cor: '#0e7490' },
+    { slug: 'ringer', label: 'Ringer Lactato', regex: TU_MATCHERS.ringer, cor: '#0e7490' },
+    { slug: 'aguaOxig', label: 'Água Oxigenada', regex: TU_MATCHERS.aguaOxig, cor: '#0e7490' },
+    { slug: 'dmso', label: 'DMSO', regex: TU_MATCHERS.dmso, cor: '#0e7490' },
+    { slug: 'riodeine', label: 'Riodeine Degermante', regex: TU_MATCHERS.riodeine, cor: '#0e7490' },
   ];
   const svcOzonio = resolverServicoPorMatcher(servicos, TU_MATCHERS.servOzonio);
   return (
@@ -1395,7 +1603,7 @@ function SubLavagem({ tu, setTu, insumos, servicos, inputStyle }) {
               valor={lav[m.slug]}
               onChange={(v) => setLav({ [m.slug]: v })}
               cor={m.cor}
-              unidade={m.unidade}
+              unidade={ins?.unidade || 'un'}
             />
           </div>
         );
@@ -1415,9 +1623,8 @@ function SubLavagem({ tu, setTu, insumos, servicos, inputStyle }) {
           </div>
         </label>
       </div>
-      <FormField label="Insumos adicionais (opcional)">
-        <input type="text" value={lav.obs || ''} onChange={e => setLav({ obs: e.target.value })} style={inputStyle} placeholder="Anote itens fora dos botões" />
-      </FormField>
+      {/* Insumos adicionais viram picker (Fase 2) — abaixo */}
+      <BlocoInsumosAdicionaisTU rotulo="Insumos adicionais" insumos={insumos} lista={lav.adicionais || []} setLista={(v) => setLav({ adicionais: v })} />
     </div>
   );
 }
@@ -1427,21 +1634,22 @@ function SubInfusao({ tu, setTu, insumos, servicos }) {
   const setInf = (patch) => setTu({ infusao: { ...inf, ...patch } });
   const svcPrp = resolverServicoPorMatcher(servicos, TU_MATCHERS.servPrp);
   const insPipetaRig = resolverPorMatcher(insumos, TU_MATCHERS.pipetaRigida);
+  const insBotu = resolverPorMatcher(insumos, TU_MATCHERS.botukiller);
 
   return (
     <div>
       <BotaoInsumoQtd
-        label={`Botukiller${resolverPorMatcher(insumos, TU_MATCHERS.botukiller) ? '' : ' (não cadastrado)'}`}
+        label={`Botukiller${insBotu ? '' : ' (não cadastrado)'}`}
         ativo={inf.botukiller !== undefined}
         onToggle={() => {
-          if (!resolverPorMatcher(insumos, TU_MATCHERS.botukiller)) return;
+          if (!insBotu) return;
           if (inf.botukiller !== undefined) { const cp = { ...inf }; delete cp.botukiller; setInf({ ...cp, botukiller: undefined }); }
           else setInf({ botukiller: '' });
         }}
         valor={inf.botukiller}
         onChange={(v) => setInf({ botukiller: v })}
         cor="#7c2d8c"
-        unidade="mL"
+        unidade={insBotu?.unidade || 'un'}
       />
       <div style={{ marginTop: 6, marginBottom: 6 }}>
         <label style={{
@@ -1459,17 +1667,15 @@ function SubInfusao({ tu, setTu, insumos, servicos }) {
         </label>
       </div>
 
-      {/* Antibioticoterapia: lista de {insumoId, qtd} */}
-      <div style={{ marginTop: 8 }}>
-        <div style={{ fontSize: 11, color: 'var(--ink-3)', fontWeight: 700, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-          Antibioticoterapia
-        </div>
-        <BlocoInsumosRepro
-          insumos={insumos}
-          insumosUsados={inf.antibioticos || []}
-          setInsumosUsados={(v) => setInf({ antibioticos: v })}
-        />
-      </div>
+      {/* Antibioticoterapia: botão toggle (Fase 3) */}
+      <BotaoToggleAntibiotico
+        insumos={insumos}
+        antibioticos={inf.antibioticos}
+        setAntibioticos={(v) => setInf({ antibioticos: v })}
+      />
+
+      {/* Insumos adicionais da infusão (Fase 2) */}
+      <BlocoInsumosAdicionaisTU rotulo="Insumos adicionais" insumos={insumos} lista={inf.adicionais || []} setLista={(v) => setInf({ adicionais: v })} />
 
       <div style={{
         marginTop: 8, background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 8,
@@ -1779,7 +1985,7 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
   const alterar = (i, patch) => setInsumosUsados(insumosUsados.map((u, idx) => idx === i ? { ...u, ...patch } : u));
   const remover = (i) => setInsumosUsados(insumosUsados.filter((_, idx) => idx !== i));
 
-  const opcoes = dedupPorNome(insumos.filter(i => i.workspaceId === 'repro' || (i.workspaceId || 'haras') === 'haras'))
+  const opcoes = dedupPorNome(insumos)
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
 
   const inputStyle = {
@@ -1996,8 +2202,10 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           const ins = resolverPorMatcher(insumos, rgx);
           if (ins) empilharSomando([{ insumoId: ins.id, qtd: q }]);
         }
+        // Insumos adicionais da lavagem (Fase 2)
+        if (Array.isArray(lav.adicionais)) empilharSomando(lav.adicionais);
       }
-      // Infusão: botukiller + antibioticoterapia + pipeta rígida obrigatória
+      // Infusão: botukiller + antibioticoterapia + adicionais + pipeta rígida
       if (t.infusao) {
         const inf = t.infusao;
         const qBotu = Number(inf.botukiller) || 0;
@@ -2005,9 +2213,8 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           const insBotu = resolverPorMatcher(insumos, TU_MATCHERS.botukiller);
           if (insBotu) empilharSomando([{ insumoId: insBotu.id, qtd: qBotu }]);
         }
-        if (Array.isArray(inf.antibioticos)) {
-          empilharSomando(inf.antibioticos);
-        }
+        if (Array.isArray(inf.antibioticos)) empilharSomando(inf.antibioticos);
+        if (Array.isArray(inf.adicionais)) empilharSomando(inf.adicionais);
         const insPipeta = resolverPorMatcher(insumos, TU_MATCHERS.pipetaRigida);
         if (insPipeta) empilharSomando([{ insumoId: insPipeta.id, qtd: 1 }]);
       }
@@ -2034,6 +2241,18 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     } else if (tipo === 'inseminacao_artificial') {
       const { encontrados } = resolverDescartaveisIa(insumos);
       empilhar(encontrados);
+    }
+
+    // 1b) Diagnóstico: cada botão marcado empilha descartáveis do serviço
+    if (tipo === 'diagnostico_avulso' && dados.dx) {
+      if (dados.dx.biopsia) {
+        const svc = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.biopsia);
+        if (svc?.descartaveisObrigatorios?.length) empilhar(svc.descartaveisObrigatorios);
+      }
+      if (dados.dx.cultura) {
+        const svc = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.cultura);
+        if (svc?.descartaveisObrigatorios?.length) empilhar(svc.descartaveisObrigatorios);
+      }
     }
 
     // 2) Para cada insumo injetável adicionado manualmente pelo vet
@@ -2333,6 +2552,10 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         <BlocoTratamentoUterino dados={dados} setDado={setDado} insumos={insumos} servicos={servicos} inputStyle={inputStyle} />
       )}
 
+      {tipo === 'diagnostico_avulso' && (
+        <BlocoDiagnostico dados={dados} setDado={setDado} servicos={servicos} eguaId={eguaId} inputStyle={inputStyle} />
+      )}
+
       {tipo === 'servico_avulso' && (
         <>
           <FormField label="Serviço *">
@@ -2342,7 +2565,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
               if (sv && !dados.valorCobrado) setDado('valorCobrado', String(sv.valor || 0));
             }} style={inputStyle}>
               <option value="">— Selecionar —</option>
-              {dedupPorNome(servicos.filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras'))
+              {dedupPorNome(servicos)
                 .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
                 .map(s => <option key={s.id} value={s.id}>{s.nome}</option>)}
             </select>
@@ -3347,6 +3570,22 @@ function HistoricoEgua({ egua, registrosRepro, vetsExternos, locaisRepro, propRe
                         ))}
                       </div>
                     )}
+                    {/* Anexos (Diagnóstico) */}
+                    {r.dados?.anexos?.length > 0 && (
+                      <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                        {r.dados.anexos.map(a => (
+                          <a key={a.id} href={a.url} target="_blank" rel="noopener noreferrer"
+                            onClick={e => e.stopPropagation()}
+                            style={{
+                              fontSize: 10, padding: '2px 8px', borderRadius: 4, fontWeight: 600,
+                              background: '#e0f2fe', color: '#0284c7', textDecoration: 'none',
+                              display: 'inline-flex', alignItems: 'center', gap: 4,
+                            }}>
+                            📎 {a.nome.length > 20 ? a.nome.slice(0, 18) + '…' : a.nome}
+                          </a>
+                        ))}
+                      </div>
+                    )}
                   </button>
                 );
               })}
@@ -3471,7 +3710,7 @@ function ReproFaturas({
   const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
   const lista = [...propRepro]
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
-    .map(p => ({ prop: p, fat: calcFaturaRepro(p.id, mesRef, deps) }))
+    .map(p => ({ prop: p, fat: calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true }) }))
     .filter(x => x.fat.total > 0);
 
   if (propAberto) {
@@ -3758,7 +3997,7 @@ function ReproDivisao({
   const acc = { epona: 0, porVet: {} };
   let totalMes = 0;
   for (const p of propRepro) {
-    const fat = calcFaturaRepro(p.id, mesRef, deps);
+    const fat = calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
     totalMes += fat.total;
     const d = dividirFatura(fat);
     acc.epona += d.epona;
@@ -3931,40 +4170,20 @@ function ReproCobKm({ currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal })
   );
 }
 
-// ── Sub-tela: catálogo (insumos ou serviços) do workspace repro ──
+// ── Sub-tela: catálogo (insumos ou serviços) — unificado com o haras
+// Vet e admin operam sobre o mesmo catálogo em tempo real (via
+// Supabase). Não há mais "importar" — cada item cadastrado em
+// qualquer área aparece nos dois logins.
 function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem, deleteItem }) {
   const [busca, setBusca] = useState('');
-  const [importando, setImportando] = useState(false);
   const [editId, setEditId] = useState(null);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState({ nome: '', valor: '', injetavel: false, indutorOvulacao: false, descartaveisObrigatorios: [] });
 
-  const doHaras = itens.filter(i => (i.workspaceId || 'haras') === 'haras');
-  const doRepro = itens.filter(i => i.workspaceId === 'repro');
-
-  const lista = [...doRepro]
+  // Catálogo agora é único — lista todos os itens do banco.
+  const lista = [...itens]
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
     .filter(i => !busca.trim() || norm(i.nome || '').includes(norm(busca.trim())));
-
-  const importarDoHaras = async () => {
-    if (doHaras.length === 0) return;
-    if (!window.confirm(`Importar ${doHaras.length} ${tipo === 'insumos' ? 'insumo(s)' : 'serviço(s)'} do haras? Você poderá editar os valores sem afetar o haras.`)) return;
-    setImportando(true);
-    try {
-      // Clona cada item com id novo e workspace='repro'
-      const jaImportadosNomes = new Set(doRepro.map(i => (i.nome || '').toLowerCase()));
-      for (const item of doHaras) {
-        if (jaImportadosNomes.has((item.nome || '').toLowerCase())) continue;
-        const clone = {
-          ...item,
-          id: (tipo === 'insumos' ? 'i_r_' : 's_r_') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-          workspaceId: 'repro',
-        };
-        // eslint-disable-next-line no-await-in-loop
-        await addItem(clone);
-      }
-    } finally { setImportando(false); }
-  };
 
   const abrirNovo = () => {
     setEditId(null);
@@ -3993,9 +4212,12 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
         : { nome: form.nome.trim(), valor: valorNum, descartaveisObrigatorios: form.descartaveisObrigatorios };
       updateItem(editId, patch);
     } else {
+      // Catálogo unificado: novos itens criados via repro salvam
+      // com workspace=haras — vet e admin passam a operar sobre o
+      // mesmo catálogo em tempo real.
       const base = tipo === 'insumos'
-        ? { id: 'i_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, injetavel: injetavelFinal, indutorOvulacao: !!form.indutorOvulacao, workspaceId: 'repro' }
-        : { id: 's_r_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'repro', descartaveisObrigatorios: form.descartaveisObrigatorios };
+        ? { id: 'i_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'descartavel', unidade: 'un', valorVenda: valorNum, valorCompra: 0, injetavel: injetavelFinal, indutorOvulacao: !!form.indutorOvulacao, workspaceId: 'haras' }
+        : { id: 's_' + Date.now().toString(36), nome: form.nome.trim(), categoria: 'veterinario', valor: valorNum, workspaceId: 'haras', descartaveisObrigatorios: form.descartaveisObrigatorios };
       addItem(base);
     }
     setShowForm(false);
@@ -4012,22 +4234,19 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
       <div style={{ padding: '12px 20px 0' }}>
         <SearchBar value={busca} onChange={setBusca} placeholder={`Buscar ${tipo === 'insumos' ? 'insumo' : 'serviço'}…`} />
       </div>
-      <div style={{ padding: '10px 20px 0', display: 'flex', gap: 8 }}>
+      <div style={{ padding: '10px 20px 0' }}>
         <button onClick={abrirNovo} style={{
-          flex: 1, padding: '10px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff',
+          width: '100%', padding: '10px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff',
           fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
         }}>+ Novo</button>
-        {doHaras.length > 0 && (
-          <button onClick={importarDoHaras} disabled={importando} style={{
-            flex: 2, padding: '10px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)',
-            fontSize: 12, fontWeight: 600, cursor: importando ? 'default' : 'pointer', fontFamily: 'var(--sans)', opacity: importando ? 0.6 : 1,
-          }}>{importando ? 'Importando…' : `Importar catálogo do haras (${doHaras.length})`}</button>
-        )}
+        <div style={{ marginTop: 8, fontSize: 11, color: 'var(--ink-3)', lineHeight: 1.4 }}>
+          Catálogo compartilhado com o admin do haras — qualquer edição aparece nos dois logins em tempo real.
+        </div>
       </div>
       <div style={{ padding: '12px 20px 20px' }}>
         {lista.length === 0 && (
           <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
-            {busca ? 'Nada encontrado.' : `Sem ${tipo === 'insumos' ? 'insumos' : 'serviços'} cadastrados. Toque "Importar catálogo do haras" pra clonar tudo.`}
+            {busca ? 'Nada encontrado.' : `Sem ${tipo === 'insumos' ? 'insumos' : 'serviços'} cadastrados.`}
           </div>
         )}
         {lista.map(i => (
@@ -4191,8 +4410,12 @@ export function ReproApp({
   const propRepro = useMemo(() => proprietarios.filter(p => p.workspaceId === 'repro'), [proprietarios]);
   const eguasRepro = useMemo(() => cavalos.filter(c => c.workspaceId === 'repro'), [cavalos]);
   const registrosRepro = useMemo(() => (registrosReproducao || []).filter(r => r.workspaceId === 'repro'), [registrosReproducao]);
-  const insumosRepro = useMemo(() => insumos.filter(i => i.workspaceId === 'repro' || i.workspaceId === 'haras'), [insumos]);
-  const servicosRepro = useMemo(() => servicos.filter(s => s.workspaceId === 'repro' || s.workspaceId === 'haras'), [servicos]);
+  // Catálogo unificado (Fase 4): repro passa a ler TODOS os insumos
+  // e serviços do banco, sem filtro de workspace. Novos itens criados
+  // via repro salvam com workspace=haras — vet e admin operam sobre
+  // o mesmo catálogo em tempo real.
+  const insumosRepro = insumos;
+  const servicosRepro = servicos;
 
   const goCadastros = (sub = 'locais') => { setCadSub(sub); setLocalSelecionado(null); setTab('cadastros'); setScreen('repro-cadastros'); };
 
@@ -4386,6 +4609,196 @@ function Modal({ onClose, children }) {
         background: 'var(--bg)', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%',
         maxHeight: '90vh', overflowY: 'auto',
       }}>{children}</div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
+// ReproHarasView — Reprodução do haras (admin) usando o mesmo
+// layout do Epona Repro Team. Não tem aba Cadastros (animais e
+// proprietários vêm do haras). Local sempre "Epona Stud". Registros
+// salvos com workspaceId='haras'.
+// ─────────────────────────────────────────────────────────────
+export function ReproHarasView({
+  currentUser, cavalos, proprietarios, registrosReproducao = [],
+  insumos = [], servicos = [],
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  onBack,
+}) {
+  const [screen, setScreen] = useState('rh-home');
+  const [tab, setTab] = useState('home');
+  const [preFillCaderno, setPreFillCaderno] = useState(null);
+  const [historicoEguaId, setHistoricoEguaId] = useState(null);
+
+  // Filtra por workspace haras (padrão). Se um registro não tiver
+  // workspace, também conta como haras (backward-compat).
+  const registrosHaras = useMemo(
+    () => (registrosReproducao || []).filter(r => (r.workspaceId || 'haras') === 'haras'),
+    [registrosReproducao],
+  );
+  const eguasHaras = useMemo(
+    () => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras' && (c.sexo === 'F' || c.categoria === 'Égua' || (c.categorias || []).includes('Égua'))),
+    [cavalos],
+  );
+  const propHaras = useMemo(() => proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras'), [proprietarios]);
+
+  // Local "Epona Stud" virtual — sempre presente.
+  const localVirtual = { id: 'local_epona_stud', nome: 'Epona Stud', endereco: '', cidade: '', estado: '' };
+  const locaisHaras = [localVirtual];
+  // Vets externos: só o próprio admin como "operador" da UI
+  const vetsHaras = [{ id: currentUser?.id || 'admin', nome: currentUser?.nome || 'Epona Stud', cor: CORES_TAB_ATIVA }];
+
+  // Ao criar registro, injetamos workspace=haras e localId virtual
+  const wrapAdd = (payload) => addRegistroReproducao({ ...payload, workspaceId: 'haras', localId: localVirtual.id });
+  const wrapUpdate = (id, patch) => updateRegistroReproducao(id, { ...patch, workspaceId: 'haras', localId: patch?.localId || localVirtual.id });
+
+  const abrirCadernoDoEvento = (ev) => {
+    if (!ev) return;
+    const hojeIso = new Date().toLocaleDateString('sv-SE');
+    let tipoSugerido = 'controle_folicular';
+    let dadosSugeridos = {};
+    if (ev.tipoEv === 'coleta') {
+      tipoSugerido = 'transferencia_embriao';
+      dadosSugeridos = { iaOrigemId: ev.registro?.id };
+    } else if (ev.tipoEv === 'retorno' || ev.tipoEv === 'inducao') {
+      tipoSugerido = 'controle_folicular';
+    } else if (ev.tipoEv === 'procedimento') {
+      tipoSugerido = ev.tipo || 'controle_folicular';
+    }
+    setPreFillCaderno({
+      eguaId: ev.eguaId,
+      localId: localVirtual.id,
+      data: hojeIso,
+      tipo: tipoSugerido,
+      dados: dadosSugeridos,
+    });
+    setTab('caderno');
+    setScreen('rh-caderno');
+  };
+
+  let content;
+  if (screen === 'rh-home') {
+    content = <ReproHome
+      currentUser={{ ...currentUser, cor: CORES_TAB_ATIVA }}
+      locaisRepro={locaisHaras}
+      propRepro={propHaras}
+      eguasRepro={eguasHaras}
+      vetsExternos={vetsHaras}
+      registrosRepro={registrosHaras}
+      avisosRepro={[]}
+      resolverAvisoRepro={() => {}}
+      setScreen={setScreen}
+      setTab={setTab}
+      goCadastros={() => {}}
+      onSelectEvento={abrirCadernoDoEvento}
+    />;
+  } else if (screen === 'rh-caderno') {
+    content = <ReproCaderno
+      registrosRepro={registrosHaras}
+      eguasRepro={eguasHaras}
+      propRepro={propHaras}
+      locaisRepro={locaisHaras}
+      vetsExternos={vetsHaras}
+      currentUser={currentUser}
+      servicos={servicos}
+      insumos={insumos}
+      preFill={preFillCaderno}
+      onConsumirPreFill={() => setPreFillCaderno(null)}
+      addRegistroReproducao={wrapAdd}
+      updateRegistroReproducao={wrapUpdate}
+      deleteRegistroReproducao={deleteRegistroReproducao}
+    />;
+  } else if (screen === 'rh-painel') {
+    content = <ReproPainel
+      registrosRepro={registrosHaras}
+      eguasRepro={eguasHaras}
+      propRepro={propHaras}
+      locaisRepro={locaisHaras}
+      vetsExternos={vetsHaras}
+      currentUser={currentUser}
+      updateRegistroReproducao={wrapUpdate}
+      onSelectEvento={abrirCadernoDoEvento}
+    />;
+  } else if (screen === 'rh-historico') {
+    const eg = eguasHaras.find(x => x.id === historicoEguaId);
+    if (!eg) { setScreen('rh-home'); content = null; }
+    else {
+      content = <HistoricoEgua
+        egua={eg}
+        registrosRepro={registrosHaras}
+        vetsExternos={vetsHaras}
+        locaisRepro={locaisHaras}
+        propRepro={propHaras}
+        onBack={() => setScreen('rh-home')}
+        onOpenRegistro={(r) => {
+          setPreFillCaderno({
+            eguaId: r.eguaId, localId: r.localId, data: r.data, tipo: r.tipo, dados: r.dados || {},
+          });
+          setTab('caderno'); setScreen('rh-caderno');
+        }}
+      />;
+    }
+  }
+
+  // TabBar simplificada: Início | Caderno | Painel + botão voltar
+  const abas = [
+    { id: 'home', label: 'Início', icon: 'home', screen: 'rh-home' },
+    { id: 'caderno', label: 'Caderno', icon: 'edit', screen: 'rh-caderno' },
+    { id: 'painel', label: 'Painel', icon: 'sparkle', screen: 'rh-painel' },
+  ];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header com voltar pra tela de Veterinária */}
+      <div style={{
+        padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--bg)', borderBottom: '1px solid var(--line)',
+      }}>
+        <button onClick={onBack} style={{
+          background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
+          padding: '6px 8px 6px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="arrow-left" size={14} /> Voltar
+        </button>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-2)', flex: 1 }}>
+          Reprodução · Epona Stud
+        </div>
+        {/* Atalho pro histórico de uma égua */}
+        <select value={historicoEguaId || ''} onChange={e => {
+          const v = e.target.value;
+          if (v) { setHistoricoEguaId(v); setScreen('rh-historico'); }
+        }} style={{
+          padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)',
+          background: 'var(--card)', fontSize: 11, color: 'var(--ink-2)', maxWidth: 140,
+        }}>
+          <option value="">Histórico da égua…</option>
+          {[...eguasHaras].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(e => (
+            <option key={e.id} value={e.id}>{e.nome}</option>
+          ))}
+        </select>
+      </div>
+
+      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
+        {content}
+      </div>
+
+      <div style={{
+        background: 'var(--bg)', borderTop: '1px solid var(--line)',
+        paddingTop: 8, paddingBottom: 12,
+        display: 'grid', gridTemplateColumns: `repeat(${abas.length}, 1fr)`, gap: 0, flexShrink: 0,
+      }}>
+        {abas.map(t => (
+          <button key={t.id} onClick={() => { setTab(t.id); setScreen(t.screen); }} style={{
+            background: 'none', border: 'none', display: 'flex', flexDirection: 'column',
+            alignItems: 'center', gap: 2, padding: '6px 0',
+            color: tab === t.id ? CORES_TAB_ATIVA : 'var(--ink-3)',
+            fontFamily: 'var(--sans)', fontSize: 10, fontWeight: 500, cursor: 'pointer',
+          }}>
+            <Icon name={t.icon} size={20} />
+            <span>{t.label}</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
