@@ -268,6 +268,81 @@ function ReproHome({
 }
 
 // ─────────────────────────────────────────────────────────────
+// Sub-home Reprodução — layout tipo home (planner + agenda + CTA
+// caderno + calendário mensal) mas com apenasReproducao=true.
+// Acessada via Veterinária → Reprodução dentro do Repro Team.
+// ─────────────────────────────────────────────────────────────
+function ReproSubHomeReproducao({
+  currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
+  registrosRepro, avisosRepro = [], resolverAvisoRepro,
+  setScreen, setTab, onSelectEvento, onBack,
+}) {
+  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
+  return (
+    <div style={{ padding: '14px 20px 20px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <button onClick={onBack} style={{
+          background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
+          padding: '4px 6px 4px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="arrow-left" size={14} /> Voltar
+        </button>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>Reprodução</div>
+      </div>
+
+      {avisosPend.length > 0 && (
+        <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
+      )}
+
+      {/* Planner horizontal — só eventos reprodutivos (vetBundle=null) */}
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
+
+      <button onClick={() => { setTab('vet'); setScreen('repro-caderno'); }} style={{
+        width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
+        border: 'none', borderRadius: 16, padding: '20px 18px', cursor: 'pointer',
+        display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+        marginBottom: 12,
+        boxShadow: '0 8px 20px rgba(124,45,140,0.22)',
+      }}>
+        <div style={{
+          width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.18)',
+          display: 'grid', placeItems: 'center', flexShrink: 0,
+        }}>
+          <Icon name="edit" size={22} color="#fff" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 18 }}>Caderno de reprodução</div>
+          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Nova IA / CE / CF / DG</div>
+        </div>
+        <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
+      </button>
+
+      {/* Calendário mensal — apenas reprodução */}
+      <div style={{ marginBottom: 12 }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: '4px 4px 6px',
+          color: 'var(--ink-3)', fontFamily: 'var(--sans)',
+        }}>
+          <Icon name="calendar" size={14} color="var(--ink-3)" />
+          <div style={{ flex: 1, textAlign: 'left', fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+            Planner mensal — reprodução
+          </div>
+        </div>
+        <ReproCalendario
+          registrosRepro={registrosRepro}
+          eguasRepro={eguasRepro}
+          locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
+          onSelectEvento={onSelectEvento}
+          apenasReproducao={true}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Mural de avisos persistentes (RESERVAR RECEPTORA etc.)
 // ─────────────────────────────────────────────────────────────
 function MuralAvisos({ avisos, onResolver }) {
@@ -345,10 +420,13 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
     buckets.get(k).push(ev);
   }
 
-  // Constrói lista ordenada: atrasado, hoje, próximos 7 dias
+  // Constrói lista ordenada: atrasado (só se houver eventos),
+  // hoje, próximos 7 dias. Quando não há atrasado, "Hoje" fica em
+  // primeiro pra dominar o centro visual.
   const proximos = [];
   for (let i = 1; i <= 7; i++) proximos.push(addDias(hoje, i));
-  const ordem = ['atrasado', 'hoje', ...proximos];
+  const temAtrasado = (buckets.get('atrasado') || []).length > 0;
+  const ordem = temAtrasado ? ['atrasado', 'hoje', ...proximos] : ['hoje', ...proximos];
 
   const labelBucket = (k) => {
     if (k === 'atrasado') return 'Atrasado';
@@ -4750,6 +4828,21 @@ export function ReproApp({
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
     />;
+  } else if (screen === 'repro-vet-reproducao') {
+    content = <ReproSubHomeReproducao
+      currentUser={currentUser}
+      locaisRepro={locaisRepro}
+      propRepro={propRepro}
+      eguasRepro={eguasRepro}
+      vetsExternos={vetsExternos}
+      registrosRepro={registrosRepro}
+      avisosRepro={avisosRepro}
+      resolverAvisoRepro={resolverAvisoRepro}
+      setScreen={setScreen}
+      setTab={setTab}
+      onSelectEvento={abrirCadernoDoEvento}
+      onBack={() => setScreen('repro-vet')}
+    />;
   } else if (screen === 'repro-vet') {
     // Veterinária completa no repro — reusa a mesma VeterinariaScreen
     // do haras, com datasets filtrados pelo workspace repro e pelo
@@ -4762,7 +4855,7 @@ export function ReproApp({
     content = <VeterinariaScreen
       setScreen={() => {}}
       setSelected={() => {}}
-      onOpenReproducao={() => { setTab('caderno'); setScreen('repro-caderno'); }}
+      onOpenReproducao={() => { setTab('vet'); setScreen('repro-vet-reproducao'); }}
       partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}
       cavalos={eguasRepro}
       proprietarios={propRepro}
