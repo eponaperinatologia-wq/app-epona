@@ -1206,11 +1206,16 @@ const addDias = (iso, n) => {
 };
 
 function ReproCaderno({
-  registrosRepro, eguasRepro, propRepro, locaisRepro, vetsExternos, currentUser,
+  registrosRepro, eguasRepro, eguasParaLookup, propRepro, propParaLookup, locaisRepro, vetsExternos, currentUser,
   servicos = [], insumos = [],
   preFill = null, onConsumirPreFill,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
 }) {
+  // Lookup usa dataset completo (todas as éguas/props do workspace,
+  // sem filtro por local). Isso evita nome '—' quando o registro é
+  // de uma égua cujo localId padrão difere do local visitado.
+  const eguasLookup = eguasParaLookup || eguasRepro;
+  const propLookup = propParaLookup || propRepro;
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editReg, setEditReg] = useState(null);
@@ -1232,7 +1237,7 @@ function ReproCaderno({
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
     .filter(r => {
       if (!busca.trim()) return true;
-      const egua = eguasRepro.find(e => e.id === r.eguaId);
+      const egua = eguasLookup.find(e => e.id === r.eguaId);
       return norm(`${egua?.nome || ''} ${r.tipo || ''}`).includes(norm(busca.trim()));
     });
 
@@ -1265,8 +1270,8 @@ function ReproCaderno({
           </div>
         )}
         {lista.map(r => {
-          const egua = eguasRepro.find(e => e.id === r.eguaId);
-          const prop = egua && propRepro.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
+          const egua = eguasLookup.find(e => e.id === r.eguaId);
+          const prop = egua && propLookup.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
           const vet = vetsExternos.find(v => v.id === r.vetId);
           const local = locaisRepro.find(l => l.id === r.localId);
           const meta = TIPO_META[r.tipo] || {};
@@ -1327,8 +1332,8 @@ function ReproCaderno({
       {detalheId && (
         <DetalheRegistroRepro
           registro={registrosRepro.find(r => r.id === detalheId)}
-          eguasRepro={eguasRepro}
-          propRepro={propRepro}
+          eguasRepro={eguasLookup}
+          propRepro={propLookup}
           locaisRepro={locaisRepro}
           vetsExternos={vetsExternos}
           onClose={() => setDetalheId(null)}
@@ -4816,7 +4821,9 @@ export function ReproApp({
     content = <ReproCaderno
       registrosRepro={registrosRepro}
       eguasRepro={eguasRepro}
+      eguasParaLookup={eguasReproTodas}
       propRepro={propRepro}
+      propParaLookup={propReproTodos}
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
       currentUser={currentUser}
