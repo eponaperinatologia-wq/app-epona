@@ -34,7 +34,7 @@ const calcDias = (cavalo, ref, movimentacoes) => {
 
   const cavMovs = (movimentacoes || [])
     .filter(m => m.cavaloId === cavaloId)
-    .map(m => ({ ...m, d: new Date(m.data) }))
+    .map(m => ({ ...m, d: new Date(m.data + 'T12:00:00') }))
     .sort((a, b) => a.d - b.d);
 
   const antes = cavMovs.filter(m => m.d < inicioMes);
@@ -115,7 +115,7 @@ const calcDiasItem = (cav, ref, movimentacoes, dataInicio, dataFim) => {
   const cavaloId = cav.id;
   const cavMovs = (movimentacoes || [])
     .filter(m => m.cavaloId === cavaloId)
-    .map(m => ({ ...m, d: new Date(m.data) }))
+    .map(m => ({ ...m, d: new Date(m.data + 'T12:00:00') }))
     .sort((a, b) => a.d - b.d);
   const antes = cavMovs.filter(m => m.d < efStart);
   const dentroPeriodo = cavMovs.filter(m => m.d >= efStart && m.d <= efEnd);
@@ -183,7 +183,7 @@ const calcDosesPeriodico = (p, ref, cav, movimentacoes) => {
 
   const cavMovs = cav ? (movimentacoes || [])
     .filter(m => m.cavaloId === cav.id)
-    .map(m => ({ ...m, d: new Date(m.data) }))
+    .map(m => ({ ...m, d: new Date(m.data + 'T12:00:00') }))
     .sort((a, b) => a.d - b.d) : [];
   const cavPresenteEm = (target) => {
     if (!cav) return true;
