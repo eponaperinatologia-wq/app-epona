@@ -136,6 +136,10 @@ export const fromDbRegistro = r => ({
   id: r.id, cavaloId: r.cavalo_id, insumoId: r.insumo_id,
   qtd: Number(r.qtd) || 1, hora: r.hora || '', usuario: r.usuario || '',
   isAuto: !!r.is_auto, data: r.data,
+  // Se true, cobra na fatura mesmo se insumo é incluidoMensalidade ou
+  // categoria ração/nutrição — usado quando insumo é dado "avulso"
+  // (ex: entregue na saída do animal do haras).
+  cobrarAvulso: !!r.cobrar_avulso,
 });
 
 export const fromDbProcedimento = r => {
@@ -280,6 +284,7 @@ export const toDbRegistro = r => ({
   id: r.id, cavalo_id: r.cavaloId, insumo_id: r.insumoId,
   qtd: Number(r.qtd) || 1, hora: r.hora || '', usuario: r.usuario || '',
   is_auto: !!r.isAuto, data: r.data,
+  cobrar_avulso: !!r.cobrarAvulso,
 });
 
 export const toDbProcedimento = p => ({

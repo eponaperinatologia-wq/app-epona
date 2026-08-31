@@ -109,6 +109,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   const [qtd, setQtd] = useStateR(savedCavalo?.qtd || 1);
   const [search, setSearch] = useStateR(savedCavalo?.search || '');
   const [catFilter, setCatFilter] = useStateR(savedCavalo?.catFilter || 'all');
+  const [cobrarAvulso, setCobrarAvulso] = useStateR(false);
   const [toast, setToast] = useStateR(null);
   React.useEffect(() => {
     try {
@@ -133,7 +134,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const { data, mes } = dataParaMesDestino(mesDestino);
-    addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, data, usuario: currentUser?.nome || '' });
+    addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, data, usuario: currentUser?.nome || '', cobrarAvulso });
     addDescartaveis(addRegistro, insumoId, cavaloId, qtd, insumos, hora, 'Sistema (auto)', data);
     if (addAtividade) addAtividade({
       id: 'at_' + Date.now(), tipo: 'insumo',
@@ -307,6 +308,31 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Quantidade</div>
             <QtyStepper value={qtd} onChange={setQtd} unit={ins.unidade} />
           </div>
+          {/* Cobrar avulso — só relevante pra insumos que normalmente
+              ficam embutidos na mensalidade (ração/nutrição/insumos
+              marcados como incluidoMensalidade). Uso típico: entrega
+              na saída do animal. */}
+          {(ins.incluidoMensalidade || ins.categoria === 'racao' || ins.categoria === 'nutricao_base') && (
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, marginTop: 14,
+              padding: '10px 12px', background: cobrarAvulso ? '#fef3c7' : 'var(--soft)',
+              border: `1px solid ${cobrarAvulso ? '#fbbf24' : 'var(--line)'}`,
+              borderRadius: 10, cursor: 'pointer',
+            }}>
+              <input
+                type="checkbox"
+                checked={cobrarAvulso}
+                onChange={e => setCobrarAvulso(e.target.checked)}
+                style={{ width: 16, height: 16, marginTop: 2, cursor: 'pointer' }}
+              />
+              <div style={{ flex: 1, fontSize: 12, color: cobrarAvulso ? '#78350f' : 'var(--ink-2)', lineHeight: 1.4 }}>
+                <strong>Cobrar avulso na fatura</strong>
+                <div style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
+                  Este insumo normalmente entra na mensalidade. Marque quando for uma entrega adicional (ex: ração levada na saída do haras).
+                </div>
+              </div>
+            </label>
+          )}
           {/* total */}
           <div style={{
             marginTop: 16, paddingTop: 14, borderTop: '1px dashed var(--line)',
@@ -350,6 +376,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
   const [qtd, setQtd] = useStateR(1);
   const [catFilter, setCatFilter] = useStateR('all');
   const [search, setSearch] = useStateR('');
+  const [cobrarAvulso, setCobrarAvulso] = useStateR(false);
   const [toast, setToast] = useStateR(null);
 
   const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
@@ -369,7 +396,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const { data, mes } = dataParaMesDestino(mesDestino);
     selectedCavalos.forEach(cid => {
-      addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, data, usuario: currentUser?.nome || '' });
+      addRegistro({ id: 'r' + Date.now() + cid, cavaloId: cid, insumoId, qtd, hora, data, usuario: currentUser?.nome || '', cobrarAvulso });
       addDescartaveis(addRegistro, insumoId, cid, qtd, insumos, hora, 'Sistema (auto)', data);
       if (addAtividade) addAtividade({
         id: 'at_' + Date.now() + cid, tipo: 'insumo',
@@ -505,6 +532,24 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
         <div style={{
           position: 'absolute', bottom: 24, left: 20, right: 20,
         }}>
+          {(ins.incluidoMensalidade || ins.categoria === 'racao' || ins.categoria === 'nutricao_base') && (
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10,
+              padding: '10px 12px', background: cobrarAvulso ? '#fef3c7' : 'var(--card)',
+              border: `1px solid ${cobrarAvulso ? '#fbbf24' : 'var(--line)'}`,
+              borderRadius: 10, cursor: 'pointer',
+            }}>
+              <input type="checkbox" checked={cobrarAvulso}
+                onChange={e => setCobrarAvulso(e.target.checked)}
+                style={{ width: 16, height: 16, marginTop: 2, cursor: 'pointer' }} />
+              <div style={{ flex: 1, fontSize: 12, color: cobrarAvulso ? '#78350f' : 'var(--ink-2)', lineHeight: 1.4 }}>
+                <strong>Cobrar avulso na fatura</strong>
+                <div style={{ fontSize: 11, marginTop: 2, opacity: 0.85 }}>
+                  Entrega adicional (ex: saída do haras). Sobrepõe a inclusão na mensalidade.
+                </div>
+              </div>
+            </label>
+          )}
           <button onClick={confirmar} style={{
             width: '100%', background: 'var(--accent)', color: '#fff', border: 'none',
             borderRadius: 14, padding: '14px',

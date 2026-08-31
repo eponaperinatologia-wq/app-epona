@@ -386,7 +386,9 @@ const calcFaturaProprietario = (propId, ref, deps) => {
     if (!donos.includes(propId)) return false;
     const ins = findInsumo(r.insumoId);
     const paga = _cavPagaCusto(cav);
-    if (!paga) {
+    // r.cobrarAvulso força cobrança mesmo se insumo é incluidoMensalidade
+    // ou categoria ração/nutrição (uso: entrega na saída do haras)
+    if (!paga && !r.cobrarAvulso) {
       if (ins?.incluidoMensalidade) return false;
       if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
     }
@@ -5895,7 +5897,9 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     if (!donosData.includes(id)) return false;
     const ins = insumos.find(i => i.id === r.insumoId);
     const paga = cavPagaCusto(cav);
-    if (!paga) {
+    // r.cobrarAvulso força cobrança mesmo se insumo é incluidoMensalidade
+    // (ex: ração entregue na saída do haras)
+    if (!paga && !r.cobrarAvulso) {
       if (ins?.incluidoMensalidade) return false;
       if (ins?.categoria === 'nutricao_base' || ins?.categoria === 'racao') return false;
     }
