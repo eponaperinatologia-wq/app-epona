@@ -6038,6 +6038,8 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
           {procLinhas.map(l => {
             const isExamesLab = l.proc.servicoId === '__exames_lab__';
             const exames = isExamesLab ? (l.proc.examesSelecionados || []) : [];
+            const motoboyAtivo = l.proc.motoboy?.ativo && (Number(l.proc.motoboy?.valor) || 0) > 0;
+            const motoboyValor = motoboyAtivo ? (Number(l.proc.motoboy.valor) || 0) / (l.share || 1) : 0;
             return (
               <div key={l.proc.id} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -6053,6 +6055,14 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
                           <span style={{ color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(e.valor || 0)}</span>
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {motoboyAtivo && (
+                    <div style={{ marginTop: 4, paddingLeft: 8, borderLeft: '2px solid var(--line)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 10.5, color: 'var(--ink-2)', padding: '1px 0' }}>
+                        <span>🛵 Motoboy{l.proc.motoboy.nome ? ` — ${l.proc.motoboy.nome}` : ''}</span>
+                        <span style={{ color: 'var(--ink-3)', fontVariantNumeric: 'tabular-nums' }}>{formatBRL(motoboyValor)}</span>
+                      </div>
                     </div>
                   )}
                 </div>

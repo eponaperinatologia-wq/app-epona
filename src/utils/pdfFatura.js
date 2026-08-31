@@ -198,6 +198,12 @@ export function gerarPdfFatura({
         if (exames.length > 0) {
           sub += '\n' + exames.map(e => `• ${e.nome} — ${BRL(e.valor || 0)}`).join('\n');
         }
+        const motoboyAtivo = l.proc?.motoboy?.ativo && (Number(l.proc.motoboy.valor) || 0) > 0;
+        if (motoboyAtivo) {
+          const mbValor = (Number(l.proc.motoboy.valor) || 0) / share;
+          const mbNome = l.proc.motoboy.nome ? ` — ${l.proc.motoboy.nome}` : '';
+          sub += `\n• Motoboy${mbNome} — ${BRL(mbValor)}`;
+        }
         row(l.nomeSv || l.sv?.nome || 'Procedimento', sub, BRL(l.total));
       });
       y += 2;
