@@ -435,7 +435,12 @@ const calcFaturaProprietario = (propId, ref, deps) => {
     .map(c => {
       const { dias, total: totalDias } = calcDias(c, ref, movimentacoes);
       const share = _shareCount(c);
-      const valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+      let valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
+      // Rateio por dias como dono no mês (transferência)
+      const diasComoProp = diasComoProprietarioNoMes(c, propId, ref);
+      if (dias > 0 && diasComoProp < dias) {
+        valorTotal = valorTotal * (diasComoProp / dias);
+      }
       return { cav: c, dias, totalDias, share, valor: valorTotal / share, cotaMensal: cfPorCavaloMes };
     });
   const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
@@ -5863,18 +5868,32 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const hoje = new Date();
   const ref = faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 };
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
+  const shareCountEmData = (c, dataIso) => {
+    const donos = donosEmData(c, dataIso);
+    return Math.max(1, donos.length || 1);
+  };
+  const foiDonoNoMes = (cav) => {
+    const periodos = periodosProprietariosNoMes(cav, ref);
+    return periodos.some(p => p.propIds.includes(id));
+  };
   const faturaExistente = faturasFechadas.find(f => f.proprietarioId === id && f.ano === ref.ano && f.mes === ref.mes);
 
+  // Considera cavalo se propId foi dono em algum momento do mês
+  // (via historicoProprietarios). Assim, dono antigo continua vendo o
+  // cavalo na fatura mesmo após transferência.
   const cavalosObj = cavalos
-    .filter(c => (c.proprietarioIds || []).includes(id) || c.proprietarioId === id)
+    .filter(c => foiDonoNoMes(c))
     .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
   const cavIds = new Set(cavalosObj.map(c => c.id));
   const ehPotroAoPeCav = (cav) => (cav.categorias || []).includes('Potro ao pé') || cav.categoria === 'Potro ao pé';
   const cavPagaCusto = (cav) => !!cav?.pagarOCusto || ehPotroAoPeCav(cav || {});
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
-    const ins = insumos.find(i => i.id === r.insumoId);
+    // Filtra por titularidade na data do registro
     const cav = cavalosObj.find(x => x.id === r.cavaloId);
+    const donosData = donosEmData(cav, r.data);
+    if (!donosData.includes(id)) return false;
+    const ins = insumos.find(i => i.id === r.insumoId);
     const paga = cavPagaCusto(cav);
     if (!paga) {
       if (ins?.incluidoMensalidade) return false;
@@ -5885,21 +5904,45 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   });
 
+  // Rateio por dias em que id foi dono no mês (transferências)
   const propMens = cavalosObj.map(c => {
-    // Potro ao pé e pagarOCusto: não pagam mensalidade (pagam consumo integral).
+    const share = shareCount(c);
     if (cavPagaCusto(c)) {
       const d = calcDias(c, ref, movimentacoes);
-      return { cav: c, dias: d.dias, total: d.total, valor: 0, valorBase: 0, share: shareCount(c), parcial: false };
+      return { cav: c, dias: d.dias, total: d.total, valor: 0, valorBase: 0, share, parcial: false };
     }
-    return { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: shareCount(c) };
+    const base = { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share };
+    const diasComoProp = diasComoProprietarioNoMes(c, id, ref);
+    const diasTotais = calcDias(c, ref, movimentacoes).dias;
+    if (diasTotais > 0 && diasComoProp < diasTotais) {
+      base.valorBase = base.valor;
+      base.valor = base.valor * (diasComoProp / diasTotais);
+      base.diasComoProp = diasComoProp;
+      base.transferido = true;
+    }
+    return base;
   });
   const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
-  const propPerfil = cavalosObj.map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: shareCount(c) })).filter(pp => pp.linhas.length > 0);
+
+  const propPerfil = cavalosObj.map(c => {
+    const share = shareCount(c);
+    const base = { cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share };
+    const diasComoProp = diasComoProprietarioNoMes(c, id, ref);
+    const diasTotais = calcDias(c, ref, movimentacoes).dias;
+    if (diasTotais > 0 && diasComoProp < diasTotais) {
+      const frac = diasComoProp / diasTotais;
+      base.total = base.total * frac;
+      base.linhas = base.linhas.map(l => ({ ...l, valorMes: (l.valorMes ?? l.valor ?? 0) * frac }));
+      base.transferido = true;
+    }
+    return base;
+  }).filter(pp => pp.linhas.length > 0 && pp.total > 0);
   const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
+
   const insumosLinhas = myReg.map(r => {
     const ins = findInsumo(r.insumoId);
     const cav = cavalos.find(c => c.id === r.cavaloId);
-    const share = shareCount(cav || {});
+    const share = shareCountEmData(cav || {}, r.data);
     const subtotal = (ins?.valorVenda ?? 0) * r.qtd;
     return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
   });
@@ -5908,18 +5951,22 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   const procLinhas = procedimentos.filter(pr => {
     if (!cavIds.has(pr.cavaloId)) return false;
     if (!pr.data) return false;
+    // Filtra por titularidade na data do procedimento
+    const cav = cavalosObj.find(x => x.id === pr.cavaloId);
+    const donosData = donosEmData(cav, pr.data);
+    if (!donosData.includes(id)) return false;
     const d = new Date(pr.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   }).map(pr => {
     const cav = cavalos.find(c => c.id === pr.cavaloId);
     const sv = servicos.find(s => s.id === pr.servicoId);
-    const share = shareCount(cav || {});
+    const share = shareCountEmData(cav || {}, pr.data);
     const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
     return { proc: pr, cav, sv, nomeSv, share, total: (pr.total || 0) / share };
   });
   const procedimentosTotal = procLinhas.reduce((s, l) => s + l.total, 0);
 
-  // Custo Fixo Rateado — só cobra de cavalos pagarOCusto
+  // Custo Fixo Rateado — proporcional aos dias como dono também
   const mesKey = `${ref.ano}-${String(ref.mes).padStart(2, '0')}`;
   const CATEGORIAS_RATEAVEIS = ['salario', 'contabilidade', 'energia', 'internet', 'extras'];
   const cfDoMes = (custosFixos || []).filter(c => c.mes === mesKey);
@@ -5933,7 +5980,12 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     .map(c => {
       const { dias, total: totalDias } = calcDias(c, ref, movimentacoes);
       const share = shareCount(c);
-      const valorTotal = custoFixoPorCavaloMesFresh * (totalDias > 0 ? dias / totalDias : 0);
+      let valorTotal = custoFixoPorCavaloMesFresh * (totalDias > 0 ? dias / totalDias : 0);
+      // Rateio por dias como dono
+      const diasComoProp = diasComoProprietarioNoMes(c, id, ref);
+      if (dias > 0 && diasComoProp < dias) {
+        valorTotal = valorTotal * (diasComoProp / dias);
+      }
       return { cav: c, dias, totalDias, share, valorTotal, valor: valorTotal / share };
     });
 
