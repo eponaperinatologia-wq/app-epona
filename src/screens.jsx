@@ -9,6 +9,7 @@ import {
   AVISOS, ATIVIDADES, CATEGORIAS_SERVICOS, SERVICOS,
   getCavalo, getInsumo, getCategoria, idade, formatBRL,
   consumoDiarioCavalo, norm, dedupPorNome,
+  periodosProprietariosNoMes, diasComoProprietarioNoMes, donosEmData,
 } from './data';
 
 const MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
@@ -310,33 +311,80 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
 const _ehPotroAoPe = (c) => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé';
 const _cavPagaCusto = (c) => !!c?.pagarOCusto || _ehPotroAoPe(c || {});
 const _shareCount = (c) => Math.max(1, (c?.proprietarioIds || []).length || 1);
+// Share considerando a data específica (rateio entre coproprietários
+// vigentes naquela data). Fallback: share atual.
+const _shareCountEmData = (c, dataIso) => {
+  const donos = donosEmData(c, dataIso);
+  return Math.max(1, donos.length || 1);
+};
+
+// Verifica se propId era um dos donos do cavalo em algum momento
+// do mês ref (via historicoProprietarios).
+const _foiDonoNoMes = (cavalo, propId, ref) => {
+  const periodos = periodosProprietariosNoMes(cavalo, ref);
+  return periodos.some(p => p.propIds.includes(propId));
+};
 
 const calcFaturaProprietario = (propId, ref, deps) => {
   const { cavalos = [], registros = [], procedimentos = [], servicos = [], insumos = [], movimentacoes = [], custosFixos = [] } = deps;
+  // Considera cavalo se propId foi dono em qualquer momento do mês
   const cavalosObj = cavalos
-    .filter(c => (c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId)
+    .filter(c => _foiDonoNoMes(c, propId, ref))
     .filter(c => cavaloAtivoNoMes(c, ref, movimentacoes, registros, procedimentos));
   const cavIds = new Set(cavalosObj.map(c => c.id));
   const findInsumo = (iid) => insumos.find(i => i.id === iid);
 
-  // Mensalidade — potros ao pé / pagarOCusto não pagam mensalidade.
+  // Mensalidade — potros ao pé / pagarOCusto não pagam.
+  // Se cavalo teve transferência no mês, o valor é rateado
+  // proporcionalmente aos dias em que propId foi dono.
   const propMens = cavalosObj.map(c => {
-    if (_cavPagaCusto(c)) return { cav: c, dias: calcDias(c, ref, movimentacoes).dias, total: calcDias(c, ref, movimentacoes).total, valor: 0, valorBase: 0, share: _shareCount(c), parcial: false };
-    return { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share: _shareCount(c) };
+    const share = _shareCount(c);
+    if (_cavPagaCusto(c)) {
+      const dd = calcDias(c, ref, movimentacoes);
+      return { cav: c, dias: dd.dias, total: dd.total, valor: 0, valorBase: 0, share, parcial: false };
+    }
+    const base = { cav: c, ...calcMensalidadeProporcional(c, ref, movimentacoes), share };
+    // Rateio por período de titularidade dentro do mês
+    const diasComoProp = diasComoProprietarioNoMes(c, propId, ref);
+    const diasTotais = calcDias(c, ref, movimentacoes).dias;
+    if (diasTotais > 0 && diasComoProp < diasTotais) {
+      // Ajusta o valor: cobra só a fração de dias em que propId era dono.
+      // Fração calculada sobre os dias do mês (não sobre dias estabulados).
+      base.valorBase = base.valor;
+      base.valor = base.valor * (diasComoProp / diasTotais);
+      base.diasComoProp = diasComoProp;
+      base.transferido = true;
+    }
+    return base;
   });
   const mensTotal = propMens.reduce((s, m) => s + m.valor / m.share, 0);
 
-  // Perfil nutricional — calcPerfilMes já trata pagaCusto internamente
+  // Perfil nutricional — calcPerfilMes já trata pagaCusto internamente.
+  // Também aplica rateio se cavalo teve transferência.
   const propPerfil = cavalosObj
-    .map(c => ({ cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share: _shareCount(c) }))
-    .filter(pp => pp.linhas.length > 0);
+    .map(c => {
+      const share = _shareCount(c);
+      const base = { cav: c, ...calcPerfilMes(c, ref, movimentacoes, insumos), share };
+      const diasComoProp = diasComoProprietarioNoMes(c, propId, ref);
+      const diasTotais = calcDias(c, ref, movimentacoes).dias;
+      if (diasTotais > 0 && diasComoProp < diasTotais) {
+        base.total = base.total * (diasComoProp / diasTotais);
+        base.linhas = base.linhas.map(l => ({ ...l, valorMes: (l.valorMes ?? l.valor ?? 0) * (diasComoProp / diasTotais) }));
+        base.transferido = true;
+      }
+      return base;
+    })
+    .filter(pp => pp.linhas.length > 0 && pp.total > 0);
   const perfilTotal = propPerfil.reduce((s, pp) => s + pp.total / pp.share, 0);
 
-  // Insumos avulsos
+  // Insumos avulsos — cada registro vai pro dono na data do registro.
   const myReg = registros.filter(r => {
     if (!cavIds.has(r.cavaloId)) return false;
-    const ins = findInsumo(r.insumoId);
+    // Filtra pela titularidade na data do registro
     const cav = cavalosObj.find(x => x.id === r.cavaloId);
+    const donos = donosEmData(cav, r.data);
+    if (!donos.includes(propId)) return false;
+    const ins = findInsumo(r.insumoId);
     const paga = _cavPagaCusto(cav);
     if (!paga) {
       if (ins?.incluidoMensalidade) return false;
@@ -349,22 +397,25 @@ const calcFaturaProprietario = (propId, ref, deps) => {
   const insumosLinhas = myReg.map(r => {
     const ins = findInsumo(r.insumoId);
     const cav = cavalos.find(c => c.id === r.cavaloId);
-    const share = _shareCount(cav);
+    const share = _shareCountEmData(cav, r.data);
     const subtotal = (Number(ins?.valorVenda) || 0) * r.qtd;
     return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
   });
   const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
 
-  // Procedimentos avulsos
+  // Procedimentos avulsos — vai pro dono na data do procedimento.
   const procLinhas = procedimentos.filter(pr => {
     if (!cavIds.has(pr.cavaloId)) return false;
     if (!pr.data) return false;
+    const cav = cavalosObj.find(x => x.id === pr.cavaloId);
+    const donos = donosEmData(cav, pr.data);
+    if (!donos.includes(propId)) return false;
     const d = new Date(pr.data + 'T12:00:00');
     return d.getFullYear() === ref.ano && d.getMonth() + 1 === ref.mes;
   }).map(pr => {
     const cav = cavalos.find(c => c.id === pr.cavaloId);
     const sv = servicos.find(s => s.id === pr.servicoId);
-    const share = _shareCount(cav);
+    const share = _shareCountEmData(cav, pr.data);
     const nomeSv = pr.servicoId === '__exames_lab__' ? 'Exames laboratoriais' : (sv?.nome || 'Procedimento');
     return { proc: pr, cav, sv, nomeSv, share, total: (Number(pr.total) || 0) / share };
   });
@@ -2001,6 +2052,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
   const [selectedProprietarios, setSelectedProprietarios] = useState(c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []));
   const [showPropSelector, setShowPropSelector] = useState(false);
   const [propSearch, setPropSearch] = useState('');
+  // Histórico de transferências de proprietário
+  const [historicoProps, setHistoricoProps] = useState(c.historicoProprietarios || []);
+  const [showTransferirForm, setShowTransferirForm] = useState(false);
+  const [transferData, setTransferData] = useState(new Date().toISOString().slice(0, 10));
+  const [transferProps, setTransferProps] = useState([]);
+  const [transferPropSearch, setTransferPropSearch] = useState('');
   const sortedProprietarios = [...proprietarios].sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   const filteredProprietarios = propSearch.trim()
     ? sortedProprietarios.filter(p => norm(p.nome).includes(norm(propSearch)))
@@ -2159,7 +2216,7 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
       const parsed = parseFloat(mensStr);
       safeMens = Number.isFinite(parsed) && parsed >= 0 ? parsed : (Number.isFinite(Number(c.mensalidade)) ? Number(c.mensalidade) : 0);
     }
-    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || null, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
+    updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || null, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, historicoProprietarios: historicoProps, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
       const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
@@ -2451,6 +2508,113 @@ Suplementos: ${supNomes}` : ''}`;
               </div>
             )}
           </FormField>
+
+          {/* Botão transferir + histórico */}
+          <div style={{ borderTop: '1px solid var(--line)', padding: '12px 14px' }}>
+            {!showTransferirForm ? (
+              <button onClick={() => {
+                setShowTransferirForm(true);
+                setTransferData(new Date().toISOString().slice(0, 10));
+                setTransferProps([]);
+              }} style={{
+                width: '100%', background: 'transparent', border: '1px dashed var(--accent)',
+                color: 'var(--accent)', borderRadius: 10, padding: '10px 12px',
+                fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>
+                ↪ Transferir para novo proprietário
+              </button>
+            ) : (
+              <div style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10, padding: 12 }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 8 }}>
+                  Transferir para novo proprietário
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 10, lineHeight: 1.4 }}>
+                  A partir da data escolhida, o novo dono passa a ser cobrado. A mensalidade do mês é rateada pelos dias.
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Data efetiva</div>
+                  <input type="date" value={transferData} onChange={e => setTransferData(e.target.value)} style={{
+                    width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
+                    background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+                  }} />
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Novo(s) proprietário(s)</div>
+                  <input type="text" placeholder="Buscar…" value={transferPropSearch}
+                    onChange={e => setTransferPropSearch(e.target.value)} style={{
+                    width: '100%', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
+                    background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+                    marginBottom: 6,
+                  }} />
+                  <div style={{ maxHeight: 140, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 8, background: 'var(--bg)', padding: 6 }}>
+                    {sortedProprietarios
+                      .filter(p => !transferPropSearch.trim() || norm(p.nome).includes(norm(transferPropSearch)))
+                      .map(p => (
+                        <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--ink)', padding: '4px 4px' }}>
+                          <input type="checkbox" checked={transferProps.includes(p.id)}
+                            onChange={() => setTransferProps(prev => prev.includes(p.id) ? prev.filter(x => x !== p.id) : [...prev, p.id])} />
+                          {p.nome}
+                        </label>
+                      ))}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setShowTransferirForm(false)} style={{
+                    flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--line)',
+                    background: 'var(--card)', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>Cancelar</button>
+                  <button onClick={() => {
+                    if (!transferData || transferProps.length === 0) return;
+                    // Snapshot do dono atual (se não estiver no histórico, adiciona
+                    // como o período inicial começando na dataEntrada — ou uma data
+                    // muito antiga como fallback).
+                    let novoHist = [...historicoProps];
+                    if (novoHist.length === 0) {
+                      const dataInicioAtual = c.dataEntrada || '1900-01-01';
+                      novoHist.push({ proprietarioIds: selectedProprietarios, dataInicio: dataInicioAtual });
+                    }
+                    novoHist.push({ proprietarioIds: transferProps, dataInicio: transferData });
+                    // Ordena por dataInicio ASC
+                    novoHist.sort((a, b) => (a.dataInicio || '').localeCompare(b.dataInicio || ''));
+                    setHistoricoProps(novoHist);
+                    setSelectedProprietarios(transferProps);
+                    setShowTransferirForm(false);
+                  }} disabled={!transferData || transferProps.length === 0} style={{
+                    flex: 2, padding: '9px', borderRadius: 8, border: 'none',
+                    background: 'var(--accent)', color: '#fff', fontSize: 12, fontWeight: 700,
+                    cursor: (transferData && transferProps.length > 0) ? 'pointer' : 'default',
+                    opacity: (transferData && transferProps.length > 0) ? 1 : 0.5, fontFamily: 'var(--sans)',
+                  }}>Registrar transferência</button>
+                </div>
+              </div>
+            )}
+            {historicoProps.length > 0 && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 6 }}>Histórico</div>
+                {historicoProps.map((h, i) => {
+                  const nomes = (h.proprietarioIds || []).map(id => proprietarios.find(p => p.id === id)?.nome || '?').join(', ');
+                  const dataFmt = h.dataInicio ? new Date(h.dataInicio + 'T12:00:00').toLocaleDateString('pt-BR') : '—';
+                  return (
+                    <div key={i} style={{
+                      display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--ink-2)',
+                      padding: '4px 6px', borderLeft: '2px solid var(--accent)', marginBottom: 3,
+                    }}>
+                      <span style={{ fontWeight: 600, minWidth: 70 }}>{dataFmt}</span>
+                      <span style={{ flex: 1 }}>{nomes}</span>
+                      <button onClick={() => {
+                        if (window.confirm('Remover este item do histórico?')) {
+                          setHistoricoProps(prev => prev.filter((_, idx) => idx !== i));
+                        }
+                      }} style={{
+                        background: 'none', border: 'none', color: '#dc2626', cursor: 'pointer',
+                        fontSize: 14, lineHeight: 1, padding: 0,
+                      }}>×</button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

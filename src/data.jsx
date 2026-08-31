@@ -527,6 +527,75 @@ function _scoreItem(it) {
   if (it.indutorOvulacao) s += 1;
   return s;
 }
+// Histórico de proprietários — helpers
+// historicoProprietarios = [{ proprietarioIds: [], dataInicio: 'YYYY-MM-DD' }]
+// (ordenado ASC). Cada entrada vale de dataInicio até dataInicio da
+// próxima (ou até hoje/futuro se última).
+//
+// Se histórico está vazio, cavalo sempre teve proprietarioIds atual.
+
+// Retorna array [{ propIds: [], di: Date, df: Date }] cobrindo o mês ref
+// (interseção de cada período do histórico com o mês). Datas ancoradas
+// em meio-dia local pra evitar drift de fuso.
+function periodosProprietariosNoMes(cavalo, ref) {
+  const inicioMes = new Date(ref.ano, ref.mes - 1, 1, 12, 0, 0);
+  const fimMes = new Date(ref.ano, ref.mes, 0, 12, 0, 0);
+  const historico = Array.isArray(cavalo.historicoProprietarios) ? cavalo.historicoProprietarios : [];
+  const atuais = cavalo.proprietarioIds || (cavalo.proprietarioId ? [cavalo.proprietarioId] : []);
+  if (historico.length === 0) {
+    return [{ propIds: atuais, di: inicioMes, df: fimMes }];
+  }
+  // Ordena por dataInicio ASC
+  const ord = [...historico].sort((a, b) => (a.dataInicio || '').localeCompare(b.dataInicio || ''));
+  const periodos = [];
+  for (let i = 0; i < ord.length; i++) {
+    const entry = ord[i];
+    const proximo = ord[i + 1];
+    const di = new Date(entry.dataInicio + 'T12:00:00');
+    const df = proximo
+      ? new Date(new Date(proximo.dataInicio + 'T12:00:00').getTime() - 86400000)
+      : fimMes;
+    // Interseção com o mês
+    const efDi = di > inicioMes ? di : inicioMes;
+    const efDf = df < fimMes ? df : fimMes;
+    if (efDf < efDi) continue;
+    if (efDf < inicioMes || efDi > fimMes) continue;
+    periodos.push({ propIds: entry.proprietarioIds || [], di: efDi, df: efDf });
+  }
+  return periodos;
+}
+
+// Retorna quantos dias no mês esse propId foi um dos donos do cavalo.
+// Usado pra ratear mensalidade em transferências no meio do mês.
+function diasComoProprietarioNoMes(cavalo, propId, ref) {
+  const periodos = periodosProprietariosNoMes(cavalo, ref);
+  let total = 0;
+  for (const p of periodos) {
+    if (!p.propIds.includes(propId)) continue;
+    total += Math.floor((p.df - p.di) / 86400000) + 1;
+  }
+  return total;
+}
+
+// Retorna os proprietários vigentes numa data específica.
+// Usado pra atribuir insumos/procedimentos ao dono correto.
+function donosEmData(cavalo, dataIso) {
+  if (!dataIso) return cavalo.proprietarioIds || (cavalo.proprietarioId ? [cavalo.proprietarioId] : []);
+  const historico = Array.isArray(cavalo.historicoProprietarios) ? cavalo.historicoProprietarios : [];
+  const atuais = cavalo.proprietarioIds || (cavalo.proprietarioId ? [cavalo.proprietarioId] : []);
+  if (historico.length === 0) return atuais;
+  const alvo = new Date(dataIso + 'T12:00:00');
+  const ord = [...historico].sort((a, b) => (a.dataInicio || '').localeCompare(b.dataInicio || ''));
+  // Encontra a última entry com dataInicio <= alvo
+  let escolhida = null;
+  for (const e of ord) {
+    const di = new Date(e.dataInicio + 'T12:00:00');
+    if (di <= alvo) escolhida = e;
+    else break;
+  }
+  return escolhida ? (escolhida.proprietarioIds || []) : atuais;
+}
+
 function dedupPorNome(items) {
   const norm2 = (s) => norm(String(s || '').trim());
   const byNome = new Map();
@@ -566,4 +635,5 @@ export {
   getCavalo, getProprietario, getInsumo, getCategoria, idade, formatBRL,
   diasNoMes, proporcaoMensalidade, findInsumo, consumoDiarioCavalo, cobrancaPerfilMes,
   norm, addDescartaveis, dedupPorNome,
+  periodosProprietariosNoMes, diasComoProprietarioNoMes, donosEmData,
 };

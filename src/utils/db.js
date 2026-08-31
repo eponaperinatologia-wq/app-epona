@@ -8,6 +8,11 @@ export const fromDbCavalo = r => ({
   nascimento: r.nascimento || '',
   proprietarioId: r.proprietario_id || null,
   proprietarioIds: r.proprietario_ids || (r.proprietario_id ? [r.proprietario_id] : []),
+  // Histórico de transferências: [{ proprietarioIds: [], dataInicio: 'YYYY-MM-DD' }]
+  // ordenado por dataInicio ASC. Cada entrada é um período que vai até
+  // dataInicio da próxima (ou hoje, se última). Se vazio, cavalo sempre
+  // teve os mesmos proprietários (proprietarioIds atual).
+  historicoProprietarios: r.historico_proprietarios || [],
   baia: r.baia || '', piquete: r.piquete || '', mensalidade: Number(r.mensalidade) || 0,
   obs: r.obs || '', nutricao: r.nutricao || {},
   gestacao: r.gestacao || null, historicoGestacional: r.historico_gestacional || [],
@@ -212,6 +217,7 @@ export const toDbCavalo = c => ({
   nascimento: c.nascimento || null,
   proprietario_id: c.proprietarioIds?.[0] || c.proprietarioId || null,
   proprietario_ids: c.proprietarioIds || (c.proprietarioId ? [c.proprietarioId] : []),
+  historico_proprietarios: c.historicoProprietarios || [],
   baia: c.baia || '', piquete: c.piquete || '', mensalidade: Number(c.mensalidade) || 0,
   obs: c.obs || '', nutricao: c.nutricao || {},
   gestacao: c.gestacao || null, historico_gestacional: c.historicoGestacional || [],
@@ -769,7 +775,7 @@ export const toDbProgesteronaAplicacao = a => ({
 
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
-const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
+const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', historicoProprietarios: 'historico_proprietarios', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
 const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco', indutorOvulacao: 'indutor_ovulacao', workspaceId: 'workspace_id' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios', workspaceId: 'workspace_id' };
