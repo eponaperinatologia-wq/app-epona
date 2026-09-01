@@ -1109,6 +1109,7 @@ function ReproEguas({
       localId: form.localId || null,
       nascimento: form.nascimento || null,
       mae: form.mae || null,
+      pai: form.pai || null,
       obs: form.obs || null,
       workspaceId: 'repro',
       presente: true,
@@ -1303,14 +1304,12 @@ function ReproEguas({
           )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <FormField label="Mãe">
-              <input value={form.mae} onChange={e => setForm(f => ({ ...f, mae: e.target.value }))} style={inputStyle} placeholder="Nome da mãe" />
+            <FormField label={form.categorias.has('Receptora') ? 'Mãe biológica (doadora do embrião)' : 'Mãe'}>
+              <input value={form.mae} onChange={e => setForm(f => ({ ...f, mae: e.target.value }))} style={inputStyle} placeholder={form.categorias.has('Receptora') ? 'Nome da doadora' : 'Nome da mãe'} />
             </FormField>
-            {!ehGestanteForm && (
-              <FormField label="Pai">
-                <input value={form.pai} onChange={e => setForm(f => ({ ...f, pai: e.target.value }))} style={inputStyle} placeholder="Nome do pai" />
-              </FormField>
-            )}
+            <FormField label={form.categorias.has('Receptora') ? 'Pai biológico (garanhão)' : 'Pai'}>
+              <input value={form.pai} onChange={e => setForm(f => ({ ...f, pai: e.target.value }))} style={inputStyle} placeholder="Nome do garanhão" />
+            </FormField>
           </div>
 
           <FormField label="Observações">

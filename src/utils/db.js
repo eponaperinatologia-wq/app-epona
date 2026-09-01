@@ -20,6 +20,8 @@ export const fromDbCavalo = r => ({
   presente: r.presente !== false,
   dataSaida: r.data_saida || '',
   maeId: r.mae_id || null,
+  mae: r.mae || '',
+  pai: r.pai || '',
   pagarOCusto: !!r.pagar_o_custo,
   workspaceId: r.workspace_id || 'haras',
 });
@@ -229,6 +231,8 @@ export const toDbCavalo = c => ({
   presente: c.presente !== false,
   data_saida: c.dataSaida || null,
   mae_id: c.maeId || null,
+  mae: c.mae || null,
+  pai: c.pai || null,
   pagar_o_custo: !!c.pagarOCusto,
   workspace_id: c.workspaceId || 'haras',
 });
