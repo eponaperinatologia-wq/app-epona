@@ -1457,18 +1457,44 @@ const loadAllData = async () => {
   };
   const gerarAvisosMaternidade = () => {
     const hoje = new Date().toISOString().split('T')[0];
+    // Rate-limit: no máximo 1 push por égua por dia. Usa localStorage
+    // pra sobreviver reloads. Chave rotaciona pela data.
+    const chaveNotif = 'epona_mat_push_' + hoje;
+    let notifsHoje = new Set();
+    try { notifsHoje = new Set(JSON.parse(localStorage.getItem(chaveNotif) || '[]')); } catch {}
+    const marcarNotificado = (cid) => {
+      notifsHoje.add(cid);
+      try { localStorage.setItem(chaveNotif, JSON.stringify([...notifsHoje])); } catch {}
+    };
+
     for (const c of cavalos) {
+      // Filtros de escopo: só éguas presentes do haras
       if (!c.gestacao?.dataCobricao) continue;
+      if (c.presente === false) continue;
+      if (c.workspaceId === 'repro') continue;
+
       const dataCobricao = new Date(c.gestacao.dataCobricao + 'T00:00:00');
       const diasDeGestacao = Math.floor((Date.now() - dataCobricao.getTime()) / (1000 * 60 * 60 * 24));
       if (diasDeGestacao < 300) continue;
+
       const avisoId = 'av_mat_' + c.id + '_' + c.gestacao.dataCobricao;
-      const jaExiste = avisos.some(a =>
-        a.id === avisoId ||
-        (a.tipo === 'maternidade' && a.cavaloId === c.id)
-      );
-      if (jaExiste) continue;
       const texto = `A égua ${c.nome} completou ${diasDeGestacao} dias de gestação e deve ser transferida para o piquete maternidade.`;
+      const avisoExistente = avisos.find(a =>
+        a.id === avisoId ||
+        (a.tipo === 'maternidade' && a.cavaloId === c.id),
+      );
+
+      if (avisoExistente) {
+        // Aviso já existe. Se foi resolvido, não faz nada.
+        // Se está ativo E ainda não notificou hoje, dispara 1 push.
+        if (!avisoExistente.resolvido && !notifsHoje.has(c.id)) {
+          sendPush('🏥 Alerta maternidade', texto, 'all');
+          marcarNotificado(c.id);
+        }
+        continue;
+      }
+
+      // Cria aviso novo. Push só se ainda não notificou hoje.
       const novoAviso = {
         id: avisoId,
         autor: 'Sistema', avatar: '🏥',
@@ -1480,9 +1506,12 @@ const loadAllData = async () => {
       setAvisos(prev => {
         if (prev.some(a => a.id === novoAviso.id)) return prev;
         dbInsertIgnore('avisos', toDbAviso(novoAviso));
-        sendPush('🏥 Alerta maternidade', texto, 'all');
         return [novoAviso, ...prev];
       });
+      if (!notifsHoje.has(c.id)) {
+        sendPush('🏥 Alerta maternidade', texto, 'all');
+        marcarNotificado(c.id);
+      }
     }
   };
 
