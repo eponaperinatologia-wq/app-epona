@@ -110,6 +110,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   const [search, setSearch] = useStateR(savedCavalo?.search || '');
   const [catFilter, setCatFilter] = useStateR(savedCavalo?.catFilter || 'all');
   const [cobrarAvulso, setCobrarAvulso] = useStateR(false);
+  const [mostrarSaidos, setMostrarSaidos] = useStateR(false);
   const [toast, setToast] = useStateR(null);
   React.useEffect(() => {
     try {
@@ -121,7 +122,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
   const cav = cavaloId && ((cavalos || CAVALOS).find(c => c.id === cavaloId));
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
 
-  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
+  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => mostrarSaidos || c.presente);
   const cavalosFiltrados = cavalosDisponiveis.filter(c =>
     norm(c.nome).includes(norm(search)) ||
     norm(c.baia).includes(norm(search))
@@ -164,18 +165,33 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
               style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 15, color: 'var(--ink)' }} />
           </div>
         </div>
+        <div style={{ padding: '10px 20px 0' }}>
+          <label style={{
+            display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
+            fontSize: 12, color: mostrarSaidos ? 'var(--accent)' : 'var(--ink-3)',
+          }}>
+            <input type="checkbox" checked={mostrarSaidos}
+              onChange={e => setMostrarSaidos(e.target.checked)}
+              style={{ width: 16, height: 16, cursor: 'pointer' }} />
+            Mostrar animais que já saíram do haras
+          </label>
+        </div>
         <div style={{ padding: '12px 20px 0' }}>
           {cavalosFiltrados.map(c => (
             <button key={c.id} onClick={() => { setCavaloId(c.id); setSearch(''); setStep('insumo'); }} style={{
               width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
               borderRadius: 14, padding: '12px', marginBottom: 6,
               display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+              opacity: c.presente === false ? 0.7 : 1,
             }}>
               <HorseAvatar cavalo={c} size={42} />
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{c.nome}</span>
                   <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--ink-3)' }}>{c.baia}</span>
+                  {c.presente === false && (
+                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>SAIU</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>{c.pelagem} · {c.categoria}</div>
               </div>
@@ -377,9 +393,10 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
   const [catFilter, setCatFilter] = useStateR('all');
   const [search, setSearch] = useStateR('');
   const [cobrarAvulso, setCobrarAvulso] = useStateR(false);
+  const [mostrarSaidos, setMostrarSaidos] = useStateR(false);
   const [toast, setToast] = useStateR(null);
 
-  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => c.presente);
+  const cavalosDisponiveis = (cavalos || CAVALOS).filter(c => mostrarSaidos || c.presente);
   const ins = insumoId && (insumos.find(i => i.id === insumoId) || getInsumo(insumoId));
   const insumosFiltrados = (catFilter === 'all' ? insumos : insumos.filter(i => i.categoria === catFilter))
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
@@ -485,7 +502,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
         </div>
       </div>
 
-      <div style={{ padding: '12px 20px 0' }}>
+      <div style={{ padding: '12px 20px 0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
         <button onClick={() => {
           if (selectedCavalos.size === cavalosDisponiveis.length) setSelectedCavalos(new Set());
           else setSelectedCavalos(new Set(cavalosDisponiveis.map(c => c.id)));
@@ -495,6 +512,15 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
         }}>
           {selectedCavalos.size === CAVALOS.length ? 'Limpar seleção' : 'Selecionar todos'}
         </button>
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          fontSize: 12, color: mostrarSaidos ? 'var(--accent)' : 'var(--ink-3)',
+        }}>
+          <input type="checkbox" checked={mostrarSaidos}
+            onChange={e => setMostrarSaidos(e.target.checked)}
+            style={{ width: 14, height: 14, cursor: 'pointer' }} />
+          Incluir saídos
+        </label>
       </div>
 
       <div style={{ padding: '4px 20px 0' }}>
@@ -506,6 +532,7 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
               border: '1px solid ' + (sel ? 'var(--accent)' : 'var(--line)'),
               borderRadius: 12, padding: '10px 12px', marginBottom: 6,
               display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left', color: 'var(--ink)',
+              opacity: c.presente === false ? 0.7 : 1,
             }}>
               <div style={{
                 width: 22, height: 22, borderRadius: 6,
@@ -520,6 +547,9 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
                   <span style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{c.nome}</span>
                   <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--ink-3)' }}>{c.baia}</span>
+                  {c.presente === false && (
+                    <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#fee2e2', color: '#991b1b', fontWeight: 700 }}>SAIU</span>
+                  )}
                 </div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{c.categoria}</div>
               </div>
