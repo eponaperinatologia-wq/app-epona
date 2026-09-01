@@ -174,12 +174,19 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
       y += 2;
     }
 
-    // Resultados reprodutivos
+    // Resultados reprodutivos (1 linha por embrião confirmado no DG45+)
     if (resultadosLinhas.length > 0) {
-      section('Resultado reprodutivo (DG30+)');
+      section('Resultado reprodutivo (DG45+)');
       resultadosLinhas.forEach(l => {
-        const sub = [fmtData(l.data), l.vetIdInsem ? `Insem.: ${vetNome(l.vetIdInsem).split(' ')[0]}` : null].filter(Boolean).join(' · ');
-        row(l.eguaNome, sub, BRL(l.valor));
+        const nomeExib = l.totalEmbrioes > 1
+          ? `${l.eguaNome} · embrião ${l.embrioIdx + 1}/${l.totalEmbrioes}`
+          : l.eguaNome;
+        const sub = [
+          fmtData(l.data),
+          l.receptora ? `Rec.: ${l.receptora}` : null,
+          l.vetIdInsem ? `Insem.: ${vetNome(l.vetIdInsem).split(' ')[0]}` : null,
+        ].filter(Boolean).join(' · ');
+        row(nomeExib, sub, BRL(l.valor));
       });
       y += 2;
     }

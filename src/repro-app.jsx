@@ -1529,7 +1529,27 @@ function ReproCaderno({
             }
           }}
           onUpdateDg={(r, campo, valor) => {
-            const novosDados = { ...(r.dados || {}), [campo]: valor };
+            const novosDados = { ...(r.dados || {}) };
+            // Se veio no formato "emb:idx:campo" (CE com múltiplos
+            // embriões), atualiza dgsEmbrioes[idx][campo]. Também
+            // guarda dgsEmbrioes[idx][campo_data] com a data atual
+            // pra fatura conseguir localizar o DG.
+            const match = /^emb:(\d+):(dg\d+)$/.exec(campo);
+            if (match) {
+              const idx = Number(match[1]);
+              const chave = match[2];
+              const qtd = Math.max(1, Number(novosDados.qtdEmbrioes) || 1);
+              const arr = Array.isArray(novosDados.dgsEmbrioes) ? [...novosDados.dgsEmbrioes] : [];
+              while (arr.length < qtd) arr.push({});
+              arr[idx] = { ...(arr[idx] || {}), [chave]: valor };
+              if (valor) arr[idx][`${chave}_data`] = new Date().toISOString().slice(0, 10);
+              else delete arr[idx][`${chave}_data`];
+              novosDados.dgsEmbrioes = arr;
+            } else {
+              novosDados[campo] = valor;
+              if (valor) novosDados[`${campo}_data`] = new Date().toISOString().slice(0, 10);
+              else delete novosDados[`${campo}_data`];
+            }
             updateRegistroReproducao(r.id, { dados: novosDados });
           }}
         />
@@ -2824,11 +2844,52 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           </FormField>
           {dados.resultado === 'positivo' && (
             <>
-              <FormField label="Receptora (nome ou local)">
-                <input value={dados.receptora || ''} onChange={e => setDado('receptora', e.target.value)} style={inputStyle} placeholder="Ex: Receptora 42 · Piquete 3" />
+              <FormField label="Quantidade de embriões recuperados">
+                <input type="number" min="1" step="1"
+                  value={dados.qtdEmbrioes || 1}
+                  onChange={e => {
+                    const n = Math.max(1, parseInt(e.target.value, 10) || 1);
+                    setDado('qtdEmbrioes', n);
+                    // Ajusta array de receptoras
+                    const atual = Array.isArray(dados.receptoras) ? [...dados.receptoras] : [];
+                    while (atual.length < n) atual.push('');
+                    while (atual.length > n) atual.pop();
+                    setDado('receptoras', atual);
+                  }} style={inputStyle} placeholder="1" />
               </FormField>
+              {(() => {
+                const n = Math.max(1, Number(dados.qtdEmbrioes) || 1);
+                const receptoras = Array.isArray(dados.receptoras) ? dados.receptoras : (dados.receptora ? [dados.receptora] : ['']);
+                // Preenche até n
+                while (receptoras.length < n) receptoras.push('');
+                return n === 1 ? (
+                  <FormField label="Receptora (nome ou local)">
+                    <input value={receptoras[0] || dados.receptora || ''}
+                      onChange={e => { setDado('receptoras', [e.target.value]); setDado('receptora', e.target.value); }}
+                      style={inputStyle} placeholder="Ex: Receptora 42 · Piquete 3" />
+                  </FormField>
+                ) : (
+                  <div style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>
+                      Receptoras (uma por embrião)
+                    </div>
+                    {Array.from({ length: n }).map((_, i) => (
+                      <input key={i}
+                        value={receptoras[i] || ''}
+                        onChange={e => {
+                          const arr = [...(dados.receptoras || Array(n).fill(''))];
+                          while (arr.length < n) arr.push('');
+                          arr[i] = e.target.value;
+                          setDado('receptoras', arr);
+                        }}
+                        style={{ ...inputStyle, marginBottom: 6 }}
+                        placeholder={`Embrião ${i + 1} — receptora`} />
+                    ))}
+                  </div>
+                );
+              })()}
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 10 }}>
-                Diagnósticos gestacionais (DG15/30/45) podem ser marcados abrindo o detalhe do registro.
+                Diagnósticos gestacionais (DG15/30/45) de cada embrião podem ser marcados abrindo o detalhe do registro.
               </div>
             </>
           )}
@@ -3083,29 +3144,64 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
         )}
       </div>
 
-      {/* Diagnósticos de gestação (só se aplicável) */}
-      {mostrarDg && (
-        <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 10 }}>Diagnósticos gestacionais</div>
-          {dgs.map(([k, lbl]) => {
-            const val = d[k]; // 'positivo' | 'negativo' | undefined
-            return (
-              <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{lbl}</span>
-                {['positivo', 'negativo'].map(v => (
-                  <button key={v} onClick={() => onUpdateDg(registro, k, val === v ? null : v)} style={{
-                    padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
-                    border: `1px solid ${val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
-                    background: val === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
-                    color: val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-2)',
-                    cursor: 'pointer', fontFamily: 'var(--sans)',
-                  }}>{v === 'positivo' ? '✓ Positivo' : '✗ Negativo'}</button>
-                ))}
-              </div>
-            );
-          })}
-        </div>
-      )}
+      {/* Diagnósticos de gestação. Se CE com múltiplos embriões,
+          mostra um bloco por embrião com receptora + DG15/30/45. */}
+      {mostrarDg && (() => {
+        const qtd = registro.tipo === 'transferencia_embriao'
+          ? Math.max(1, Number(d.qtdEmbrioes) || 1)
+          : 1;
+        const receptoras = Array.isArray(d.receptoras) ? d.receptoras : (d.receptora ? [d.receptora] : []);
+        const dgsEmbrioes = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+        // Renderiza N seções (N=1 usa formato legado d.dg15/30/45)
+        return (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10, padding: '12px 14px', marginBottom: 12 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink-2)', marginBottom: 10 }}>
+              Diagnósticos gestacionais{qtd > 1 ? ` · ${qtd} embriões` : ''}
+            </div>
+            {Array.from({ length: qtd }).map((_, embIdx) => {
+              const isMulti = qtd > 1;
+              const label = isMulti ? `Embrião ${embIdx + 1}${receptoras[embIdx] ? ` — ${receptoras[embIdx]}` : ''}` : null;
+              const getVal = (k) => {
+                if (isMulti) return dgsEmbrioes[embIdx]?.[k] ?? null;
+                return d[k] ?? null;
+              };
+              const setVal = (k, valor) => {
+                if (isMulti) onUpdateDg(registro, `emb:${embIdx}:${k}`, valor);
+                else onUpdateDg(registro, k, valor);
+              };
+              return (
+                <div key={embIdx} style={{
+                  marginBottom: 12,
+                  ...(isMulti ? { paddingTop: 10, borderTop: embIdx > 0 ? '1px dashed var(--line)' : 'none' } : {}),
+                }}>
+                  {label && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 8 }}>
+                      {label}
+                    </div>
+                  )}
+                  {dgs.map(([k, lbl]) => {
+                    const val = getVal(k);
+                    return (
+                      <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{lbl}</span>
+                        {['positivo', 'negativo'].map(v => (
+                          <button key={v} onClick={() => setVal(k, val === v ? null : v)} style={{
+                            padding: '6px 10px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                            border: `1px solid ${val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
+                            background: val === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
+                            color: val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-2)',
+                            cursor: 'pointer', fontFamily: 'var(--sans)',
+                          }}>{v === 'positivo' ? '✓ Positivo' : '✗ Negativo'}</button>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
         <button onClick={() => onDelete(registro)} style={{
@@ -3413,10 +3509,24 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const teNeg = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'negativo').length;
   const pctTePos = (tePos + teNeg) ? Math.round((tePos / (tePos + teNeg)) * 100) : 0;
 
-  // Taxa DG15/30/45 — considera registros com dg15/dg30/dg45 marcado (positivo|negativo)
+  // Taxa DG15/30/45 — considera dg no formato legado (dados.dgXX) e no
+  // formato novo por embrião (dados.dgsEmbrioes[i].dgXX). Múltiplos
+  // embriões contam separadamente.
   const contarDg = (chave) => {
-    const total = regs.filter(r => r.dados?.[chave] === 'positivo' || r.dados?.[chave] === 'negativo').length;
-    const pos = regs.filter(r => r.dados?.[chave] === 'positivo').length;
+    let total = 0, pos = 0;
+    for (const r of regs) {
+      const d = r.dados || {};
+      const arr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : null;
+      if (arr && arr.length > 0) {
+        for (const e of arr) {
+          if (e?.[chave] === 'positivo' || e?.[chave] === 'negativo') total += 1;
+          if (e?.[chave] === 'positivo') pos += 1;
+        }
+      } else {
+        if (d[chave] === 'positivo' || d[chave] === 'negativo') total += 1;
+        if (d[chave] === 'positivo') pos += 1;
+      }
+    }
     return { total, pos, pct: total ? Math.round((pos / total) * 100) : 0 };
   };
   const dg15 = contarDg('dg15');
@@ -3546,9 +3656,15 @@ function ReproCruzamentos({ registrosRepro, eguasRepro, propRepro, vetsExternos,
   const [filtroVetId, setFiltroVetId] = useState('');
   const [ocultarConcluidos, setOcultarConcluidos] = useState(false);
 
-  // Qualquer registro com dg45=='positivo' vira uma "confirmação".
+  // Qualquer registro com pelo menos um DG45 positivo vira uma
+  // "confirmação". Aceita legado (dados.dg45) e novo (dados.dgsEmbrioes[i].dg45).
+  const hasDg45Pos = (r) => {
+    if (r.dados?.dg45 === 'positivo') return true;
+    const arr = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
+    return arr.some(e => e?.dg45 === 'positivo');
+  };
   const confirmados = (registrosRepro || [])
-    .filter(r => r.dados?.dg45 === 'positivo')
+    .filter(hasDg45Pos)
     .filter(r => !filtroVetId || r.vetId === filtroVetId)
     .sort((a, b) => (b.dados?.dg45_data || b.data || '').localeCompare(a.dados?.dg45_data || a.data || ''));
 
@@ -3997,18 +4113,34 @@ function HistoricoEgua({ egua, registrosRepro, vetsExternos, locaisRepro, propRe
                     <div style={{ fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink-2)' }}>
                       {resumoCard(r)}
                     </div>
-                    {/* DG marcados no detalhe (DG15/30/45) */}
-                    {r.dados && ['dg15', 'dg30', 'dg45'].some(k => r.dados[k]) && (
-                      <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
-                        {['dg15', 'dg30', 'dg45'].map(k => r.dados[k] && (
-                          <span key={k} style={{
-                            fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
-                            background: r.dados[k] === 'positivo' ? '#dcfce7' : '#fee2e2',
-                            color: r.dados[k] === 'positivo' ? '#15803d' : '#991b1b',
-                          }}>{k.toUpperCase()} {r.dados[k] === 'positivo' ? '+' : '-'}</span>
-                        ))}
-                      </div>
-                    )}
+                    {/* DG marcados no detalhe — mostra legado e por embrião */}
+                    {(() => {
+                      const arr = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : null;
+                      const badges = [];
+                      if (arr && arr.length > 0) {
+                        arr.forEach((e, i) => {
+                          ['dg15', 'dg30', 'dg45'].forEach(k => {
+                            if (e?.[k]) badges.push({ chave: `e${i}${k}`, label: `E${i + 1} ${k.toUpperCase()}`, valor: e[k] });
+                          });
+                        });
+                      } else if (r.dados) {
+                        ['dg15', 'dg30', 'dg45'].forEach(k => {
+                          if (r.dados[k]) badges.push({ chave: k, label: k.toUpperCase(), valor: r.dados[k] });
+                        });
+                      }
+                      if (badges.length === 0) return null;
+                      return (
+                        <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
+                          {badges.map(b => (
+                            <span key={b.chave} style={{
+                              fontSize: 9, padding: '1px 5px', borderRadius: 3, fontWeight: 700,
+                              background: b.valor === 'positivo' ? '#dcfce7' : '#fee2e2',
+                              color: b.valor === 'positivo' ? '#15803d' : '#991b1b',
+                            }}>{b.label} {b.valor === 'positivo' ? '+' : '-'}</span>
+                          ))}
+                        </div>
+                      );
+                    })()}
                     {/* Anexos (Diagnóstico) */}
                     {r.dados?.anexos?.length > 0 && (
                       <div style={{ display: 'flex', gap: 4, marginTop: 4, flexWrap: 'wrap' }}>
@@ -4345,8 +4477,10 @@ function ReproFaturaDetalhe({
         )}
         {fatura.resultadosLinhas.length > 0 && (
           <SecaoFat titulo={`Resultado repro · ${formatBRL(fatura.resultadosTotal)}`} linhas={fatura.resultadosLinhas.map(l => ({
-            principal: l.eguaNome,
-            sub: `${fmtDataBr(l.data)} · DG30+${l.vetIdInsem ? ` · insem. ${vetNome(l.vetIdInsem).split(' ')[0]}` : ''}`,
+            principal: l.totalEmbrioes > 1
+              ? `${l.eguaNome} · embrião ${l.embrioIdx + 1}/${l.totalEmbrioes}`
+              : l.eguaNome,
+            sub: `${fmtDataBr(l.data)} · DG45+${l.receptora ? ` · rec. ${l.receptora}` : ''}${l.vetIdInsem ? ` · insem. ${vetNome(l.vetIdInsem).split(' ')[0]}` : ''}`,
             valor: l.valor,
             readOnly: true,
           }))} />

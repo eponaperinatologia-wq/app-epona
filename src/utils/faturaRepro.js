@@ -135,6 +135,44 @@ export function dg30PositivosDoMes(registros, ref) {
   return out;
 }
 
+// DG45 positivos do mês — 1 item POR EMBRIÃO confirmado.
+// Cobrança do valor de resultado reprodutivo acontece aqui.
+// Suporta:
+//   - dg45 legacy (dados.dg45 === 'positivo') — 1 embrião só
+//   - dgsEmbrioes array (múltiplos embriões na mesma coleta)
+export function dg45PositivosDoMes(registros, ref) {
+  const out = [];
+  for (const r of registros) {
+    if ((r.workspaceId || 'haras') !== 'repro') continue;
+    // 1) Registro dedicado tipo diagnostico_gestacao com tipoDg='dg45'
+    if (r.tipo === 'diagnostico_gestacao' && r.dados?.resultado === 'positivo'
+        && r.dados?.tipoDg === 'dg45' && isMes(r.data, ref)) {
+      out.push({ registroOrigem: r, data: r.data, eguaId: r.eguaId, embIdx: 0, ia: rastrearIaDoDg(r, registros) });
+      continue;
+    }
+    // 2) DG45 marcado no detalhe (legacy — 1 embrião)
+    if (r.dados?.dg45 === 'positivo' && r.dados?.dg45_data && isMes(r.dados.dg45_data, ref)) {
+      out.push({
+        registroOrigem: r, data: r.dados.dg45_data, eguaId: r.eguaId, embIdx: 0,
+        ia: rastrearIaDoDg({ eguaId: r.eguaId, data: r.dados.dg45_data, dados: r.dados }, registros),
+      });
+    }
+    // 3) CE com múltiplos embriões: dgsEmbrioes[i].dg45 === 'positivo'
+    const arr = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
+    for (let i = 0; i < arr.length; i++) {
+      const e = arr[i];
+      if (e?.dg45 === 'positivo' && e?.dg45_data && isMes(e.dg45_data, ref)) {
+        out.push({
+          registroOrigem: r, data: e.dg45_data, eguaId: r.eguaId, embIdx: i,
+          receptora: (r.dados.receptoras || [])[i] || null,
+          ia: rastrearIaDoDg({ eguaId: r.eguaId, data: e.dg45_data, dados: r.dados }, registros),
+        });
+      }
+    }
+  }
+  return out;
+}
+
 // Retorna nova lista de insumos com descartáveis agrupados numa
 // única linha "Descartáveis". Usada nas faturas admin/repro.
 // Preserva as linhas originais em `.detalhe` pra debug / re-expansão.
@@ -315,17 +353,23 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   }
   const avulsosTotal = avulsosLinhas.reduce((s, l) => s + l.valor, 0);
 
-  // ── 5) Resultado reprodutivo (DG30+ do mês, cavalos do proprietário)
+  // ── 5) Resultado reprodutivo (DG45+ do mês, cavalos do proprietário)
+  // Cobra 1× por embrião confirmado no DG45. Coletas com múltiplos
+  // embriões geram múltiplas linhas.
   const resultadosLinhas = [];
-  const dg30Mes = dg30PositivosDoMes(regsRepro, ref);
-  for (const dg of dg30Mes) {
+  const dg45Mes = dg45PositivosDoMes(regsRepro, ref);
+  for (const dg of dg45Mes) {
     if (!cavalosIds.has(dg.eguaId)) continue;
     const cav = cavalos.find(c => c.id === dg.eguaId);
     const valor = Number(prop?.valorResultadoRepro) || 0;
     if (valor <= 0) continue;
+    const qtdEmb = Math.max(1, Number(dg.registroOrigem?.dados?.qtdEmbrioes) || 1);
     resultadosLinhas.push({
       data: dg.data, eguaId: dg.eguaId, eguaNome: cav?.nome || 'égua',
       iaId: dg.ia?.iaId || null, vetIdInsem: dg.ia?.vetId || null,
+      embrioIdx: dg.embIdx,
+      totalEmbrioes: qtdEmb,
+      receptora: dg.receptora || null,
       valor,
     });
   }
