@@ -150,18 +150,25 @@ export function gerarPdfFatura({
       section('Óleo · Suplementos · Periódicos');
       propPerfil.forEach(pp => {
         const share = pp.share || 1;
+        // Fração de dias como dono (transferência) — descrição precisa
+        // refletir o mesmo período do valor (que já vem multiplicado).
+        const fracTransf = pp.transferido && pp.diasComoProp != null && pp.dias > 0
+          ? pp.diasComoProp / pp.dias
+          : 1;
         pp.linhas.forEach(l => {
           const cota = (l.valorMes || l.valor || 0);
           let sub;
           if (l.periodico) {
-            const qtdMesFmt = Number(l.qtdMes || 0).toFixed(2).replace(/\.?0+$/, '');
+            const qtdMesFmt = Number((l.qtdMes || 0) * fracTransf).toFixed(2).replace(/\.?0+$/, '');
             const dosePorVez = Number(l.qtdDia || 0).toFixed(2).replace(/\.?0+$/, '');
-            const doses = l.dosesMes ?? l.dias ?? 0;
-            sub = `${pp.cav.nome} · ${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez}${l.freqLabel ? ` (${l.freqLabel})` : ''}`;
+            const dosesBase = l.dosesMes ?? l.dias ?? 0;
+            const doses = Math.round(dosesBase * fracTransf);
+            sub = `${pp.cav.nome} · ${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez}${l.freqLabel ? ` (${l.freqLabel})` : ''}${pp.transferido ? ' · transferência' : ''}`;
           } else {
             const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
-            const diasUsados = l.dias ?? pp.dias;
-            sub = `${pp.cav.nome} · ${qtd} ${l.unidade}/dia × ${diasUsados} dias`;
+            const diasBase = l.dias ?? pp.dias;
+            const diasUsados = Math.round(diasBase * fracTransf);
+            sub = `${pp.cav.nome} · ${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.transferido ? ' · transferência' : ''}`;
           }
           row(l.nome, sub, BRL(share > 1 ? cota / share : cota));
         });

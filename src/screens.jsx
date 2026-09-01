@@ -371,6 +371,7 @@ const calcFaturaProprietario = (propId, ref, deps) => {
         base.total = base.total * (diasComoProp / diasTotais);
         base.linhas = base.linhas.map(l => ({ ...l, valorMes: (l.valorMes ?? l.valor ?? 0) * (diasComoProp / diasTotais) }));
         base.transferido = true;
+        base.diasComoProp = diasComoProp;
       }
       return base;
     })
@@ -5939,6 +5940,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
       base.total = base.total * frac;
       base.linhas = base.linhas.map(l => ({ ...l, valorMes: (l.valorMes ?? l.valor ?? 0) * frac }));
       base.transferido = true;
+      base.diasComoProp = diasComoProp;
     }
     return base;
   }).filter(pp => pp.linhas.length > 0 && pp.total > 0);
@@ -6195,15 +6197,23 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
           {propPerfil.length > 0 && <SectionTitle>Óleo & suplementos · perfil × dias</SectionTitle>}
           {propPerfil.flatMap(pp => pp.linhas.map(l => {
             let sub;
+            // Fração de dias como dono (transferência) — descrição
+            // precisa refletir o mesmo período do valor (que já vem
+            // multiplicado pela mesma proporção).
+            const fracTransf = pp.transferido && pp.diasComoProp != null && pp.dias > 0
+              ? pp.diasComoProp / pp.dias
+              : 1;
             if (l.periodico) {
-              const qtdMesFmt = Number(l.qtdMes || 0).toFixed(2).replace(/\.?0+$/, '');
+              const qtdMesFmt = Number((l.qtdMes || 0) * fracTransf).toFixed(2).replace(/\.?0+$/, '');
               const dosePorVez = Number(l.qtdDia || 0).toFixed(2).replace(/\.?0+$/, '');
-              const doses = l.dosesMes ?? l.dias ?? 0;
-              sub = `${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez} ${l.unidade}${l.freqLabel ? ` (${l.freqLabel})` : ''}${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
+              const dosesBase = l.dosesMes ?? l.dias ?? 0;
+              const doses = Math.round(dosesBase * fracTransf);
+              sub = `${qtdMesFmt} ${l.unidade} no mês · ${doses}× ${dosePorVez} ${l.unidade}${l.freqLabel ? ` (${l.freqLabel})` : ''}${pp.transferido ? ' · transferência' : ''}${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
             } else {
               const qtd = l.qtdDia >= 1 ? Number(l.qtdDia).toFixed(2).replace(/\.?0+$/, '') : Number(l.qtdDia).toFixed(3).replace(/\.?0+$/, '');
-              const diasUsados = l.dias ?? pp.dias;
-              sub = `${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
+              const diasBase = l.dias ?? pp.dias;
+              const diasUsados = Math.round(diasBase * fracTransf);
+              sub = `${qtd} ${l.unidade}/dia × ${diasUsados} dias${pp.transferido ? ' · transferência' : ''}${pp.share > 1 ? ` · ${pp.share} proprietários` : ''}`;
             }
             return (
               <TableRow
