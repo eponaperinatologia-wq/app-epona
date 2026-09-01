@@ -10,6 +10,8 @@ import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRe
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
+import { EguaGestanteDetalheScreen } from './gestacao';
+import { PartoDetalheScreen } from './partos';
 
 const CORES_TAB_ATIVA = '#7c2d8c';
 
@@ -5042,6 +5044,9 @@ export function ReproApp({
   // Sinaliza pra abrir o form de nova égua com "Gestante" pré-marcado.
   // Setado quando clicar no + em Gestação e Partos.
   const [abrirGestanteForm, setAbrirGestanteForm] = useState(false);
+  // Selected pra sub-telas da Veterinária (égua gestante / parto)
+  const [vetSelectedId, setVetSelectedId] = useState(null);
+  const [vetSubScreen, setVetSubScreen] = useState(null); // 'eguaGestante' | 'parto' | null
 
   // Traduz um evento (retorno/coleta/procedimento) no rascunho de um NOVO
   // registro do caderno pra continuar aquele fluxo.
@@ -5225,6 +5230,48 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       onBack={() => setScreen('repro-vet')}
     />;
+  } else if (screen === 'repro-vet' && vetSubScreen === 'eguaGestante') {
+    // Sub-tela: detalhe da égua gestante (mesma tela do haras)
+    const filtroEguasIds = new Set(eguasRepro.map(c => c.id));
+    content = <EguaGestanteDetalheScreen
+      id={vetSelectedId}
+      setScreen={(s) => {
+        if (s === 'partoDetalhe') setVetSubScreen('parto');
+        else setVetSubScreen(null);
+      }}
+      setSelected={setVetSelectedId}
+      cavalos={eguasRepro}
+      updateCavalo={updateCavalo}
+      proprietarios={propRepro}
+      insumos={insumosRepro}
+      addAviso={vetBundle.addAviso}
+      addAtividade={vetBundle.addAtividade}
+      currentUser={currentUser}
+      partos={vetBundle.partos || []}
+      protocolosVacinacao={vetBundle.protocolosVacinacao}
+      vacinacoesAnimais={(vetBundle.vacinacoesAnimais || []).filter(v => filtroEguasIds.has(v.cavaloId))}
+      upsertVacinacaoAnimal={vetBundle.upsertVacinacaoAnimal}
+      protocolosVermifugacao={vetBundle.protocolosVermifugacao}
+      vermifugacoesAnimais={(vetBundle.vermifugacoesAnimais || []).filter(v => filtroEguasIds.has(v.cavaloId))}
+      addVermifugacaoAnimal={vetBundle.addVermifugacaoAnimal}
+      addRegistro={vetBundle.addRegistro}
+      servicos={servicosRepro}
+      addProcedimento={vetBundle.addProcedimento}
+    />;
+  } else if (screen === 'repro-vet' && vetSubScreen === 'parto') {
+    content = <PartoDetalheScreen
+      id={vetSelectedId}
+      setScreen={() => setVetSubScreen(null)}
+      partos={vetBundle.partos || []}
+      updateParto={vetBundle.updateParto}
+      deleteParto={vetBundle.deleteParto}
+      cavalos={eguasRepro}
+      updateCavalo={updateCavalo}
+      deleteCavalo={deleteCavalo}
+      proprietarios={propRepro}
+      insumos={insumosRepro}
+      addProcedimento={vetBundle.addProcedimento}
+    />;
   } else if (screen === 'repro-vet') {
     // Veterinária completa no repro — reusa a mesma VeterinariaScreen
     // do haras, com datasets filtrados pelo workspace repro e pelo
@@ -5235,8 +5282,16 @@ export function ReproApp({
     const filtraPorEgua = (arr = [], campoId = 'cavaloId') =>
       (arr || []).filter(r => filtroEguasIds.has(r[campoId]));
     content = <VeterinariaScreen
-      setScreen={() => {}}
-      setSelected={() => {}}
+      setScreen={(s) => {
+        // Navegação para sub-telas dispatched pelo hub da Veterinária.
+        // No shell do repro, capturamos telas conhecidas e renderizamos
+        // as mesmas telas do haras dentro do shell repro.
+        if (s === 'eguaGestanteDetalhe') setVetSubScreen('eguaGestante');
+        else if (s === 'partoDetalhe') setVetSubScreen('parto');
+        else if (s === 'partos') setVetSubScreen(null); // volta pro hub
+        // Outras rotas do haras não fazem sentido aqui — ignorar
+      }}
+      setSelected={(idSel) => setVetSelectedId(idSel)}
       onOpenReproducao={() => { setTab('vet'); setScreen('repro-vet-reproducao'); }}
       onCadastrarGestante={abrirCadastroGestante}
       partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}

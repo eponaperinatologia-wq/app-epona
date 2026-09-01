@@ -1941,6 +1941,7 @@ const loadAllData = async () => {
         partos, movimentacoes, registros, procedimentos, custosFixos,
         addRegistro, addAtividade, addProcedimento, addAviso,
         deleteRegistro, deleteProcedimento,
+        addParto, updateParto, deleteParto,
         protocolosVacinacao, vacinacoesAnimais, addProtocoloVacinacao,
         updateProtocoloVacinacao, deleteProtocoloVacinacao, upsertVacinacaoAnimal,
         protocolosVermifugacao, vermifugacoesAnimais, opgs,
