@@ -1,17 +1,17 @@
 {
   "files": {
-    "main.js": "/static/js/main.fc5fc90a.js",
+    "main.js": "/static/js/main.ce217a47.js",
     "static/js/239.a2e15b1d.chunk.js": "/static/js/239.a2e15b1d.chunk.js",
     "static/js/977.c04780e4.chunk.js": "/static/js/977.c04780e4.chunk.js",
     "static/js/455.8d9a2af1.chunk.js": "/static/js/455.8d9a2af1.chunk.js",
     "static/media/logo-epona.png": "/static/media/logo-epona.8d945101d95a4370345f.png",
     "index.html": "/index.html",
-    "main.fc5fc90a.js.map": "/static/js/main.fc5fc90a.js.map",
+    "main.ce217a47.js.map": "/static/js/main.ce217a47.js.map",
     "239.a2e15b1d.chunk.js.map": "/static/js/239.a2e15b1d.chunk.js.map",
     "977.c04780e4.chunk.js.map": "/static/js/977.c04780e4.chunk.js.map",
     "455.8d9a2af1.chunk.js.map": "/static/js/455.8d9a2af1.chunk.js.map"
   },
   "entrypoints": [
-    "static/js/main.fc5fc90a.js"
+    "static/js/main.ce217a47.js"
   ]
 }

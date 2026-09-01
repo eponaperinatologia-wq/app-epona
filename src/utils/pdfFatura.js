@@ -131,9 +131,13 @@ export function gerarPdfFatura({
       mensVisible.forEach(m => {
         const share = m.share || 1;
         const cota = (m.valor || 0) / share;
+        // Transferência de proprietário: mostra dias como dono (diasComoProp/total)
+        const diasExibicao = m.transferido ? m.diasComoProp : m.dias;
+        const showDias = m.parcial || m.transferido;
         const sub = [
           m.cav.categoria || '',
-          m.parcial ? `${m.dias}/${m.total} dias` : null,
+          showDias ? `${diasExibicao}/${m.total} dias` : null,
+          m.transferido ? 'transferência' : null,
           share > 1 ? `${share} proprietários` : null,
         ].filter(Boolean).join(' · ');
         row(m.cav.nome, sub, BRL(cota));
@@ -214,8 +218,10 @@ export function gerarPdfFatura({
       section('Custo fixo rateado');
       cfLinhas.forEach(l => {
         const share = l.share || 1;
+        const diasExibicao = l.transferido ? l.diasComoProp : l.dias;
         const sub = [
-          `${l.dias}/${l.totalDias} dias`,
+          `${diasExibicao}/${l.totalDias} dias`,
+          l.transferido ? 'transferência' : null,
           share > 1 ? `${share} prop.` : null,
         ].filter(Boolean).join(' · ');
         row(l.cav?.nome || '—', sub, BRL(l.valor));

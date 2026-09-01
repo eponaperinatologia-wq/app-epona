@@ -438,12 +438,13 @@ const calcFaturaProprietario = (propId, ref, deps) => {
       const { dias, total: totalDias } = calcDias(c, ref, movimentacoes);
       const share = _shareCount(c);
       let valorTotal = cfPorCavaloMes * (totalDias > 0 ? dias / totalDias : 0);
-      // Rateio por dias como dono no mês (transferência)
       const diasComoProp = diasComoProprietarioNoMes(c, propId, ref);
+      let transferido = false;
       if (dias > 0 && diasComoProp < dias) {
         valorTotal = valorTotal * (diasComoProp / dias);
+        transferido = true;
       }
-      return { cav: c, dias, totalDias, share, valor: valorTotal / share, cotaMensal: cfPorCavaloMes };
+      return { cav: c, dias, totalDias, diasComoProp, transferido, share, valor: valorTotal / share, cotaMensal: cfPorCavaloMes };
     });
   const custoFixoTotal = cfLinhas.reduce((s, l) => s + l.valor, 0);
 
@@ -5987,10 +5988,12 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
       let valorTotal = custoFixoPorCavaloMesFresh * (totalDias > 0 ? dias / totalDias : 0);
       // Rateio por dias como dono
       const diasComoProp = diasComoProprietarioNoMes(c, id, ref);
+      let transferido = false;
       if (dias > 0 && diasComoProp < dias) {
         valorTotal = valorTotal * (diasComoProp / dias);
+        transferido = true;
       }
-      return { cav: c, dias, totalDias, share, valorTotal, valor: valorTotal / share };
+      return { cav: c, dias, totalDias, diasComoProp, transferido, share, valorTotal, valor: valorTotal / share };
     });
 
   // Se fatura está fechada, usa valores ARMAZENADOS (congelados na hora do fechamento).
@@ -6172,14 +6175,22 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
           {/* tabela mensalidades */}
           <SectionTitle>Mensalidades · ração inclusa</SectionTitle>
-          {propMens.map(m => (
-            <TableRow
-              key={m.cav.id}
-              left={m.cav.nome}
-              sub={`${m.cav.categoria} · ${m.cav.baia}${m.parcial ? ` · ${m.dias}/${m.total} dias` : ''}${m.share > 1 ? ` · ${m.share} proprietários` : ''}`}
-              right={formatBRL(m.valor / m.share)}
-            />
-          ))}
+          {propMens.map(m => {
+            // Se cavalo teve transferência de proprietário no mês, mostra
+            // diasComoProp/total (dias em que este proprietário foi dono).
+            // Senão, mostra dias/total (dias estabulado).
+            const diasExibicao = m.transferido ? m.diasComoProp : m.dias;
+            const totalExibicao = m.total;
+            const showDias = m.parcial || m.transferido;
+            return (
+              <TableRow
+                key={m.cav.id}
+                left={m.cav.nome}
+                sub={`${m.cav.categoria} · ${m.cav.baia}${showDias ? ` · ${diasExibicao}/${totalExibicao} dias` : ''}${m.transferido ? ' · transferência' : ''}${m.share > 1 ? ` · ${m.share} proprietários` : ''}`}
+                right={formatBRL(m.valor / m.share)}
+              />
+            );
+          })}
 
           {propPerfil.length > 0 && <SectionTitle>Óleo & suplementos · perfil × dias</SectionTitle>}
           {propPerfil.flatMap(pp => pp.linhas.map(l => {
@@ -6303,17 +6314,20 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
           {/* Custo Fixo Rateado — só para cavalos "pagar o custo" */}
           {cfLinhas.length > 0 && <SectionTitle>Custo fixo rateado · paga o custo</SectionTitle>}
-          {cfLinhas.map(l => (
-            <div key={`cf_${l.cav.id}`} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.cav.nome}</div>
-                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
-                  Cota mensal {formatBRL(custoFixoPorCavaloMes)} · {l.dias}/{l.totalDias} dias{l.share > 1 ? ` · ${l.share} proprietários` : ''}
+          {cfLinhas.map(l => {
+            const diasExibicao = l.transferido ? l.diasComoProp : l.dias;
+            return (
+              <div key={`cf_${l.cav.id}`} style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '5px 0', fontFamily: 'var(--sans)' }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, color: 'var(--ink)' }}>{l.cav.nome}</div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>
+                    Cota mensal {formatBRL(custoFixoPorCavaloMes)} · {diasExibicao}/{l.totalDias} dias{l.transferido ? ' · transferência' : ''}{l.share > 1 ? ` · ${l.share} proprietários` : ''}
+                  </div>
                 </div>
+                <div style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', marginLeft: 12 }}>{formatBRL(l.valor)}</div>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', marginLeft: 12 }}>{formatBRL(l.valor)}</div>
-            </div>
-          ))}
+            );
+          })}
 
           {/* totais */}
           <div style={{ marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--line)', fontFamily: 'var(--sans)' }}>
