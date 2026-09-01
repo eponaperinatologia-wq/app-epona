@@ -3369,8 +3369,18 @@ function ReproPainel({
 // ── Dashboard ────────────────────────────────────────────────
 function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser }) {
   const hoje = new Date();
-  const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
+  // Default: mês mais recente com registros. Se não há registros, mês atual.
+  const mesInicial = useMemo(() => {
+    const datas = (registrosRepro || []).map(r => r.data).filter(Boolean).sort();
+    if (datas.length === 0) return { mes: hoje.getMonth() + 1, ano: hoje.getFullYear() };
+    const ultima = datas[datas.length - 1];
+    const [y, m] = ultima.split('-');
+    return { mes: Number(m), ano: Number(y) };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [mesRef, setMesRef] = useState(mesInicial);
   const [filtroVetId, setFiltroVetId] = useState('');
+  const [todosMeses, setTodosMeses] = useState(false);
 
   const emMes = (iso) => {
     if (!iso) return false;
@@ -3379,10 +3389,13 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   };
 
   const regs = (registrosRepro || []).filter(r => {
-    if (!emMes(r.data)) return false;
+    if (!todosMeses && !emMes(r.data)) return false;
     if (filtroVetId && r.vetId !== filtroVetId) return false;
     return true;
   });
+
+  const semDadosMes = !todosMeses && regs.length === 0;
+  const totalRegistrosGlobal = (registrosRepro || []).length;
 
   // Totais por tipo
   const totalIA = regs.filter(r => r.tipo === 'inseminacao_artificial').length;
@@ -3420,10 +3433,38 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
 
   return (
     <div>
-      <NavMes mesRef={mesRef} setMesRef={setMesRef} />
+      {!todosMeses && <NavMes mesRef={mesRef} setMesRef={setMesRef} />}
+      <div style={{ padding: '8px 20px 4px', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <label style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          fontSize: 12, color: todosMeses ? CORES_TAB_ATIVA : 'var(--ink-3)', fontWeight: 600,
+        }}>
+          <input type="checkbox" checked={todosMeses} onChange={e => setTodosMeses(e.target.checked)}
+            style={{ width: 14, height: 14, cursor: 'pointer' }} />
+          Ver todos os meses
+        </label>
+        <div style={{ marginLeft: 'auto', fontSize: 10, color: 'var(--ink-3)' }}>
+          {todosMeses ? `${regs.length} registro(s) no total` : `${regs.length} registro(s) no mês`}
+        </div>
+      </div>
       <div style={{ padding: '4px 20px 8px' }}>
         <FiltroVet vets={vetsExternos} valor={filtroVetId} onChange={setFiltroVetId} />
       </div>
+
+      {semDadosMes && (
+        <div style={{
+          margin: '8px 20px',
+          background: 'var(--card)', border: '1px dashed var(--line)', borderRadius: 12,
+          padding: '20px 16px', textAlign: 'center', color: 'var(--ink-3)',
+        }}>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>Nenhum registro neste mês.</div>
+          {totalRegistrosGlobal > 0 && (
+            <div style={{ fontSize: 11 }}>
+              Existem <strong>{totalRegistrosGlobal}</strong> registro(s) em outros meses. Navegue com ‹ › ou marque <strong>"Ver todos os meses"</strong>.
+            </div>
+          )}
+        </div>
+      )}
 
       <div style={{ padding: '4px 20px 8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
         {cards.map(c => (
@@ -3437,8 +3478,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
       </div>
 
       <div style={{ padding: '10px 20px 20px' }}>
-        <BarraPercentual titulo="IA que viraram TE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
-        <BarraPercentual titulo="TE positivas" valor={pctTePos} totalLabel={`${tePos}/${tePos + teNeg}`} cor="#0e7490" />
+        <BarraPercentual titulo="IA que viraram CE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
+        <BarraPercentual titulo="CE positivas" valor={pctTePos} totalLabel={`${tePos}/${tePos + teNeg}`} cor="#0e7490" />
         <div style={{
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 8,
         }}>
