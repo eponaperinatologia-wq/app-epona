@@ -2168,10 +2168,12 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     setSupList(suplementosRef.current.map(s => s.insumoId === insumoId ? { ...s, [field]: value || undefined } : s));
 
   const handleAddPeriodico = () => {
-    if (!novoPerInsumoId || !novoPerQtd) return;
+    const qtdNum = parseFloat(String(novoPerQtd).replace(',', '.'));
+    if (!novoPerInsumoId || !Number.isFinite(qtdNum) || qtdNum <= 0) return;
+    if (novoPerDataInicio && novoPerDataFim && novoPerDataFim < novoPerDataInicio) return;
     const entry = {
       insumoId: novoPerInsumoId,
-      qtd: parseFloat(novoPerQtd) || 0,
+      qtd: qtdNum,
       frequencia: novoPerFreq,
       diaSemana: novoPerDia,
       turno: novoPerTurno,
@@ -2574,16 +2576,19 @@ Suplementos: ${supNomes}` : ''}`;
                   }}>Cancelar</button>
                   <button onClick={() => {
                     if (!transferData || transferProps.length === 0) return;
-                    // Snapshot do dono atual (se não estiver no histórico, adiciona
-                    // como o período inicial começando na dataEntrada — ou uma data
-                    // muito antiga como fallback).
                     let novoHist = [...historicoProps];
                     if (novoHist.length === 0) {
                       const dataInicioAtual = c.dataEntrada || '1900-01-01';
                       novoHist.push({ proprietarioIds: selectedProprietarios, dataInicio: dataInicioAtual });
                     }
+                    // Rejeita transferência com data anterior ou igual à última entrada
+                    // do histórico — o rateio de fatura depende da ordem cronológica.
+                    const ultimaData = novoHist.reduce((m, h) => (h.dataInicio > m ? h.dataInicio : m), '');
+                    if (transferData <= ultimaData) {
+                      window.alert(`A data da transferência (${transferData}) precisa ser posterior à última transferência registrada (${ultimaData}).`);
+                      return;
+                    }
                     novoHist.push({ proprietarioIds: transferProps, dataInicio: transferData });
-                    // Ordena por dataInicio ASC
                     novoHist.sort((a, b) => (a.dataInicio || '').localeCompare(b.dataInicio || ''));
                     setHistoricoProps(novoHist);
                     setSelectedProprietarios(transferProps);
@@ -2991,6 +2996,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const [nascimento, setNascimento] = useState('');
   const [obs, setObs] = useState('');
   const [erro, setErro] = useState('');
+  const [saving, setSaving] = useState(false);
 
   // Plano nutricional
   const [racaoId, setRacaoId] = useState('i2');
@@ -3073,9 +3079,10 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
     setSuplementos(suplementos.map(s => s.insumoId === insumoId ? { ...s, [turno]: !s[turno] } : s));
 
   const handleAddPeriodico = () => {
-    if (!novoPerInsumoId || !novoPerQtd) return;
+    const qtdNum = parseFloat(String(novoPerQtd).replace(',', '.'));
+    if (!novoPerInsumoId || !Number.isFinite(qtdNum) || qtdNum <= 0) return;
     setPeriodicos(prev => [...prev, {
-      insumoId: novoPerInsumoId, qtd: parseFloat(novoPerQtd) || 0,
+      insumoId: novoPerInsumoId, qtd: qtdNum,
       frequencia: novoPerFreq, diaSemana: novoPerDia, turno: novoPerTurno,
     }]);
     setNovoPerInsumoId(''); setNovoPerQtd(''); setShowPerForm(false);
@@ -3083,11 +3090,13 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
   const handleRemovePeriodico = (idx) => setPeriodicos(prev => prev.filter((_, i) => i !== idx));
 
   const handleSave = async () => {
+    if (saving) return;
     if (!nome.trim()) { setErro('Nome do cavalo é obrigatório'); return; }
     if (selectedProprietarios.length === 0) { setErro('Selecione pelo menos um proprietário'); return; }
     if (!sexo) { setErro('Sexo é obrigatório'); return; }
     if (categorias.size === 0) { setErro('Selecione pelo menos uma categoria'); return; }
     if (isGestante && !dataCobertura) { setErro('Data de cobrição é obrigatória para gestantes'); return; }
+    setSaving(true);
 
     const categoriasArr = Array.from(categorias);
     const categoria = categoriasArr[0];
@@ -3133,14 +3142,19 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       }
     };
 
-    const newId = await addCavalo(novoCavaloData);
-    if (pendingEntradaCavalo && setNovoCavaloPendente) {
-      setNovoCavaloPendente({ id: newId, dataEntrada: new Date().toISOString().split('T')[0] });
-      setPendingEntradaCavalo(false);
-      setScreen('movimentacao');
-      return;
+    try {
+      const newId = await addCavalo(novoCavaloData);
+      if (pendingEntradaCavalo && setNovoCavaloPendente) {
+        setNovoCavaloPendente({ id: newId, dataEntrada: new Date().toISOString().split('T')[0] });
+        setPendingEntradaCavalo(false);
+        setScreen('movimentacao');
+        return;
+      }
+      setScreen('cavalos');
+    } catch (e) {
+      setSaving(false);
+      setErro('Falha ao salvar. Tente novamente.');
     }
-    setScreen('cavalos');
   };
 
   const handleBack = () => {
@@ -3639,12 +3653,13 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
       </div>
 
       <div style={{ padding: '14px 20px 0' }}>
-        <button onClick={handleSave} style={{
+        <button onClick={handleSave} disabled={saving} style={{
           width: '100%', background: 'var(--accent)', color: '#fff',
           border: 'none', borderRadius: 14, padding: '14px',
           fontFamily: 'var(--sans)', fontSize: 15, fontWeight: 600,
+          opacity: saving ? 0.6 : 1, cursor: saving ? 'default' : 'pointer',
         }}>
-          Adicionar cavalo
+          {saving ? 'Salvando…' : 'Adicionar cavalo'}
         </button>
       </div>
     </div>
