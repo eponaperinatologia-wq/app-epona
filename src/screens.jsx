@@ -3927,10 +3927,11 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
 // ─────────────────────────────────────────────────────────────
 // FATURAS · Lista (sub-tela interna do FinanceiroScreen)
 // ─────────────────────────────────────────────────────────────
-const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [] }) => {
+const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [], proprietariosTodos = null, cavalosTodos = null }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   const [busca, setBusca] = useState('');
+  const [showDiagnostico, setShowDiagnostico] = useState(false);
   const findInsumo = (id) => insumos.find(i => i.id === id);
   const isCurrentMonth = hoje.getFullYear() === ref.ano && hoje.getMonth() + 1 === ref.mes;
 
@@ -3971,6 +3972,39 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
     }).filter(f => f.fechada || f.total > 0 || (f.cavalosObj || []).length > 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proprietarios, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, faturasFechadas, ref.ano, ref.mes]);
+
+  // Diagnóstico: por que proprietários não aparecem na lista.
+  // Cobre todos os cenários (workspace errado, sem cavalos, cavalos saíram, total zerado).
+  const diagnostico = useMemo(() => {
+    const empresaInfoLocal = getEmpresa();
+    const propsFonte = proprietariosTodos || proprietarios;
+    const cavsFonte = cavalosTodos || cavalos;
+    const idsVisiveis = new Set(faturas.map(f => f.id));
+    return propsFonte
+      .filter(p => !idsVisiveis.has(p.id))
+      .map(p => {
+        if (isProprietarioProprio(p, empresaInfoLocal)) {
+          return { p, motivo: 'É o próprio haras (Epona Stud) — não gera fatura', tag: 'proprio' };
+        }
+        const ws = p.workspaceId || 'haras';
+        if (ws !== 'haras') {
+          return { p, motivo: `Cadastrado no workspace "${ws}" (não é do haras)`, tag: 'workspace' };
+        }
+        const cavsDele = cavsFonte.filter(c => (c.proprietarioIds || []).includes(p.id) || c.proprietarioId === p.id);
+        if (cavsDele.length === 0) {
+          return { p, motivo: 'Sem cavalos cadastrados', tag: 'semCavalos' };
+        }
+        const cavsHarasDele = cavsDele.filter(c => (c.workspaceId || 'haras') === 'haras');
+        if (cavsHarasDele.length === 0) {
+          return { p, motivo: `${cavsDele.length} cavalo(s) mas todos em workspace do Repro Team`, tag: 'cavalosRepro' };
+        }
+        const cavsPresentes = cavsHarasDele.filter(c => c.presente !== false);
+        if (cavsPresentes.length === 0) {
+          return { p, motivo: `${cavsHarasDele.length} cavalo(s) marcado(s) como saído(s)`, tag: 'saidos', cavs: cavsHarasDele };
+        }
+        return { p, motivo: `${cavsPresentes.length} cavalo(s) no plantel — fatura ${'​'}zerada neste mês (verificar transferências/movimentações)`, tag: 'zerada', cavs: cavsPresentes };
+      });
+  }, [proprietariosTodos, cavalosTodos, proprietarios, cavalos, faturas]);
 
   const navMes = (delta) => {
     setRef(prev => {
@@ -4050,6 +4084,43 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
             </div>
           </button>
         ))}
+
+        {diagnostico.length > 0 && (
+          <div style={{ marginTop: 20 }}>
+            <button onClick={() => setShowDiagnostico(v => !v)} style={{
+              width: '100%', background: 'transparent', border: '1px dashed var(--line)',
+              borderRadius: 12, padding: '10px 14px', fontSize: 12, color: 'var(--ink-3)',
+              fontFamily: 'var(--sans)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            }}>
+              <span>🔍 {diagnostico.length} proprietário(s) sem fatura — ver motivo</span>
+              <span style={{ fontSize: 14 }}>{showDiagnostico ? '▴' : '▾'}</span>
+            </button>
+            {showDiagnostico && (
+              <div style={{ marginTop: 8, background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 12, padding: 10 }}>
+                {diagnostico.map(({ p, motivo, tag }) => (
+                  <div key={p.id} style={{
+                    padding: '8px 10px', marginBottom: 6, borderRadius: 8, background: 'var(--card)',
+                    display: 'flex', alignItems: 'center', gap: 10, borderLeft: `3px solid ${tag === 'workspace' || tag === 'cavalosRepro' ? '#dc2626' : tag === 'zerada' ? '#f59e0b' : 'var(--line)'}`,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--serif)' }}>{p.nome}</div>
+                      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>{motivo}</div>
+                    </div>
+                    {tag === 'zerada' && (
+                      <button onClick={() => { setFaturaRef(ref); setSelected(p.id); setScreen('faturaDetalhe'); }} style={{
+                        fontSize: 10, padding: '4px 8px', borderRadius: 6, border: '1px solid var(--line)',
+                        background: 'var(--card)', color: 'var(--ink-2)', cursor: 'pointer', fontFamily: 'var(--sans)',
+                      }}>Abrir</button>
+                    )}
+                  </div>
+                ))}
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', padding: '4px 4px 0', marginTop: 4 }}>
+                  Legenda: 🔴 problema de workspace · 🟡 fatura zerada · ⚪ saíram / sem cavalos
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -5278,7 +5349,7 @@ const NossosCustosSubScreen = ({ proprietarios = [], cavalos = [], registros = [
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo }) => {
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo, proprietariosTodos, cavalosTodos }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
@@ -5314,7 +5385,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         )}
       </div>
       {subTab === 'faturas' && (
-        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} />
+        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} proprietariosTodos={proprietariosTodos} cavalosTodos={cavalosTodos} />
       )}
       {subTab === 'entradas' && isAdmin && (
         <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} />
