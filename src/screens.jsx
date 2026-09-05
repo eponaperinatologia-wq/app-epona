@@ -3949,7 +3949,11 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
         cavalosObj: r.cavalosObj,
         fechada: false,
       };
-    }).filter(f => f.fechada || f.total > 0);
+    // Mostra fatura se: fechada, OU total > 0, OU proprietário tem cavalos ativos no mês.
+    // Antes escondia proprietários com total=0 mesmo tendo cavalos, o que fazia
+    // faturas "desaparecerem" quando havia bug de cálculo. Melhor mostrar zerada
+    // (visível pra investigar) do que ocultar.
+    }).filter(f => f.fechada || f.total > 0 || (f.cavalosObj || []).length > 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [proprietarios, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, faturasFechadas, ref.ano, ref.mes]);
 
@@ -6073,17 +6077,17 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
   // Ordena por nome e descarta faturas com total = 0 (a menos que estejam fechadas).
   const totalDoProprietario = (pr) => {
     const ff = faturasFechadas.find(f => f.proprietarioId === pr.id && f.ano === ref.ano && f.mes === ref.mes);
-    if (ff) return { total: ff.total, fechada: true };
+    if (ff) return { total: ff.total, fechada: true, temCavalos: true };
     const r = calcFaturaProprietario(pr.id, ref, { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos });
-    return { total: r.total, fechada: false };
+    return { total: r.total, fechada: false, temCavalos: (r.cavalosObj || []).length > 0 };
   };
   const empresaInfoAtual = getEmpresa();
   const faturasOrdenadas = [...proprietarios]
     .filter(pr => !isProprietarioProprio(pr, empresaInfoAtual))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt'))
     .filter(pr => {
-      const { total: t, fechada } = totalDoProprietario(pr);
-      return fechada || t > 0;
+      const { total: t, fechada, temCavalos } = totalDoProprietario(pr);
+      return fechada || t > 0 || temCavalos;
     });
   const idxAtual = faturasOrdenadas.findIndex(pr => pr.id === id);
   const proxProp = idxAtual >= 0 && idxAtual < faturasOrdenadas.length - 1 ? faturasOrdenadas[idxAtual + 1] : null;
