@@ -50,7 +50,7 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
   const handleSave = () => {
     const data = {
       nome: nome.trim(),
-      valor: parseFloat(valor) || 0,
+      valor: categoria === 'transporte' ? 0 : (parseFloat(valor) || 0),
       categoria,
       descartaveisObrigatorios: descartaveis,
     };
@@ -114,19 +114,29 @@ const CadServicosScreen = ({ setScreen, servicos, addServico, updateServico, set
           </div>
 
           {/* Valor */}
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Valor do serviço (R$)</div>
-            <input
-              value={valor} onChange={e => setValor(e.target.value)}
-              placeholder="0,00" type="number" min="0" step="0.01"
-              style={{
-                width: '100%', boxSizing: 'border-box',
-                background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-                padding: '12px 14px', fontSize: 15, color: 'var(--ink)',
-                fontFamily: 'var(--sans)', outline: 'none',
-              }}
-            />
-          </div>
+          {categoria !== 'transporte' ? (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>Valor do serviço (R$)</div>
+              <input
+                value={valor} onChange={e => setValor(e.target.value)}
+                placeholder="0,00" type="number" min="0" step="0.01"
+                style={{
+                  width: '100%', boxSizing: 'border-box',
+                  background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+                  padding: '12px 14px', fontSize: 15, color: 'var(--ink)',
+                  fontFamily: 'var(--sans)', outline: 'none',
+                }}
+              />
+            </div>
+          ) : (
+            <div style={{
+              marginBottom: 20, padding: '10px 12px',
+              background: '#1e40af10', border: '1px dashed #1e40af40', borderRadius: 12,
+              fontSize: 12, color: '#1e40af', fontFamily: 'var(--sans)',
+            }}>
+              Serviços de <strong>Transporte</strong> têm valor variável — o valor cobrado é digitado no momento do registro.
+            </div>
+          )}
 
           {/* Descartáveis obrigatórios */}
           <div style={{ marginBottom: 8 }}>
@@ -346,6 +356,9 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   const [motoboy, setMotoboy] = useState(false);
   const [motoboyValor, setMotoboyValor] = useState('');
   const [motoboyNome, setMotoboyNome] = useState('');
+  // Serviços de categoria 'transporte' (Motoboy, Frete etc) têm valor variável
+  // por ocorrência — o cadastro guarda 0 e o valor real é digitado aqui.
+  const [valorTransporte, setValorTransporte] = useState('');
   const [laboratorio, setLaboratorio] = useState('');
   const [examesSelecionados, setExamesSelecionados] = useState([]);
   const [toast, setToast] = useState(null);
@@ -391,6 +404,11 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       return acc;
     }, []);
 
+  const ehTransporte = sv?.categoria === 'transporte';
+  const valorServicoBase = ehTransporte
+    ? (parseFloat(String(valorTransporte).replace(',', '.')) || 0)
+    : (sv?.valor || 0);
+
   const calcTotal = () => {
     if (!sv) return 0;
     let total = 0;
@@ -401,7 +419,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
         total += (ins?.valorVenda || ins?.valor || 0) * d.qtd;
       });
     } else {
-      total = sv.valor;
+      total = valorServicoBase;
       sv.descartaveisObrigatorios?.forEach(d => {
         const ins = insumos.find(i => i.id === d.insumoId) || getInsumo(d.insumoId);
         total += (ins?.valorVenda || ins?.valor || 0) * d.qtd;
@@ -420,7 +438,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
     const { data, mes } = dataParaMesDestino(mesDestino);
     addProcedimento({
       cavaloId, servicoId,
-      valorServico: sv.categoria === 'exames' ? 0 : sv.valor,
+      valorServico: sv.categoria === 'exames' ? 0 : valorServicoBase,
       descartaveisObrigatorios: sv.categoria === 'exames' ? getMergedDescartaveis() : sv.descartaveisObrigatorios || [],
       insumosAdicionais,
       motoboy: motoboy ? { ativo: true, valor: parseFloat(motoboyValor) || 0, nome: motoboyNome.trim() } : { ativo: false, valor: 0, nome: '' },
@@ -569,7 +587,7 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 14, color: 'var(--ink)', fontWeight: 500 }}>{sv.nome}</div>
                   <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>
-                    {formatBRL(sv.valor)}{nDesc > 0 ? ` · ${nDesc} desc. obrigatório(s)` : ''}
+                    {sv.categoria === 'transporte' ? 'Valor variável' : formatBRL(sv.valor)}{nDesc > 0 ? ` · ${nDesc} desc. obrigatório(s)` : ''}
                   </div>
                 </div>
                 <Icon name="chevron-right" size={16} color="var(--ink-3)" />
@@ -762,10 +780,38 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
                 <div style={{ fontSize: 15, color: 'var(--ink)', fontWeight: 500 }}>{sv?.nome}</div>
                 <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{cat?.nome}</div>
               </div>
-              {sv?.categoria !== 'exames' && (
+              {sv?.categoria !== 'exames' && !ehTransporte && (
                 <span style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)' }}>{formatBRL(sv?.valor || 0)}</span>
               )}
+              {ehTransporte && valorServicoBase > 0 && (
+                <span style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)' }}>{formatBRL(valorServicoBase)}</span>
+              )}
             </div>
+            {ehTransporte && (
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed var(--line)' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6 }}>
+                  Valor cobrado neste transporte (R$) *
+                </div>
+                <input
+                  value={valorTransporte}
+                  onChange={e => setValorTransporte(e.target.value)}
+                  placeholder="0,00"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  autoFocus
+                  style={{
+                    width: '100%', boxSizing: 'border-box',
+                    background: 'var(--soft)', border: '1px solid #1e40af40', borderRadius: 10,
+                    padding: '10px 12px', fontSize: 16, color: 'var(--ink)',
+                    fontFamily: 'var(--sans)', outline: 'none',
+                  }}
+                />
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+                  Transporte tem valor variável — o valor cadastrado no serviço é ignorado.
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Descartáveis — agrupados para exames, fixos para outros */}
@@ -1018,11 +1064,13 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
           flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
         }}>Cancelar</button>
-        <button onClick={confirmar} style={{
+        <button onClick={confirmar} disabled={ehTransporte && valorServicoBase <= 0} style={{
           flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 15, fontWeight: 600,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           boxShadow: '0 8px 16px rgba(61, 96, 67, 0.22)',
+          opacity: (ehTransporte && valorServicoBase <= 0) ? 0.5 : 1,
+          cursor: (ehTransporte && valorServicoBase <= 0) ? 'default' : 'pointer',
         }}>
           <Icon name="check" size={18} color="#fff" />
           Registrar procedimento
