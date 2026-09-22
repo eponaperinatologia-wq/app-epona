@@ -359,6 +359,9 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
   // Serviços de categoria 'transporte' (Motoboy, Frete etc) têm valor variável
   // por ocorrência — o cadastro guarda 0 e o valor real é digitado aqui.
   const [valorTransporte, setValorTransporte] = useState('');
+  // Data do procedimento — inicia com o default (hoje ou mesDestino),
+  // usuário pode ajustar pra lançar retroativamente na fatura certa.
+  const [dataProcedimento, setDataProcedimento] = useState(() => dataParaMesDestino(mesDestino).data);
   const [laboratorio, setLaboratorio] = useState('');
   const [examesSelecionados, setExamesSelecionados] = useState([]);
   const [toast, setToast] = useState(null);
@@ -435,7 +438,10 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
 
   const confirmar = () => {
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const { data, mes } = dataParaMesDestino(mesDestino);
+    // Usa a data escolhida pelo usuário (default é hoje ou mesDestino).
+    // mes é derivado da data — a fatura de cobrança segue a data efetiva.
+    const data = dataProcedimento || dataParaMesDestino(mesDestino).data;
+    const mes = data.slice(0, 7);
     addProcedimento({
       cavaloId, servicoId,
       valorServico: sv.categoria === 'exames' ? 0 : valorServicoBase,
@@ -756,6 +762,31 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
       <TopBar title="Confirmar" subtitle="Passo 3 de 3" onBack={() => setStep(sv?.categoria === 'exames' ? 'exames' : 'servico')} />
 
       <div style={{ padding: '16px 20px 0' }}>
+        {/* Data do procedimento — editável pra permitir lançamento retroativo */}
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+          padding: '12px 14px', marginBottom: 12,
+          display: 'flex', alignItems: 'center', gap: 12,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4 }}>
+              Data do procedimento
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+              A fatura vai para o mês desta data.
+            </div>
+          </div>
+          <input
+            type="date"
+            value={dataProcedimento}
+            onChange={e => setDataProcedimento(e.target.value)}
+            style={{
+              background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 10,
+              padding: '8px 10px', fontSize: 14, color: 'var(--ink)',
+              fontFamily: 'var(--sans)', outline: 'none',
+            }}
+          />
+        </div>
         {/* Serviço card */}
         <div style={{
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '16px', marginBottom: 12,
@@ -1064,13 +1095,13 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
           flex: 1, background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 14, fontWeight: 500, color: 'var(--ink-2)',
         }}>Cancelar</button>
-        <button onClick={confirmar} disabled={ehTransporte && valorServicoBase <= 0} style={{
+        <button onClick={confirmar} disabled={(ehTransporte && valorServicoBase <= 0) || !dataProcedimento} style={{
           flex: 2, background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 14,
           padding: '14px', fontFamily: 'var(--sans)', fontSize: 15, fontWeight: 600,
           display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
           boxShadow: '0 8px 16px rgba(61, 96, 67, 0.22)',
-          opacity: (ehTransporte && valorServicoBase <= 0) ? 0.5 : 1,
-          cursor: (ehTransporte && valorServicoBase <= 0) ? 'default' : 'pointer',
+          opacity: ((ehTransporte && valorServicoBase <= 0) || !dataProcedimento) ? 0.5 : 1,
+          cursor: ((ehTransporte && valorServicoBase <= 0) || !dataProcedimento) ? 'default' : 'pointer',
         }}>
           <Icon name="check" size={18} color="#fff" />
           Registrar procedimento
