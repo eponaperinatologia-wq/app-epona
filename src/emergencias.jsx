@@ -39,7 +39,19 @@ const diasDesde = (iso) => {
 //   Cancelar/editar antes de feito NÃO cobra. Desmarcar feito remove todos
 //     os registros criados.
 // ─────────────────────────────────────────────────────────────
-export async function marcarMedicacaoFeita({
+// Medicações sendo marcadas agora: bloqueia o 2º toque enquanto o 1º ainda
+// aguarda o servidor (antes cobrava descartáveis/frasco em dobro).
+const _marcandoAgora = new Set();
+
+export async function marcarMedicacaoFeita(args) {
+  const id = args?.m?.id;
+  if (!id || _marcandoAgora.has(id)) return;
+  _marcandoAgora.add(id);
+  try { return await _marcarMedicacaoFeita(args); }
+  finally { _marcandoAgora.delete(id); }
+}
+
+async function _marcarMedicacaoFeita({
   m, emergencia, insumos, servicos, frascosAbertos,
   addRegistro, addProcedimento, addAtividade,
   updateEmergMedicacao, addFrascoAberto, updateFrascoAberto,
@@ -170,6 +182,7 @@ async function _marcarFeitoComFrasco({
   // 2) sem frasco válido — abre novo(s) frasco(s)
   const frascosNecessarios = Math.max(1, Math.ceil(doseQtd / capacidade));
   let ultimoFrascoId = null;
+  let primeiroRegistroId = null;
   let doseRestante = doseQtd;
   for (let i = 0; i < frascosNecessarios; i++) {
     const consumoNesse = Math.min(doseRestante, capacidade);
@@ -177,6 +190,7 @@ async function _marcarFeitoComFrasco({
     const validoAteMs = agora.getTime() + validadeDias * 86400000;
     const validoAte = new Date(validoAteMs).toISOString();
     const rid = 'reg_emg_frs_' + Date.now() + '_' + i + '_' + Math.random().toString(36).slice(2, 4);
+    if (!primeiroRegistroId) primeiroRegistroId = rid;
     addRegistro({
       id: rid, cavaloId: emergencia.cavaloId, insumoId: m.insumoId,
       qtd: capacidade, hora, data: m.data, usuario, isAuto: false,
@@ -198,7 +212,9 @@ async function _marcarFeitoComFrasco({
   }
   await updateEmergMedicacao(m.id, {
     status: 'feito', feitoEm: agoraIso, feitoPor: usuario,
-    frascoId: ultimoFrascoId, descartaveisRegistros,
+    // registroId liga a dose ao frasco que ela abriu: sem ele, "desfazer"
+    // não reconhecia o frasco e deixava o frasco inteiro cobrado.
+    frascoId: ultimoFrascoId, registroId: primeiroRegistroId, descartaveisRegistros,
   });
 }
 
@@ -250,7 +266,10 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const dias = itemsPorDia || useMemo(() => {
+  // useMemo sempre chamado (hook condicional quebra o React quando
+  // itemsPorDia alterna entre definido e indefinido).
+  const diasCalculados = useMemo(() => {
+    if (itemsPorDia) return null;
     const map = new Map();
     (itens || []).forEach(it => {
       const dia = (it.dataHora || '').slice(0, 10);
@@ -264,7 +283,8 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
       if (b[0] === 'atrasados') return 1;
       return a[0].localeCompare(b[0]);
     });
-  }, [itens, agruparAtrasados, hoje]);
+  }, [itens, itemsPorDia, agruparAtrasados, hoje]);
+  const dias = itemsPorDia || diasCalculados;
 
   const idxInicial = dias.findIndex(([d]) => d !== 'atrasados' && d >= hoje);
   const [diaIdx, setDiaIdx] = useState(idxInicial >= 0 ? idxInicial : 0);
@@ -389,14 +409,22 @@ async function desmarcarMedicacaoFeita({
   // Insumo com frasco: 2 cenários
   if (m.frascoId) {
     const frasco = frascosAbertos.find(f => f.id === m.frascoId);
-    if (frasco) {
-      if (frasco.registroId && frasco.registroId === m.registroId) {
-        try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
-        try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: 0 }); } catch (e) {}
-      } else {
-        const novoConsumido = Math.max(0, Number(frasco.consumido) - Number(m.doseQtd || 0));
-        try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: novoConsumido }); } catch (e) {}
-      }
+    // Frascos ABERTOS por esta dose (pode ser mais de 1): mesmo instante de
+    // abertura da marcação. Registros antigos não guardavam registroId.
+    const tFeito = m.feitoEm ? new Date(m.feitoEm).getTime() : NaN;
+    const abertosPorEstaDose = frascosAbertos.filter(f =>
+      f.registroId && f.insumoId === m.insumoId && f.cavaloId === frasco?.cavaloId &&
+      ((m.registroId && f.registroId === m.registroId) ||
+       (!Number.isNaN(tFeito) && f.abertoEm && new Date(f.abertoEm).getTime() === tFeito)));
+    if (frasco && abertosPorEstaDose.length > 0) {
+      abertosPorEstaDose.forEach(f => {
+        try { deleteRegistro && deleteRegistro(f.registroId); } catch (e) { console.error(e); }
+        try { updateFrascoAberto && updateFrascoAberto(f.id, { consumido: 0 }); } catch (e) {}
+      });
+    } else if (frasco) {
+      // Dose tirada de frasco já aberto antes: só devolve o consumo.
+      const novoConsumido = Math.max(0, Number(frasco.consumido) - Number(m.doseQtd || 0));
+      try { updateFrascoAberto && updateFrascoAberto(frasco.id, { consumido: novoConsumido }); } catch (e) {}
     }
   } else if (m.registroId) {
     try { deleteRegistro && deleteRegistro(m.registroId); } catch (e) { console.error(e); }
@@ -1269,7 +1297,7 @@ function MedicacaoForm({ initial, insumos, servicos, onCancel, onSave }) {
   const [itemId, setItemId] = useState(initial?.insumoId || initial?.servicoId || '');
   const [busca, setBusca] = useState('');
   const [doseQtd, setDoseQtd] = useState(initial?.doseQtd != null ? String(initial.doseQtd) : '');
-  const [data, setData] = useState(initial?.data || new Date().toISOString().slice(0, 10));
+  const [data, setData] = useState(initial?.data || new Date().toLocaleDateString('sv-SE'));
   const [hora, setHora] = useState(initial?.hora || new Date().toTimeString().slice(0, 5));
   const [recType, setRecType] = useState(initial?.recorrencia?.tipo || 'unica');
   const [recValor, setRecValor] = useState(initial?.recorrencia?.valor != null ? String(initial.recorrencia.valor) : '8');

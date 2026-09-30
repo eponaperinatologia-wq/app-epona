@@ -1,5 +1,6 @@
 // veterinaria.jsx
 import React, { useState, useMemo, useRef } from 'react';
+import { NOMES_SERVICOS_INTERNOS } from './utils/cobrancasRepro';
 import { Icon } from './icons';
 import { EmergenciasScreen } from './emergencias';
 import { GestacaoPartosScreen } from './gestacao';
@@ -728,6 +729,13 @@ export function VeterinariaScreen({
         addRegistroReproducao={addRegistroReproducao}
         updateRegistroReproducao={updateRegistroReproducao}
         deleteRegistroReproducao={deleteRegistroReproducao}
+        registros={registros || []}
+        addRegistro={addRegistro}
+        deleteRegistro={deleteRegistro}
+        procedimentos={procedimentos || []}
+        addProcedimento={addProcedimento}
+        deleteProcedimento={deleteProcedimento}
+        addAviso={addAviso}
         onBack={() => setSecao(null)}
       />
     );
@@ -1480,7 +1488,9 @@ function VermifugacaoScreen({
     const data = dataRealizada || today;
     const cavalo = cavalos.find(c => c.id === item.cavaloId);
     const insumo = insumos.find(i => i.id === item.insumoId);
-    const dose = Number(doseQtd) > 0 ? Number(doseQtd) : null;
+    // Dose cobrada: a informada; senão a programada no protocolo; senão 1.
+    // (Antes, dose em branco = nada cobrado; e cada tela cobrava diferente.)
+    const dose = Number(doseQtd) > 0 ? Number(doseQtd) : (Number(item.dose) > 0 ? Number(item.dose) : 1);
     addVermifugacao({
       id: 'verm_' + Date.now() + '_' + item.cavaloId,
       protocoloId: item.protocoloId,
@@ -1588,7 +1598,7 @@ function VermifugacaoScreen({
     .sort((a, b) => (a.dataPrevista || '').localeCompare(b.dataPrevista || ''));
 
   const handleOPGAplicar = (item, data) => {
-    const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado, proximaData, motoboy, servicoId, etapaIdx } = data;
+    const { dataColeta, resultado, precisaVermifugacao, insumoVermId, dataAplicacao, aplicado, proximaData, motoboy, motoboyValor, servicoId, etapaIdx } = data;
     const hojeStr = todayStr();
     const opgExistente = item.opgPendente;
     const opgData = {
@@ -1602,12 +1612,29 @@ function VermifugacaoScreen({
     if (opgExistente) updateOpg(opgExistente.id, opgData);
     else addOpg({ id: 'opg_'+Date.now(), ...opgData });
     if (servicoId && addProcedimento && aplicado) {
+      // Antes o procedimento ia sem valorServico/total → gravado como R$ 0 na
+      // fatura, e motoboy como booleano (a fatura espera { ativo, valor }).
+      const sv = (servicos || []).find(s => s.id === servicoId);
+      const valorServico = Number(sv?.valor) || 0;
+      const descartaveis = sv?.descartaveisObrigatorios || [];
+      const valorDescartaveis = descartaveis.reduce((t, d) => {
+        const ins = (insumos || []).find(i => i.id === d.insumoId);
+        return t + (Number(ins?.valorVenda) || 0) * (Number(d.qtd) || 0);
+      }, 0);
+      const valorMotoboy = motoboy ? (parseFloat(motoboyValor) || 0) : 0;
       addProcedimento({
         id: 'proc_opg_'+Date.now()+'_'+item.cavaloId,
         cavaloId: item.cavaloId, servicoId,
         data: dataColeta,
+        hora: new Date().toTimeString().slice(0,5),
         nota: `OPG · ${item.protocoloNome}${item.laboratorio ? ' · ' + item.laboratorio : ''}`,
-        motoboy: !!motoboy,
+        valorServico,
+        descartaveisObrigatorios: descartaveis,
+        insumosAdicionais: [],
+        motoboy: { ativo: !!motoboy, valor: valorMotoboy, nome: '' },
+        laboratorio: item.laboratorio || '',
+        tubosSelecionados: [], examesSelecionados: [],
+        total: valorServico + valorDescartaveis + valorMotoboy,
         usuario: currentUser?.nome || '',
         mes: dataColeta.slice(0,7),
       });
@@ -2526,6 +2553,7 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
   const [dataAplicacao, setDataAplicacao] = useState(opg?.dataAplicacao||todayStr());
   const [proximaData, setProximaData] = useState(opg?.proximaData||'');
   const [motoboy, setMotoboy] = useState(false);
+  const [motoboyValor, setMotoboyValor] = useState('');
 
   const dr = item.diasRestantes;
   const labelDias = dr===0?'Hoje':dr<0?`${Math.abs(dr)} dia${Math.abs(dr)>1?'s':''} atrás`:`em ${dr} dia${dr>1?'s':''}`;
@@ -2542,11 +2570,11 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
     : null;
 
   const handleAplicar = () => {
-    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:true, insumoVermId, dataAplicacao, aplicado:true, proximaData, motoboy, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:true, insumoVermId, dataAplicacao, aplicado:true, proximaData, motoboy, motoboyValor, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
     setOpen(false);
   };
   const handleSemNecessidade = () => {
-    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:false, insumoVermId:'', dataAplicacao:'', aplicado:true, proximaData, motoboy, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
+    onAplicar(item, { dataColeta, resultado:resultadoValido, precisaVermifugacao:false, insumoVermId:'', dataAplicacao:'', aplicado:true, proximaData, motoboy, motoboyValor, servicoId:item.servicoId, etapaIdx:item.etapaIdx??null });
     setOpen(false);
   };
 
@@ -2587,6 +2615,9 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
                   {motoboy?'🛵 Motoboy ✓':'🛵 Motoboy'}
                 </button>
               </div>
+              {motoboy && (
+                <input type="number" min="0" step="0.01" value={motoboyValor} onChange={e=>setMotoboyValor(e.target.value)} placeholder="Valor do motoboy (R$)" style={{ width:'100%', marginTop:6, padding:'9px 12px', borderRadius:9, border:'1px solid #7c3aed', background:'var(--card)', fontSize:14, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none', boxSizing:'border-box' }} />
+              )}
             </div>
           )}
           <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4 }}>Resultado (OPG)</div>
@@ -3104,7 +3135,13 @@ function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anot
                               servicos={servicos}
                               showAnimal={false}
                               onEdit={() => { setEditNota(nota); setShowForm(true); }}
-                              onDelete={() => { if (window.confirm('Excluir anotação?')) deleteAnotacaoClinica(nota.id); }}
+                              onDelete={() => {
+                                if (!window.confirm('Excluir anotação? Os insumos e procedimentos lançados por ela também saem da fatura.')) return;
+                                // Antes as cobranças criadas pela nota ficavam na fatura
+                                (nota.insumosCriados || []).forEach(c => c.registroId && deleteRegistro && deleteRegistro(c.registroId));
+                                (nota.procsCriados || []).forEach(c => c.procId && deleteProcedimento && deleteProcedimento(c.procId));
+                                deleteAnotacaoClinica(nota.id);
+                              }}
                             />
                           ))}
                         </div>
@@ -3551,7 +3588,7 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
                   return (
                     <div key={p.id} style={{ fontSize: 13, color: 'var(--ink)', padding: '5px 0', borderBottom: '1px solid var(--soft)' }}>
                       <span style={{ color: 'var(--ink-3)', fontSize: 12 }}>{p.data ? new Date(p.data + 'T12:00:00').toLocaleDateString('pt-BR') : '—'} · </span>
-                      {sv?.nome || p.servicoId}{p.nota ? ` — ${p.nota}` : ''}
+                      {sv?.nome || NOMES_SERVICOS_INTERNOS[p.servicoId] || 'Procedimento'}{p.nota ? ` — ${p.nota}` : ''}
                     </div>
                   );
                 })}

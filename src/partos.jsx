@@ -163,7 +163,18 @@ export function PartosScreen({ setScreen, setSelected, partos, cavalos, propriet
 // ─────────────────────────────────────────────────────────────
 // REGISTRAR PARTO
 // ─────────────────────────────────────────────────────────────
-export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, proprietarios, insumos, addCavalo, addParto, updateCavalo }) {
+// Lança o insumo do parto como registro da égua, para entrar na fatura do
+// proprietário (antes ficava só em partos.insumosUsados e nunca era cobrado).
+// Retorna o id do registro, guardado no item para permitir remover depois.
+const lancarInsumoParto = (addRegistro, { eguaId, insumoId, qtd, data }) => {
+  if (!addRegistro || !eguaId || !insumoId) return null;
+  const registroId = 'r_parto_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+  addRegistro({ id: registroId, cavaloId: eguaId, insumoId, qtd, hora, data, usuario: 'Parto' });
+  return registroId;
+};
+
+export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, proprietarios, insumos, addCavalo, addParto, updateCavalo, addRegistro }) {
   const now = new Date();
   const [eguaId, setEguaId] = useState('');
   const [potroNome, setPotroNome] = useState('');
@@ -183,8 +194,15 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
     }
   };
 
+  // Trava contra toque duplo (criaria 2 potros + 2 partos + 2 cobranças).
+  const salvandoRef = React.useRef(false);
   const handleRegistrar = async () => {
     if (!eguaId || !potroNome.trim()) return;
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
+    try { await registrarParto(); } finally { salvandoRef.current = false; }
+  };
+  const registrarParto = async () => {
     const egua = cavalos.find(c => c.id === eguaId);
     const assistencia = insumos.find(i => i.nome === 'Assistência ao Parto') || insumos.find(i => i.id === 'im8');
 
@@ -232,6 +250,7 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
         qtd: 1,
         valorUnit: assistencia.valorVenda,
         fixo: true,
+        registroId: lancarInsumoParto(addRegistro, { eguaId, insumoId: assistencia.id, qtd: 1, data }),
       }] : [],
     });
 
@@ -348,7 +367,7 @@ export function RegistrarPartoScreen({ setScreen, setSelected, cavalos, propriet
 // ─────────────────────────────────────────────────────────────
 // DETALHE DO PARTO — 3 abas
 // ─────────────────────────────────────────────────────────────
-export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteParto, cavalos, updateCavalo, deleteCavalo, proprietarios, insumos }) {
+export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteParto, cavalos, updateCavalo, deleteCavalo, proprietarios, insumos, addRegistro, deleteRegistro }) {
   const pt = partos.find(p => p.id === id);
   const [subTab, setSubTab] = useState('dados');
   const [confirmando, setConfirmando] = useState(false);
@@ -388,6 +407,8 @@ export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteP
       });
     }
     if (pt.potroId) deleteCavalo(pt.potroId);
+    // Desfazer o parto também remove as cobranças dos insumos lançados
+    if (deleteRegistro) (pt.insumosUsados || []).forEach(u => { if (u.registroId) deleteRegistro(u.registroId); });
     deleteParto(pt.id);
     setScreen('partos');
   };
@@ -415,7 +436,7 @@ export function PartoDetalheScreen({ id, setScreen, partos, updateParto, deleteP
       />
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 90 }}>
         {subTab === 'dados' && <DadosTab pt={pt} update={update} />}
-        {subTab === 'insumos' && <InsumosTab pt={pt} updateParto={updateParto} insumos={insumos} />}
+        {subTab === 'insumos' && <InsumosTab pt={pt} updateParto={updateParto} insumos={insumos} addRegistro={addRegistro} deleteRegistro={deleteRegistro} />}
         {subTab === 'relatorio' && (
           <>
             <RelatorioTab pt={pt} egua={egua} potro={potro} prop={prop} insumos={insumos} updateParto={updateParto} />
@@ -582,7 +603,7 @@ function DadosTab({ pt, update }) {
 }
 
 // ── Aba Insumos ───────────────────────────────────────────────
-function InsumosTab({ pt, updateParto, insumos }) {
+function InsumosTab({ pt, updateParto, insumos, addRegistro, deleteRegistro }) {
   const [insumoSel, setInsumoSel] = useState('');
   const [qtd, setQtd] = useState('1');
   const [mostrarAdd, setMostrarAdd] = useState(false);
@@ -600,6 +621,7 @@ function InsumosTab({ pt, updateParto, insumos }) {
       qtd: parseFloat(qtd),
       valorUnit: insumoObj.valorVenda,
       fixo: false,
+      registroId: lancarInsumoParto(addRegistro, { eguaId: pt.eguaId, insumoId: insumoSel, qtd: parseFloat(qtd), data: pt.data }),
     };
     updateParto(pt.id, { insumosUsados: [...pt.insumosUsados, newItem] });
     setInsumoSel('');
@@ -608,6 +630,8 @@ function InsumosTab({ pt, updateParto, insumos }) {
   };
 
   const handleRemove = (uid) => {
+    const item = pt.insumosUsados.find(u => u.id === uid);
+    if (item?.registroId && deleteRegistro) deleteRegistro(item.registroId);
     updateParto(pt.id, { insumosUsados: pt.insumosUsados.filter(u => u.id !== uid) });
   };
 

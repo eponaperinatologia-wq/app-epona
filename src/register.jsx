@@ -132,7 +132,12 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
     .filter(i => i.categoria !== 'veterinario' && i.categoria !== 'transporte')
     .filter(i => !search || norm(i.nome).includes(norm(search)));
 
+  // Trava contra toque duplo: o botão fica ativo até o setTimeout navegar,
+  // e cada toque gerava um registro novo (cobrança em dobro).
+  const salvandoRef = React.useRef(false);
   const confirmar = () => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const { data, mes } = dataParaMesDestino(mesDestino);
     addRegistro({ id: 'r' + Date.now(), cavaloId, insumoId, qtd, hora, data, usuario: currentUser?.nome || '', cobrarAvulso });
@@ -147,6 +152,7 @@ const RegistrarPorCavalo = ({ setScreen, addRegistro, addAtividade, prefilledCav
     setTimeout(() => {
       setToast(null);
       setInsumoId(null); setQtd(1); setStep('insumo');
+      salvandoRef.current = false;
     }, 1600);
   };
 
@@ -409,7 +415,10 @@ const RegistrarPorInsumo = ({ setScreen, addRegistro, addAtividade, insumos = IN
     setSelectedCavalos(next);
   };
 
+  const salvandoRef = React.useRef(false);
   const confirmar = () => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     const { data, mes } = dataParaMesDestino(mesDestino);
     selectedCavalos.forEach(cid => {

@@ -1943,7 +1943,7 @@ function VacinacaoVermifugacaoTab({
   protocolosVermifugacao, vermifugacoesAnimais, addVermifugacaoAnimal,
   insumos = [], addRegistro, addAtividade, currentUser,
 }) {
-  const hojeStr = new Date().toISOString().slice(0, 10);
+  const hojeStr = new Date().toLocaleDateString('sv-SE');
   // Esta aba é do período GESTACIONAL — só mostra doses relevantes à gestação
   // atual. Ignora vacinas antigas (ex.: protocolo de potro aplicado em 2017
   // quando esta hoje-égua era potra) que só poluem a lista.
@@ -2079,10 +2079,12 @@ function VacinacaoVermifugacaoTab({
       registradoPor: currentUser?.nome || '',
       etapaIdx: item.etapaIdx ?? null,
     });
+    // Mesma regra das outras telas: dose programada (antes sempre 1 unidade)
+    const doseVerm = Number(item.dose) > 0 ? Number(item.dose) : 1;
     if (insumo) {
       addRegistro && addRegistro({
         id: 'reg_verm_' + Date.now() + '_' + cavalo.id,
-        cavaloId: cavalo.id, insumoId: insumo.id, qtd: 1,
+        cavaloId: cavalo.id, insumoId: insumo.id, qtd: doseVerm,
         hora: new Date().toTimeString().slice(0, 5),
         usuario: currentUser?.nome || '', isAuto: false, data: hojeStr,
       });
@@ -2241,7 +2243,7 @@ function ProgesteronaTab({
 
   const marcarAplicacao = async (aplicacao, programa) => {
     const insumo = insumos.find(i => i.id === programa.insumoId);
-    const hoje = new Date().toISOString().slice(0, 10);
+    const hoje = new Date().toLocaleDateString('sv-SE');
     const hora = new Date().toTimeString().slice(0, 5);
     const usuario = currentUser?.nome || '';
     const rid = 'reg_prog_' + Date.now() + '_' + Math.random().toString(36).slice(2, 5);
@@ -2385,7 +2387,7 @@ function ProgesteronaTab({
 
 function ProgramaCard({ programa, cavalo, proprietario, insumo, aplicacoes, onMarcar, onDesmarcar, onCancelar, onEncerrar, onDelete, dim }) {
   const [aberto, setAberto] = useState(!dim);
-  const hoje = new Date().toISOString().slice(0, 10);
+  const hoje = new Date().toLocaleDateString('sv-SE');
   const feitas = aplicacoes.filter(a => a.status === 'feito').length;
   const programadas = aplicacoes.filter(a => a.status === 'programado').length;
   const proxima = aplicacoes
