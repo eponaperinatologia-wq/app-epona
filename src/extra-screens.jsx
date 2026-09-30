@@ -314,7 +314,11 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
     norm(c.baia).includes(norm(search))
   );
 
+  // Trava contra toque duplo (duplicava saída, GTA e insumos da saída).
+  const salvandoRef = React.useRef(false);
   const confirmar = () => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     const mvId = 'mv' + Date.now();
     addMovimentacao({
       id: mvId,
@@ -355,6 +359,8 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
           insumosAdicionais: [],
           motoboy: { ativo: false, valor: 0, nome: '' },
           total: gtaSv.valor,
+          // Sem data o procedimento não entra na fatura (e o banco rejeita: data NOT NULL).
+          data,
           hora: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
           nota: 'GTA de saída — ' + (cav?.nome || cavaloId),
         });
@@ -373,7 +379,9 @@ const MovimentacaoScreen = ({ setScreen, addMovimentacao, addAviso, addAtividade
     if (tipo === 'saida' && insumosAdicionais.length > 0 && addRegistro) {
       const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
       insumosAdicionais.forEach(item => {
-        addRegistro({ id: 'r' + Date.now() + '_' + item.insumoId, cavaloId, insumoId: item.insumoId, qtd: item.qtd, hora, usuario: currentUser?.nome || '', data });
+        // cobrarAvulso: ração/suplemento entregue na saída é cobrado mesmo se
+        // o insumo é "incluído na mensalidade" (senão a fatura descarta).
+        addRegistro({ id: 'r' + Date.now() + '_' + item.insumoId, cavaloId, insumoId: item.insumoId, qtd: item.qtd, hora, usuario: currentUser?.nome || '', data, cobrarAvulso: true });
       });
     }
 

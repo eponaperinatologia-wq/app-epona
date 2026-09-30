@@ -25,14 +25,21 @@ const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,
 // Retorna os OBJETOS dos serviços "IA" e "TE" cadastrados (workspace
 // repro tem prioridade sobre haras). Fonte da verdade pra preço e pra
 // lista de descartáveis obrigatórios.
+// Busca por serviço (não por "pool"): antes, se existisse 1 serviço repro,
+// só o pool repro era consultado (CE ficava R$ 0 quando a coleta estava
+// cadastrada como haras), e o padrão /te\b|ce\b/ casava qualquer palavra
+// terminada em "te"/"ce" ("Transporte", "Pensão égua gestante", "Frete").
 export function servicosPadrao(servicos) {
   const svRepro = servicos.filter(s => (s.workspaceId || 'haras') === 'repro');
-  const pool = svRepro.length ? svRepro : servicos;
-  const isIa = (s) => /insemin/.test(norm(s.nome || ''));
-  const isTe = (s) => /coleta|transfer|te\b|ce\b|embria/.test(norm(s.nome || ''));
+  const svHaras = servicos.filter(s => (s.workspaceId || 'haras') !== 'repro');
+  const n = (s) => norm(s.nome || '').trim();
+  const isIa = (s) => /insemina/.test(n(s));
+  const isTeEstrito = (s) => /(coleta|transferencia)\s+(de\s+)?embri|^(ce|te)\b|\((ce|te)\)/.test(n(s));
+  const isTeAmplo = (s) => /^coleta\b|^transferencia\b/.test(n(s));
+  const achar = (pred) => svRepro.find(pred) || svHaras.find(pred) || null;
   return {
-    ia: pool.find(isIa) || null,
-    te: pool.find(isTe) || null,
+    ia: achar(isIa),
+    te: achar(isTeEstrito) || achar(isTeAmplo),
   };
 }
 export function precosPadraoServicos(servicos) {
@@ -150,16 +157,23 @@ export function dg45PositivosDoMes(registros, ref) {
       out.push({ registroOrigem: r, data: r.data, eguaId: r.eguaId, embIdx: 0, ia: rastrearIaDoDg(r, registros) });
       continue;
     }
+    // Um registro usa OU o formato legado (1 embrião, dados.dg45) OU o
+    // formato por embrião (dgsEmbrioes) — nunca os dois. Antes os dois eram
+    // somados (DG45 cobrado em dobro), e embriões além de qtdEmbrioes
+    // (após reduzir a quantidade) continuavam cobrados.
+    const qtdEmb = Number(r.dados?.qtdEmbrioes) || 1;
+    const arrEmb = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
+    const usaPorEmbriao = qtdEmb > 1 && arrEmb.length > 0;
     // 2) DG45 marcado no detalhe (legacy — 1 embrião)
-    if (r.dados?.dg45 === 'positivo' && r.dados?.dg45_data && isMes(r.dados.dg45_data, ref)) {
+    if (!usaPorEmbriao && r.dados?.dg45 === 'positivo' && r.dados?.dg45_data && isMes(r.dados.dg45_data, ref)) {
       out.push({
         registroOrigem: r, data: r.dados.dg45_data, eguaId: r.eguaId, embIdx: 0,
         ia: rastrearIaDoDg({ eguaId: r.eguaId, data: r.dados.dg45_data, dados: r.dados }, registros),
       });
     }
     // 3) CE com múltiplos embriões: dgsEmbrioes[i].dg45 === 'positivo'
-    const arr = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
-    for (let i = 0; i < arr.length; i++) {
+    const arr = usaPorEmbriao ? arrEmb : [];
+    for (let i = 0; i < Math.min(arr.length, qtdEmb); i++) {
       const e = arr[i];
       if (e?.dg45 === 'positivo' && e?.dg45_data && isMes(e.dg45_data, ref)) {
         out.push({
@@ -405,9 +419,12 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
 // ─────────────────────────────────────────────────────────────
 export function dividirFatura(fatura) {
   const acc = { epona: 0, porVet: {} };
+  // Sem vet identificado vai para uma chave própria (antes era descartado e
+  // a soma da divisão ficava menor que o total da fatura).
   const addVet = (vetId, v) => {
-    if (!vetId || !v) return;
-    acc.porVet[vetId] = (acc.porVet[vetId] || 0) + v;
+    if (!v) return;
+    const k = vetId || '__sem_vet__';
+    acc.porVet[k] = (acc.porVet[k] || 0) + v;
   };
   // Insumos → Epona
   acc.epona += fatura.insumosTotal;

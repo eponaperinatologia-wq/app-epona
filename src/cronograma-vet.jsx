@@ -285,10 +285,21 @@ export function CronogramaVetScreen({
         registradoPor: currentUser?.nome || '',
         etapaIdx: v.etapaIdx ?? null,
       });
+      // Cobrança (antes esta tela não lançava nada na fatura, embora a UI
+      // dissesse "será lançado"). Mesma regra da tela Vermifugação:
+      // dose programada (ou 1), só quando a aplicação é do mês atual.
+      const doseVerm = Number(v.dose) > 0 ? Number(v.dose) : 1;
+      if (cavalo && insumo && addRegistro && data.slice(0, 7) === todayISO().slice(0, 7)) {
+        addRegistro({
+          id: 'reg_verm_' + Date.now() + '_' + cavalo.id,
+          cavaloId: cavalo.id, insumoId: insumo.id, qtd: doseVerm,
+          hora: nowHHMM(), usuario: currentUser?.nome || '', isAuto: false, data,
+        });
+      }
       if (cavalo && insumo) {
         addAtividade && addAtividade({
           id: 'at_verm_' + Date.now() + '_' + cavalo.id,
-          tipo: 'vermifugacao', cavaloId: cavalo.id, insumoId: insumo.id, qtd: 1,
+          tipo: 'vermifugacao', cavaloId: cavalo.id, insumoId: insumo.id, qtd: doseVerm,
           motivo: v.protocoloNome || '',
           usuario: currentUser?.nome || '', autor: currentUser?.nome || '',
           mes: data.slice(0,7), data, hora: nowHHMM(), texto: '',

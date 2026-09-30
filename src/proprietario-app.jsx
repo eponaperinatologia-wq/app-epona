@@ -388,13 +388,16 @@ export function ProprietarioApp({
   // não uma estimativa. Isso garante que o valor no home bate com o valor no
   // detalhamento (incluindo mensalidade proporcional, pagarOCusto, perfil
   // nutricional, custo fixo rateado, etc.).
+  // Só cavalos do haras: o mesmo universo que o admin usa na fatura (com as
+  // éguas do Repro o rateio do custo fixo dava outro valor aqui).
+  const cavalosHaras = useMemo(() => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalos]);
   const faturaTotalEstimada = useMemo(() => {
     if (faturaFechadaAtual) return faturaFechadaAtual.total || 0;
     const r = calcFaturaProprietario(currentUser.id, refAtual, {
-      cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos,
+      cavalos: cavalosHaras, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos,
     });
     return r.total || 0;
-  }, [faturaFechadaAtual, currentUser.id, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, refAtual]);
+  }, [faturaFechadaAtual, currentUser.id, cavalosHaras, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, refAtual]);
 
   const goHome = () => { setScreen('proprietario-home'); setTab('home'); };
 
@@ -481,13 +484,16 @@ export function ProprietarioApp({
     content = (
       <FaturaDetalheScreen
         id={currentUser.id} setScreen={goHome} setSelected={setSelected}
-        registros={meusRegistros} proprietarios={proprietarios} cavalos={cavalos}
-        insumos={insumos} movimentacoes={meusMovimentacoes}
+        // Dados completos: a fatura já filtra por titularidade em cada data.
+        // Filtrar pelos cavalos ATUAIS escondia itens de um cavalo vendido no
+        // meio do mês (o dono antigo via total ≠ soma das linhas).
+        registros={registros} proprietarios={proprietarios} cavalos={cavalosHaras}
+        insumos={insumos} movimentacoes={movimentacoes}
         faturaRef={faturaRefLocal} setFaturaRef={setFaturaRefLocal}
         faturasFechadas={faturasFechadas}
         addFaturaFechada={null} removeFaturaFechada={null}
         currentUser={{ ...currentUser, role: 'proprietario' }}
-        procedimentos={meusProcedimentos} servicos={servicos}
+        procedimentos={procedimentos} servicos={servicos}
         deleteRegistro={null} updateRegistro={null} deleteProcedimento={null}
         custosFixos={custosFixos} setMesRegistroDestino={null}
       />

@@ -436,7 +436,11 @@ const RegistrarProcedimentoScreen = ({ setScreen, servicos, cavalos = CAVALOS, i
     return total;
   };
 
+  // Trava contra toque duplo (cada toque criava um procedimento novo).
+  const salvandoRef = React.useRef(false);
   const confirmar = () => {
+    if (salvandoRef.current) return;
+    salvandoRef.current = true;
     const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     // Usa a data escolhida pelo usuário (default é hoje ou mesDestino).
     // mes é derivado da data — a fatura de cobrança segue a data efetiva.

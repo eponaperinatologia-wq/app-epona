@@ -1,13 +1,14 @@
 // repro-app.jsx — Shell do Epona Repro Team.
 // Fase 1: Home + Locais + Proprietários (workspace='repro') + Éguas + Caderno + Conta.
 // Fase 2 (depois): DG, dashboard, cores no calendário, faturamento km.
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
 import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
+import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
 import { EguaGestanteDetalheScreen } from './gestacao';
@@ -139,7 +140,7 @@ function ReproHome({
     { label: 'Insumos', value: 0, cadSub: 'insumos', ocultarValor: true },
   ];
   const abrirStat = (s) => {
-    if (s.cadSub) goCadastros(s.cadSub);
+    if (s.cadSub) { if (typeof goCadastros === 'function') goCadastros(s.cadSub); return; }
     else { setTab(s.tab); setScreen(s.screen); }
   };
 
@@ -534,7 +535,7 @@ function retornoCumprido(reg, todosRegistros) {
   return (todosRegistros || []).some(other =>
     other.id !== reg.id
     && other.eguaId === reg.eguaId
-    && (other.workspaceId || 'haras') === 'repro'
+    && (other.workspaceId || 'haras') === (reg.workspaceId || 'haras')
     && other.data && other.data >= reg.dataRetorno,
   );
 }
@@ -548,7 +549,7 @@ function coletaCumprida(reg, todosRegistros) {
   return (todosRegistros || []).some(other =>
     other.tipo === 'transferencia_embriao'
     && other.eguaId === reg.eguaId
-    && (other.workspaceId || 'haras') === 'repro'
+    && (other.workspaceId || 'haras') === (reg.workspaceId || 'haras')
     && other.data && other.data >= dataAg,
   );
 }
@@ -560,7 +561,7 @@ function inducaoCumprida(reg, todosRegistros) {
   return (todosRegistros || []).some(other =>
     other.id !== reg.id
     && other.eguaId === reg.eguaId
-    && (other.workspaceId || 'haras') === 'repro'
+    && (other.workspaceId || 'haras') === (reg.workspaceId || 'haras')
     && other.data && other.data >= dataAg,
   );
 }
@@ -655,8 +656,9 @@ function corEventoAmpliado(ev, vet) {
 // registrados — esses são história, não agenda.
 function eventosPendentes(registros, hoje) {
   const out = [];
+  // Os chamadores já passam a lista do workspace certo (Repro Team ou
+  // haras). Antes só aceitava 'repro' e a agenda do haras ficava vazia.
   for (const r of (registros || [])) {
-    if ((r.workspaceId || 'haras') !== 'repro') continue;
     const dados = r.dados || {};
     // Procedimento agendado no futuro (ou hoje) — só faz sentido se a
     // data do próprio registro é futura. Como o vet cria o registro
@@ -1543,12 +1545,12 @@ function ReproCaderno({
               const arr = Array.isArray(novosDados.dgsEmbrioes) ? [...novosDados.dgsEmbrioes] : [];
               while (arr.length < qtd) arr.push({});
               arr[idx] = { ...(arr[idx] || {}), [chave]: valor };
-              if (valor) arr[idx][`${chave}_data`] = new Date().toISOString().slice(0, 10);
+              if (valor) arr[idx][`${chave}_data`] = new Date().toLocaleDateString('sv-SE');
               else delete arr[idx][`${chave}_data`];
               novosDados.dgsEmbrioes = arr;
             } else {
               novosDados[campo] = valor;
-              if (valor) novosDados[`${campo}_data`] = new Date().toISOString().slice(0, 10);
+              if (valor) novosDados[`${campo}_data`] = new Date().toLocaleDateString('sv-SE');
               else delete novosDados[`${campo}_data`];
             }
             updateRegistroReproducao(r.id, { dados: novosDados });
@@ -2445,8 +2447,175 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
   );
 }
 
+// Monta a lista final de insumos de um registro do caderno: manuais +
+// automáticos (indutor, medicamentos rápidos + kits, Tratamento Uterino,
+// descartáveis do serviço, kit de injetável). Função pura: chamada sempre a
+// partir dos MANUAIS, então salvar/editar N vezes dá sempre o mesmo resultado.
+function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = [] }) {
+  let finalInsumos = (manuais || []).filter(u => u?.insumoId).map(u => ({ insumoId: u.insumoId, qtd: Number(u.qtd) || 0 }));
+  const empilhar = (arr) => {
+    for (const item of (arr || [])) {
+      if (!item?.insumoId) continue;
+      if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
+        finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: Number(item.qtd) || 1 }];
+      }
+    }
+  };
+  // empilharSomando: quando o insumo já existe, soma a qtd
+  // (necessário pra Ocitocina 3× kit descartáveis etc)
+  const empilharSomando = (arr, qtdMult = 1) => {
+    for (const item of (arr || [])) {
+      if (!item?.insumoId) continue;
+      const idx = finalInsumos.findIndex(u => u.insumoId === item.insumoId);
+      const q = (Number(item.qtd) || 1) * qtdMult;
+      if (idx >= 0) finalInsumos[idx] = { ...finalInsumos[idx], qtd: (Number(finalInsumos[idx].qtd) || 0) + q };
+      else finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: q }];
+    }
+  };
+  // Kits de descartáveis de injeção — resolvidos 1 vez pra reutilizar
+  const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
+
+  // 0) Indutor de ovulação (CF)
+  if (tipo === 'controle_folicular' && dados.indutorOvulacaoId) {
+    empilhar([{ insumoId: dados.indutorOvulacaoId, qtd: 1 }]);
+  }
+
+  // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
+  if (tipo === 'controle_folicular' && dados.medRapidos) {
+    for (const m of MED_RAPIDO) {
+      const v = dados.medRapidos[m.slug];
+      if (!v) continue;
+      const ins = (insumos.filter(i => i.workspaceId === 'repro' && m.regex.test(i.nome || ''))[0])
+        || (insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && m.regex.test(i.nome || ''))[0]);
+      if (!ins) continue;
+      if (m.modo === 'ml') {
+        const qml = Number(v.ml) || 0;
+        if (qml > 0) empilharSomando([{ insumoId: ins.id, qtd: qml }]);
+        // 1 kit de descartáveis por aplicação
+        empilharSomando(descInj, 1);
+      } else if (m.modo === 'doses') {
+        const nd = Number(v.doses) || 0;
+        if (nd <= 0) continue;
+        const qtdInsumo = m.mlPorDose ? nd * m.mlPorDose : nd;
+        empilharSomando([{ insumoId: ins.id, qtd: qtdInsumo }]);
+        // Se descartaveisPorDose=true → 1 kit por dose; senão 1 kit total
+        empilharSomando(descInj, m.descartaveisPorDose ? nd : 1);
+      }
+    }
+  }
+
+  // 0c) Tratamento Uterino: empilha todos os insumos configurados
+  //     nos acordeões (lavagem, infusão, misoprostol). Serviços extras
+  //     (Ozonio, PRP) são consumidos direto na fatura via dados.tu.*.
+  if (tipo === 'tratamento_uterino' && dados.tu) {
+    const t = dados.tu;
+    // Lavagem: insumos declarados nos botões
+    if (t.lavagem) {
+      const lav = t.lavagem;
+      const matchers = [
+        ['ringer', TU_MATCHERS.ringer],
+        ['aguaOxig', TU_MATCHERS.aguaOxig],
+        ['dmso', TU_MATCHERS.dmso],
+        ['riodeine', TU_MATCHERS.riodeine],
+      ];
+      for (const [slug, rgx] of matchers) {
+        const q = Number(lav[slug]) || 0;
+        if (q <= 0) continue;
+        const ins = resolverPorMatcher(insumos, rgx);
+        if (ins) empilharSomando([{ insumoId: ins.id, qtd: q }]);
+      }
+      if (Array.isArray(lav.adicionais)) empilharSomando(lav.adicionais);
+    }
+    // Infusão: botukiller + antibioticoterapia + adicionais
+    if (t.infusao) {
+      const inf = t.infusao;
+      const qBotu = Number(inf.botukiller) || 0;
+      if (qBotu > 0) {
+        const insBotu = resolverPorMatcher(insumos, TU_MATCHERS.botukiller);
+        if (insBotu) empilharSomando([{ insumoId: insBotu.id, qtd: qBotu }]);
+      }
+      if (Array.isArray(inf.antibioticos)) empilharSomando(inf.antibioticos);
+      if (Array.isArray(inf.adicionais)) empilharSomando(inf.adicionais);
+    }
+    // Misoprostol: 1 unidade por corno marcado
+    if (t.misoprostol) {
+      const nMiso = (t.misoprostol.cornoDireito ? 1 : 0) + (t.misoprostol.cornoEsquerdo ? 1 : 0);
+      if (nMiso > 0) {
+        const insMiso = resolverPorMatcher(insumos, TU_MATCHERS.misoprostol);
+        if (insMiso) empilharSomando([{ insumoId: insMiso.id, qtd: nMiso }]);
+      }
+    }
+  }
+
+  // 1) Descartáveis obrigatórios vêm SÓ do cadastro do serviço.
+  // Usuário configura em Cadastros → Serviços → editar → bloco
+  // "Descartáveis obrigatórios". Não há mais fallback hardcoded.
+  const padrao = servicosPadrao(servicos);
+  let svcsVinculados = [];
+  if (tipo === 'inseminacao_artificial' && padrao.ia) svcsVinculados.push(padrao.ia);
+  else if (tipo === 'transferencia_embriao' && padrao.te) svcsVinculados.push(padrao.te);
+  else if (tipo === 'servico_avulso' && dados.servicoId) {
+    const sv = servicos.find(s => s.id === dados.servicoId);
+    if (sv) svcsVinculados.push(sv);
+  } else if (tipo === 'tratamento_uterino') {
+    const svcTU = resolverServicoPorMatcher(servicos, TU_MATCHERS.servTratamentoUterino);
+    if (svcTU) svcsVinculados.push(svcTU);
+    if (dados.tu?.lavagem?.ozonio) {
+      const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servOzonio);
+      if (sv) svcsVinculados.push(sv);
+    }
+    if (dados.tu?.infusao?.prp) {
+      const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servPrp);
+      if (sv) svcsVinculados.push(sv);
+    }
+  } else if (tipo === 'diagnostico_avulso') {
+    if (dados.dx?.biopsia) {
+      const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.biopsia);
+      if (sv) svcsVinculados.push(sv);
+    }
+    if (dados.dx?.cultura) {
+      const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.cultura);
+      if (sv) svcsVinculados.push(sv);
+    }
+  }
+  for (const svc of svcsVinculados) {
+    if (Array.isArray(svc.descartaveisObrigatorios) && svc.descartaveisObrigatorios.length > 0) {
+      empilhar(svc.descartaveisObrigatorios);
+    }
+  }
+
+  // 2) Para cada insumo injetável adicionado manualmente pelo vet
+  //    (que ainda não vem de medRapidos), garante 1 kit descartáveis.
+  const temInjetavel = finalInsumos.some(u => {
+    const ins = insumos.find(i => i.id === u.insumoId);
+    return ins && ins.injetavel;
+  });
+  if (temInjetavel) empilhar(descInj);
+  return finalInsumos;
+}
+
+// Insumos manuais de um registro salvo. Registros novos guardam em
+// dados.insumosManuais; nos antigos, deriva tirando da lista salva a parte
+// automática (recalculada a partir dos dados do próprio registro).
+function derivarManuaisLegado(registro, insumos, servicos) {
+  if (!registro) return [];
+  if (Array.isArray(registro.dados?.insumosManuais)) return registro.dados.insumosManuais;
+  const auto = montarInsumosFinais({ manuais: [], tipo: registro.tipo, dados: registro.dados || {}, insumos, servicos });
+  const restante = new Map();
+  for (const u of (registro.insumosUsados || [])) {
+    if (!u?.insumoId) continue;
+    restante.set(u.insumoId, (restante.get(u.insumoId) || 0) + (Number(u.qtd) || 0));
+  }
+  for (const a of auto) {
+    if (restante.has(a.insumoId)) restante.set(a.insumoId, restante.get(a.insumoId) - (Number(a.qtd) || 0));
+  }
+  return [...restante.entries()].filter(([, q]) => q > 0.0001).map(([insumoId, qtd]) => ({ insumoId, qtd }));
+}
+
 function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
-  const hoje = new Date().toISOString().slice(0, 10);
+  // Data local (toISOString é UTC: depois das 21h caía no dia seguinte e
+  // o registro do último dia do mês ia para a fatura do mês seguinte).
+  const hoje = new Date().toLocaleDateString('sv-SE');
   // Chave do rascunho: por id (editando) ou por sessão nova.
   // Rascunho protege contra crash/queda de rede — restaurado no next open.
   const draftKey = registro?.id
@@ -2462,11 +2631,26 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       return parsed;
     } catch { return null; }
   };
-  const rascunho = carregarRascunho();
+  // Assinatura do registro salvo: um rascunho de edição só vale se foi feito
+  // sobre ESTA versão do registro. Antes, um rascunho velho sobrescrevia
+  // dados mais novos (ex.: DG45 marcado depois) e a cobrança se perdia.
+  const assinaturaRegistro = registro
+    ? JSON.stringify([registro.tipo, registro.data, registro.eguaId, registro.dados, registro.insumosUsados])
+    : null;
+  const rascunhoBruto = carregarRascunho();
+  const rascunho = !rascunhoBruto ? null
+    : registro ? (rascunhoBruto.__base === assinaturaRegistro ? rascunhoBruto : null)
+    // Registro novo vindo da agenda/fatura (novoBase): não reaproveita rascunho
+    // de outro registro (podia cair em outra égua/proprietário).
+    : (novoBase ? null : rascunhoBruto);
 
   // Prioridade: editando um registro > rascunho > novoBase (agenda) > padrão vazio.
   const init = registro ? {
     ...registro,
+    // Na edição o formulário mostra só os insumos MANUAIS; os automáticos
+    // (medicamentos rápidos, kits, TU, descartáveis do serviço) são
+    // recalculados no salvar. Antes eles eram somados de novo a cada edição.
+    insumosUsados: derivarManuaisLegado(registro, insumos, servicos),
     // Se há rascunho da edição, usa (permite continuar de onde parou)
     ...(rascunho || {}),
   } : (rascunho || {
@@ -2487,15 +2671,19 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
   const [insumosUsados, setInsumosUsados] = useState(init.insumosUsados || registro?.insumosUsados || []);
   const [rascunhoIndicador, setRascunhoIndicador] = useState(!!rascunho);
 
-  // Auto-save: grava rascunho no localStorage a cada mudança. Debounced
-  // no proximo tick de render — não bloqueia digitação.
+  // Auto-save: grava rascunho no localStorage a cada mudança. Só depois de
+  // uma alteração real do usuário (abrir e fechar não cria rascunho).
+  const primeiraRenderRef = useRef(true);
   useEffect(() => {
+    if (primeiraRenderRef.current) { primeiraRenderRef.current = false; return; }
     try {
       localStorage.setItem(draftKey, JSON.stringify({
         tipo, data, eguaId, localId, dados, dataRetorno, insumosUsados,
+        __base: assinaturaRegistro,
       }));
       setRascunhoIndicador(true);
     } catch {}
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo, data, eguaId, localId, dados, dataRetorno, insumosUsados, draftKey]);
   const limparRascunho = () => { try { localStorage.removeItem(draftKey); } catch {}; setRascunhoIndicador(false); };
 
@@ -2528,153 +2716,19 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
   const handleSave = () => {
     if (!canSave) return;
     const mes = data.slice(0, 7);
-    let finalInsumos = [...insumosUsados];
-    const empilhar = (arr) => {
-      for (const item of (arr || [])) {
-        if (!item?.insumoId) continue;
-        if (!finalInsumos.some(u => u.insumoId === item.insumoId)) {
-          finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: Number(item.qtd) || 1 }];
-        }
-      }
-    };
-    // empilharSomando: quando o insumo já existe, soma a qtd
-    // (necessário pra Ocitocina 3× kit descartáveis etc)
-    const empilharSomando = (arr, qtdMult = 1) => {
-      for (const item of (arr || [])) {
-        if (!item?.insumoId) continue;
-        const idx = finalInsumos.findIndex(u => u.insumoId === item.insumoId);
-        const q = (Number(item.qtd) || 1) * qtdMult;
-        if (idx >= 0) finalInsumos[idx] = { ...finalInsumos[idx], qtd: (Number(finalInsumos[idx].qtd) || 0) + q };
-        else finalInsumos = [...finalInsumos, { insumoId: item.insumoId, qtd: q }];
-      }
-    };
-    // Kits de descartáveis de injeção — resolvidos 1 vez pra reutilizar
-    const { encontrados: descInj } = resolverDescartaveisInjecao(insumos);
-
-    // 0) Indutor de ovulação (CF)
-    if (tipo === 'controle_folicular' && dados.indutorOvulacaoId) {
-      empilhar([{ insumoId: dados.indutorOvulacaoId, qtd: 1 }]);
-    }
-
-    // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
-    if (tipo === 'controle_folicular' && dados.medRapidos) {
-      for (const m of MED_RAPIDO) {
-        const v = dados.medRapidos[m.slug];
-        if (!v) continue;
-        const ins = (insumos.filter(i => i.workspaceId === 'repro' && m.regex.test(i.nome || ''))[0])
-          || (insumos.filter(i => (i.workspaceId || 'haras') === 'haras' && m.regex.test(i.nome || ''))[0]);
-        if (!ins) continue;
-        if (m.modo === 'ml') {
-          const qml = Number(v.ml) || 0;
-          if (qml > 0) empilharSomando([{ insumoId: ins.id, qtd: qml }]);
-          // 1 kit de descartáveis por aplicação
-          empilharSomando(descInj, 1);
-        } else if (m.modo === 'doses') {
-          const nd = Number(v.doses) || 0;
-          if (nd <= 0) continue;
-          const qtdInsumo = m.mlPorDose ? nd * m.mlPorDose : nd;
-          empilharSomando([{ insumoId: ins.id, qtd: qtdInsumo }]);
-          // Se descartaveisPorDose=true → 1 kit por dose; senão 1 kit total
-          empilharSomando(descInj, m.descartaveisPorDose ? nd : 1);
-        }
-      }
-    }
-
-    // 0c) Tratamento Uterino: empilha todos os insumos configurados
-    //     nos acordeões (lavagem, infusão, misoprostol). Serviços extras
-    //     (Ozonio, PRP) são consumidos direto na fatura via dados.tu.*.
-    if (tipo === 'tratamento_uterino' && dados.tu) {
-      const t = dados.tu;
-      // Lavagem: insumos declarados nos botões
-      if (t.lavagem) {
-        const lav = t.lavagem;
-        const matchers = [
-          ['ringer', TU_MATCHERS.ringer],
-          ['aguaOxig', TU_MATCHERS.aguaOxig],
-          ['dmso', TU_MATCHERS.dmso],
-          ['riodeine', TU_MATCHERS.riodeine],
-        ];
-        for (const [slug, rgx] of matchers) {
-          const q = Number(lav[slug]) || 0;
-          if (q <= 0) continue;
-          const ins = resolverPorMatcher(insumos, rgx);
-          if (ins) empilharSomando([{ insumoId: ins.id, qtd: q }]);
-        }
-        if (Array.isArray(lav.adicionais)) empilharSomando(lav.adicionais);
-      }
-      // Infusão: botukiller + antibioticoterapia + adicionais
-      if (t.infusao) {
-        const inf = t.infusao;
-        const qBotu = Number(inf.botukiller) || 0;
-        if (qBotu > 0) {
-          const insBotu = resolverPorMatcher(insumos, TU_MATCHERS.botukiller);
-          if (insBotu) empilharSomando([{ insumoId: insBotu.id, qtd: qBotu }]);
-        }
-        if (Array.isArray(inf.antibioticos)) empilharSomando(inf.antibioticos);
-        if (Array.isArray(inf.adicionais)) empilharSomando(inf.adicionais);
-      }
-      // Misoprostol: 1 unidade por corno marcado
-      if (t.misoprostol) {
-        const nMiso = (t.misoprostol.cornoDireito ? 1 : 0) + (t.misoprostol.cornoEsquerdo ? 1 : 0);
-        if (nMiso > 0) {
-          const insMiso = resolverPorMatcher(insumos, TU_MATCHERS.misoprostol);
-          if (insMiso) empilharSomando([{ insumoId: insMiso.id, qtd: nMiso }]);
-        }
-      }
-    }
-
-    // 1) Descartáveis obrigatórios vêm SÓ do cadastro do serviço.
-    // Usuário configura em Cadastros → Serviços → editar → bloco
-    // "Descartáveis obrigatórios". Não há mais fallback hardcoded.
-    const padrao = servicosPadrao(servicos);
-    let svcsVinculados = [];
-    if (tipo === 'inseminacao_artificial' && padrao.ia) svcsVinculados.push(padrao.ia);
-    else if (tipo === 'transferencia_embriao' && padrao.te) svcsVinculados.push(padrao.te);
-    else if (tipo === 'servico_avulso' && dados.servicoId) {
-      const sv = servicos.find(s => s.id === dados.servicoId);
-      if (sv) svcsVinculados.push(sv);
-    } else if (tipo === 'tratamento_uterino') {
-      const svcTU = resolverServicoPorMatcher(servicos, TU_MATCHERS.servTratamentoUterino);
-      if (svcTU) svcsVinculados.push(svcTU);
-      if (dados.tu?.lavagem?.ozonio) {
-        const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servOzonio);
-        if (sv) svcsVinculados.push(sv);
-      }
-      if (dados.tu?.infusao?.prp) {
-        const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servPrp);
-        if (sv) svcsVinculados.push(sv);
-      }
-    } else if (tipo === 'diagnostico_avulso') {
-      if (dados.dx?.biopsia) {
-        const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.biopsia);
-        if (sv) svcsVinculados.push(sv);
-      }
-      if (dados.dx?.cultura) {
-        const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.cultura);
-        if (sv) svcsVinculados.push(sv);
-      }
-    }
-    for (const svc of svcsVinculados) {
-      if (Array.isArray(svc.descartaveisObrigatorios) && svc.descartaveisObrigatorios.length > 0) {
-        empilhar(svc.descartaveisObrigatorios);
-      }
-    }
-
-    // 2) Para cada insumo injetável adicionado manualmente pelo vet
-    //    (que ainda não vem de medRapidos), garante 1 kit descartáveis.
-    const temInjetavel = finalInsumos.some(u => {
-      const ins = insumos.find(i => i.id === u.insumoId);
-      return ins && ins.injetavel;
-    });
-    if (temInjetavel) empilhar(descInj);
+    const finalInsumos = montarInsumosFinais({ manuais: insumosUsados, tipo, dados, insumos, servicos });
     const payload = {
       id: registro?.id || 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-      eguaId, data, tipo, dados, dataRetorno: dataRetorno || null,
+      eguaId, data, tipo,
+      // Guarda os manuais à parte para que a edição não duplique os automáticos.
+      dados: { ...dados, insumosManuais: insumosUsados.map(u => ({ insumoId: u.insumoId, qtd: Number(u.qtd) || 0 })) },
+      dataRetorno: dataRetorno || null,
       insumosUsados: finalInsumos,
-      autor: currentUser?.nome || 'Vet',
+      // Editar não troca o vet/autor do registro (mudava km e divisão da equipe).
+      autor: registro?.autor || currentUser?.nome || 'Vet',
       mes,
       workspaceId: 'repro',
-      vetId: currentUser?.id || null,
+      vetId: registro?.vetId || currentUser?.id || null,
       localId: localId || null,
     };
     onSave(payload);
@@ -4392,7 +4446,12 @@ function ReproFaturaDetalhe({
     if (!r || !updateRegistroReproducao) return;
     if (!window.confirm('Remover este insumo do registro?')) return;
     const nova = (r.insumosUsados || []).filter(u => u.insumoId !== insumoId);
-    updateRegistroReproducao(regId, { insumosUsados: nova });
+    const patch = { insumosUsados: nova };
+    // Mantém a lista de manuais coerente (senão o item volta ao editar).
+    if (Array.isArray(r.dados?.insumosManuais)) {
+      patch.dados = { ...r.dados, insumosManuais: r.dados.insumosManuais.filter(u => u.insumoId !== insumoId) };
+    }
+    updateRegistroReproducao(regId, patch);
   };
   const editarRegistro = (regId) => setEditRegId(regId);
   const criarRegistroNovo = () => {
@@ -4579,9 +4638,10 @@ function ReproDivisao({
       acc.porVet[vetId] = (acc.porVet[vetId] || 0) + v;
     }
   }
+  // Parte sem vet identificado (vet excluído, registro sem vet, DG sem IA
+  // rastreável) aparece numa linha própria — antes sumia da divisão.
   const linhasVets = Object.entries(acc.porVet)
-    .map(([vetId, v]) => ({ vet: vetsExternos.find(x => x.id === vetId), valor: v }))
-    .filter(l => l.vet)
+    .map(([vetId, v]) => ({ vet: vetsExternos.find(x => x.id === vetId) || { id: vetId, nome: 'Sem vet identificado' }, valor: v }))
     .sort((a, b) => b.valor - a.valor);
   const totalDividido = acc.epona + linhasVets.reduce((s, l) => s + l.valor, 0);
 
@@ -5395,7 +5455,9 @@ export function ReproApp({
       proprietarios={proprietarios}
       propRepro={propRepro}
       cavalos={cavalos}
-      registrosRepro={registrosRepro}
+      // Faturas/divisão usam TODOS os registros do mês: com o filtro de local
+      // ativo, procedimentos da égua feitos em outro local sumiam da fatura.
+      registrosRepro={registrosReproTodos}
       servicos={servicosRepro}
       insumos={insumosRepro}
       vetsExternos={vetsExternos}
@@ -5512,6 +5574,8 @@ export function ReproHarasView({
   currentUser, cavalos, proprietarios, registrosReproducao = [],
   insumos = [], servicos = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  registros = [], addRegistro, deleteRegistro,
+  procedimentos = [], addProcedimento, deleteProcedimento, addAviso,
   onBack,
 }) {
   const [screen, setScreen] = useState('rh-home');
@@ -5540,11 +5604,58 @@ export function ReproHarasView({
   const localVirtual = { id: 'local_epona_stud', nome: 'Epona Stud', endereco: '', cidade: '', estado: '' };
   const locaisHaras = [localVirtual];
   // Vets externos: só o próprio admin como "operador" da UI
-  const vetsHaras = [{ id: currentUser?.id || 'admin', nome: currentUser?.nome || 'Epona Stud', cor: CORES_TAB_ATIVA }];
+  // "Vets" do haras: o usuário atual + quem já registrou no caderno (antes
+  // registros de outro usuário apareciam sem vet).
+  const vetsHaras = useMemo(() => {
+    const m = new Map([[currentUser?.id || 'admin', { id: currentUser?.id || 'admin', nome: currentUser?.nome || 'Epona Stud', cor: CORES_TAB_ATIVA }]]);
+    registrosHaras.forEach(r => { if (r.vetId && !m.has(r.vetId)) m.set(r.vetId, { id: r.vetId, nome: r.autor || 'Veterinário', cor: CORES_TAB_ATIVA }); });
+    return [...m.values()];
+  }, [registrosHaras, currentUser?.id, currentUser?.nome]);
 
   // Ao criar registro, injetamos workspace=haras e localId virtual
-  const wrapAdd = (payload) => addRegistroReproducao({ ...payload, workspaceId: 'haras', localId: localVirtual.id });
-  const wrapUpdate = (id, patch) => updateRegistroReproducao(id, { ...patch, workspaceId: 'haras', localId: patch?.localId || localVirtual.id });
+  // Cobrança: cada registro do caderno gera os insumos (registros da égua,
+  // que a fatura do haras lê) + taxa do haras para IA e Coleta de Embrião
+  // (utils/cobrancasRepro). Desde a troca para esta UI (10/08) nada era
+  // lançado. Editar/excluir remove as cobranças anteriores e recria.
+  const removerCobrancas = (regId) => {
+    if (!regId) return;
+    const pi = prefixoInsumosRepro(regId), pp = prefixoProcRepro(regId);
+    if (deleteRegistro) (registros || []).filter(r => String(r.id).startsWith(pi)).forEach(r => deleteRegistro(r.id));
+    if (deleteProcedimento) (procedimentos || []).filter(p => String(p.id).startsWith(pp)).forEach(p => deleteProcedimento(p.id));
+  };
+  const lancarCobrancas = (reg) => {
+    const { registros: rs, procedimentos: ps } = montarCobrancasRepro(reg, Date.now().toString(36), currentUser?.nome || '');
+    if (addRegistro) rs.forEach(r => addRegistro(r));
+    if (addProcedimento) ps.forEach(p => addProcedimento(p));
+  };
+  const wrapAdd = (payload) => {
+    const reg = { ...payload, workspaceId: 'haras', localId: localVirtual.id };
+    const r = addRegistroReproducao(reg);
+    lancarCobrancas(reg);
+    // Mesmo aviso do Repro Team: IA com destino transferência → reservar receptora
+    if (addAviso && reg.tipo === 'inseminacao_artificial' && reg.dados?.destino === 'transferencia') {
+      const eg = eguasHaras.find(c => c.id === reg.eguaId);
+      addAviso({
+        autor: 'Sistema', avatar: '🐴', urgente: true, resolvido: false, resolvidoPor: '', respostas: [],
+        tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+        texto: `RESERVAR RECEPTORA NA CENTRAL PARA ${(eg?.nome || 'ÉGUA').toUpperCase()}`,
+        tipo: 'reservar_receptora', cavaloId: reg.eguaId, data_entrada: reg.data,
+      });
+    }
+    return r;
+  };
+  const wrapUpdate = (id, patch) => {
+    const atual = registrosHaras.find(r => r.id === id) || {};
+    const merged = { ...atual, ...patch, id, workspaceId: 'haras', localId: patch?.localId || localVirtual.id };
+    const r = updateRegistroReproducao(id, { ...patch, workspaceId: 'haras', localId: patch?.localId || localVirtual.id });
+    removerCobrancas(id);
+    lancarCobrancas(merged);
+    return r;
+  };
+  const wrapDelete = (id) => {
+    removerCobrancas(id);
+    return deleteRegistroReproducao(id);
+  };
 
   const abrirCadernoDoEvento = (ev) => {
     if (!ev) return;
@@ -5600,7 +5711,7 @@ export function ReproHarasView({
       onConsumirPreFill={() => setPreFillCaderno(null)}
       addRegistroReproducao={wrapAdd}
       updateRegistroReproducao={wrapUpdate}
-      deleteRegistroReproducao={deleteRegistroReproducao}
+      deleteRegistroReproducao={wrapDelete}
     />;
   } else if (screen === 'rh-painel') {
     content = <ReproPainel

@@ -9,9 +9,13 @@ import {
   FinanceiroScreen, FaturaDetalheScreen, ConsumoScreen,
   HistoricoScreen,
   TabBar, OperacionalTabBar,
-  calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes, calcFaturaProprietario,
+  calcMensalidadeProporcional, calcPerfilMes, cavaloAtivoNoMes, calcFaturaProprietario, montarLinhasFechamento,
 } from './screens';
 import { isProprietarioProprio } from './utils/empresa';
+import { cobrancasPendentes } from './utils/cobrancasRepro';
+// Cobranças de reprodução/parto que nunca foram lançadas: recupera a partir
+// desta data (faturas de setembro/2026 em diante).
+const COBRANCAS_PENDENTES_DESDE = '2026-09-01';
 
 // Cutoff: faturas com competência >= esta data ganham lançamento de entrada vinculado.
 // Faturas anteriores são fechadas (auto ou manualmente) sem lançar em Entradas.
@@ -68,7 +72,7 @@ import {
   fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
   EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
   PROG_PROG_MAP, PROG_APL_MAP,
-  dbUpsert, notifyUploadError,
+  dbUpsert, notifyUploadError, outboxPendentes,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
   partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
@@ -106,6 +110,10 @@ function AppEpona() {
   const [notas, setNotas] = useState({});
   const [eventos, setEventos] = useState([]);
   const [partos, setPartos] = useState([]);
+  // Espelho síncrono de partos: updateParto precisa do registro mesclado
+  // fora do updater do setState (o React só roda o updater na hora na 1ª vez).
+  const partosRef = useRef([]);
+  partosRef.current = partos;
   const [servicos, setServicos] = useState([]);
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
@@ -273,7 +281,7 @@ const loadAllData = async () => {
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
     // usuário optou por não gerar saída (boletos parcelados são lançados à
     // parte, evita duplicar o valor).
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date().toLocaleDateString('sv-SE');
     const lancamentosIds = new Set((lancamentosData || []).map(l => l.id));
     const comprasSemLan = (estoqueComprasData || []).filter(c =>
       c.tipo !== 'ajuste' && (c.valorTotal || 0) > 0 &&
@@ -523,7 +531,7 @@ const loadAllData = async () => {
   };
 
   const _gerarLansRecorrentes = (recs, lans) => {
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = new Date().toLocaleDateString('sv-SE');
     const novos = [];
     for (const rec of recs) {
       if (!rec.ativo) continue;
@@ -942,16 +950,20 @@ const loadAllData = async () => {
   };
   const updateRegistroReproducao = (id, patch) => {
     setRegistrosReproducao(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
-    const cur = registrosReproducao.find(r => r.id === id) || {};
-    const merged = { ...cur, ...patch };
-    dbUpdate('reproducao_registros', id, {
-      egua_id: merged.eguaId, data: merged.data, tipo: merged.tipo,
-      dados: merged.dados || {}, insumos_usados: merged.insumosUsados || [],
-      data_retorno: merged.dataRetorno || null, autor: merged.autor || '', mes: merged.mes,
-      workspace_id: merged.workspaceId || 'haras',
-      vet_id: merged.vetId || null,
-      local_id: merged.localId || null,
-    });
+    // Envia SÓ as colunas alteradas. Antes regravava a linha inteira a partir
+    // da cópia local: outro aparelho que marcou DG45 nesse meio-tempo tinha a
+    // alteração apagada (e a cobrança do resultado se perdia).
+    const MAPA = {
+      eguaId: ['egua_id', v => v], data: ['data', v => v], tipo: ['tipo', v => v],
+      dados: ['dados', v => v || {}], insumosUsados: ['insumos_usados', v => v || []],
+      dataRetorno: ['data_retorno', v => v || null], autor: ['autor', v => v || ''], mes: ['mes', v => v],
+      workspaceId: ['workspace_id', v => v || 'haras'], vetId: ['vet_id', v => v || null], localId: ['local_id', v => v || null],
+    };
+    const cols = {};
+    for (const [k, v] of Object.entries(patch || {})) {
+      if (MAPA[k]) cols[MAPA[k][0]] = MAPA[k][1](v);
+    }
+    dbUpdate('reproducao_registros', id, cols);
   };
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
@@ -1325,12 +1337,13 @@ const loadAllData = async () => {
     recentlyUpdatedPartos.current['t_' + id] = setTimeout(() => {
       recentlyUpdatedPartos.current.delete(id);
     }, 3000);
-    let merged = null;
-    setPartos(prev => prev.map(p => {
-      if (p.id !== id) return p;
-      merged = { ...p, ...data };
-      return merged;
-    }));
+    // Antes, merged era atribuído dentro do updater do setPartos; a partir da
+    // 2ª edição o React adia o updater e merged ficava null → dbUpdate nunca
+    // rodava e as edições do parto (incl. insumos) se perdiam no reload.
+    const atual = partosRef.current.find(p => p.id === id);
+    const merged = atual ? { ...atual, ...data } : null;
+    if (merged) partosRef.current = partosRef.current.map(p => p.id === id ? merged : p);
+    setPartos(prev => prev.map(p => p.id === id ? { ...p, ...data } : p));
     if (merged) {
       const dbRow = toDbParto(merged);
       delete dbRow.id;
@@ -1357,7 +1370,9 @@ const loadAllData = async () => {
     dbDelete('servicos', id);
   };
   const addProcedimento = (data) => {
-    const newProc = { id: 'proc_' + Date.now(), ...data };
+    // Sufixo aleatório: dois procedimentos no mesmo milissegundo (ex.: nota
+    // clínica com vários serviços) geravam o mesmo id e um deles se perdia.
+    const newProc = { id: 'proc_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7), ...data };
     setProcedimentos(prev => [...prev, newProc]);
     dbInsert('procedimentos', toDbProcedimento(newProc));
   };
@@ -1421,7 +1436,7 @@ const loadAllData = async () => {
     return 7;
   };
   const gerarAvisosPeriodicos = () => {
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = new Date().toLocaleDateString('sv-SE');
     const diaSemana = getDiaSemana();
     const semanaPar = isSemanaPar();
     for (const c of cavalos) {
@@ -1456,7 +1471,7 @@ const loadAllData = async () => {
     }
   };
   const gerarAvisosMaternidade = () => {
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = new Date().toLocaleDateString('sv-SE');
     // Rate-limit: no máximo 1 push por égua por dia. Usa localStorage
     // pra sobreviver reloads. Chave rotaciona pela data.
     const chaveNotif = 'epona_mat_push_' + hoje;
@@ -1536,8 +1551,11 @@ const loadAllData = async () => {
   const removeFaturaFechada = (id) => {
     setFaturasFechadas(prev => prev.filter(f => f.id !== id));
     dbDelete('faturas_fechadas', id);
-    // Remove o lançamento de entrada vinculado, se existir
+    // Remove o lançamento de entrada vinculado — exceto se já está PAGO
+    // (antes o pagamento sumia e o cliente voltava a aparecer devendo).
     const lanId = `lan_${id}`;
+    const lan = lancamentos.find(l => l.id === lanId);
+    if (lan?.pago) return;
     setLancamentos(prev => prev.filter(l => l.id !== lanId));
     dbDelete('financeiro_lancamentos', lanId);
   };
@@ -1554,11 +1572,9 @@ const loadAllData = async () => {
     dbDelete('lista_compras', id);
   };
   const toggleCompra = (id) => {
-    let toggled;
-    setCompras(prev => {
-      toggled = prev.find(c => c.id === id);
-      return prev.map(c => c.id === id ? { ...c, comprado: !c.comprado } : c);
-    });
+    // Lê do estado atual (não de dentro do updater, que pode rodar depois).
+    const toggled = compras.find(c => c.id === id);
+    setCompras(prev => prev.map(c => c.id === id ? { ...c, comprado: !c.comprado } : c));
     if (toggled) dbUpdate('lista_compras', id, { comprado: !toggled.comprado });
   };
   const removeAtividade = (id) => {
@@ -1616,8 +1632,9 @@ const loadAllData = async () => {
         quem: prop?.nome || f.proprietarioNome || '',
         motivo: `Fatura ${mesNome}/${f.ano} — ${prop?.nome || f.proprietarioNome || ''} (venc. ${vencimentoStr})`,
         categoria: 'Faturamento clientes',
-        pago: false,
-        pagoEm: null,
+        // Refechamento após "Desfazer": preserva o pagamento já registrado.
+        pago: lancamentos.find(l => l.id === `lan_${f.id}`)?.pago || false,
+        pagoEm: lancamentos.find(l => l.id === `lan_${f.id}`)?.pagoEm || null,
         recorrenciaId: null,
         _faturaFechadaId: f.id,
       };
@@ -1654,12 +1671,45 @@ const loadAllData = async () => {
     if (autoFechouRef.current) return;
     if (loading) return;
     if (proprietarios.length === 0 || cavalos.length === 0) return;
+    // Só o admin fecha automaticamente (antes qualquer login/dispositivo,
+    // inclusive vet e proprietário, congelava o mês anterior).
+    if (currentUser?.role !== 'admin') return;
+    // Não fecha com lançamentos ainda na fila offline (ficariam de fora).
+    if (outboxPendentes() > 0) return;
     autoFechouRef.current = true;
 
     const hoje = new Date();
     const anoAtual = hoje.getFullYear();
     const mesAtual = hoje.getMonth() + 1;
-    const deps = { cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos };
+    // Só haras (as éguas/proprietários do Repro Team têm fatura própria e
+    // entravam no rateio do custo fixo, baixando a cota).
+    const cavalosH = cavalos.filter(c => (c.workspaceId || 'haras') === 'haras');
+    const proprietariosH = proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras');
+
+    // 1º lança o que ficou sem cobrança (caderno de reprodução do haras e
+    // insumos de parto, de set/2026 em diante) — ANTES de fechar o mês, senão
+    // o fechamento congelaria a fatura sem esses itens. Ids fixos: rodar de
+    // novo (outro aparelho/sessão) não duplica.
+    const idsRepro = new Set(cavalos.filter(c => (c.workspaceId || 'haras') === 'repro').map(c => c.id));
+    const pend = cobrancasPendentes({
+      registrosReproducao, partos, registros, procedimentos,
+      idsCavalosRepro: idsRepro, desde: COBRANCAS_PENDENTES_DESDE,
+    });
+    if (pend.novosRegistros.length || pend.novosProcedimentos.length || pend.partosPatch.length) {
+      console.log(`[Cobranças pendentes] ${pend.novosRegistros.length} insumo(s), ${pend.novosProcedimentos.length} procedimento(s), ${pend.partosPatch.length} parto(s)`);
+      if (pend.novosRegistros.length) {
+        setRegistros(prev => { const ids = new Set(prev.map(r => r.id)); return [...prev, ...pend.novosRegistros.filter(r => !ids.has(r.id))]; });
+        pend.novosRegistros.forEach(r => dbInsertIgnore('registros', toDbRegistro(r)));
+      }
+      if (pend.novosProcedimentos.length) {
+        setProcedimentos(prev => { const ids = new Set(prev.map(p => p.id)); return [...prev, ...pend.novosProcedimentos.filter(p => !ids.has(p.id))]; });
+        pend.novosProcedimentos.forEach(p => dbInsertIgnore('procedimentos', toDbProcedimento(p)));
+      }
+      pend.partosPatch.forEach(pp => updateParto(pp.id, { insumosUsados: pp.insumosUsados }));
+    }
+    const registrosC = [...registros, ...pend.novosRegistros];
+    const procedimentosC = [...procedimentos, ...pend.novosProcedimentos];
+    const deps = { cavalos: cavalosH, registros: registrosC, procedimentos: procedimentosC, servicos, insumos, movimentacoes, custosFixos };
 
     const fechamentos = [];
     // Volta até 24 meses ou até encontrar 3 meses consecutivos sem nada para fechar
@@ -1671,7 +1721,7 @@ const loadAllData = async () => {
       const ref = { ano, mes };
       let fechadosEsseMes = 0;
 
-      proprietarios.forEach(prop => {
+      proprietariosH.forEach(prop => {
         // Epona Stud (próprio) não tem fatura.
         if (isProprietarioProprio(prop, empresaInfo)) return;
         const jaFechada = faturasFechadas.find(f => f.proprietarioId === prop.id && f.ano === ano && f.mes === mes);
@@ -1680,16 +1730,7 @@ const loadAllData = async () => {
         if (r.cavalosObj.length === 0) return;
         if (r.total <= 0) return;
 
-        const linhas = [
-          ...r.propMens.map(m => ({ tipo: 'mensalidade', cavaloId: m.cav.id, cavaloNome: m.cav.nome, dias: m.dias, totalDias: m.total, parcial: m.parcial, valor: m.valor / m.share, valorBase: m.valorBase, share: m.share })),
-          ...r.propPerfil.flatMap(pp => pp.linhas.map(l => {
-            const shareValor = (l.valorMes || l.valor || 0) / pp.share;
-            return { tipo: 'perfil', cavaloId: pp.cav.id, cavaloNome: pp.cav.nome, dias: pp.dias, ...l, valorMes: shareValor, valor: shareValor, share: pp.share };
-          })),
-          ...r.insumosLinhas.map(l => ({ tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, insumoId: l.ins?.id, insumoNome: l.ins?.nome, qtd: l.reg.qtd, valor: l.total, share: l.share, data: l.reg.data })),
-          ...r.procLinhas.map(l => ({ tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome, servicoId: l.proc.servicoId, servicoNome: l.nomeSv, data: l.proc.data, valor: l.total, share: l.share })),
-          ...r.cfLinhas.map(l => ({ tipo: 'custoFixo', cavaloId: l.cav.id, cavaloNome: l.cav.nome, dias: l.dias, totalDias: l.totalDias, valor: l.valor, share: l.share, cotaMensal: l.cotaMensal })),
-        ];
+        const linhas = montarLinhasFechamento(r);
 
         fechamentos.push({
           id: `ff_${prop.id}_${ano}_${mes}`,
@@ -1740,7 +1781,7 @@ const loadAllData = async () => {
       })();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, proprietarios.length, cavalos.length]);
+  }, [loading, proprietarios.length, cavalos.length, currentUser?.role]);
 
   // ── Seed (dev only) ───────────────────────────────────────────
   const handleSeed = async () => {
@@ -1768,6 +1809,29 @@ const loadAllData = async () => {
   const cavalosHaras       = useMemo(() => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalos]);
   const insumosHaras       = useMemo(() => insumos.filter(i => (i.workspaceId || 'haras') === 'haras'), [insumos]);
   const servicosHaras      = useMemo(() => servicos.filter(s => (s.workspaceId || 'haras') === 'haras'), [servicos]);
+  // Dados ligados a animais: o hub vet do Repro Team grava atividades, avisos,
+  // registros, procedimentos, partos etc. das éguas do Repro nas MESMAS
+  // tabelas. Nas telas do haras só entram itens de animais do haras (ou sem
+  // animal). Catálogo (insumos/serviços) segue compartilhado de propósito.
+  const idsCavalosRepro    = useMemo(() => new Set(cavalos.filter(c => (c.workspaceId || 'haras') === 'repro').map(c => c.id)), [cavalos]);
+  const soHaras = (arr, campo = 'cavaloId') => (arr || []).filter(x => !x?.[campo] || !idsCavalosRepro.has(x[campo]));
+  const registrosH         = useMemo(() => soHaras(registros), [registros, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const procedimentosH     = useMemo(() => soHaras(procedimentos), [procedimentos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const movimentacoesH     = useMemo(() => soHaras(movimentacoes), [movimentacoes, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const atividadesH        = useMemo(() => soHaras(atividades), [atividades, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const avisosH            = useMemo(() => soHaras(avisos), [avisos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const partosH            = useMemo(() => soHaras(partos, 'eguaId'), [partos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const registrosReproH    = useMemo(() => soHaras((registrosReproducao || []).filter(r => r.workspaceId !== 'repro'), 'eguaId'), [registrosReproducao, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const anotacoesClinicasH = useMemo(() => soHaras(anotacoesClinicas), [anotacoesClinicas, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const medicoesH          = useMemo(() => soHaras(medicoes), [medicoes, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const examesH            = useMemo(() => soHaras(exames), [exames, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const emergenciasH       = useMemo(() => soHaras(emergencias), [emergencias, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vacinacoesAnimaisH = useMemo(() => soHaras(vacinacoesAnimais), [vacinacoesAnimais, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const vermifugacoesAnimaisH = useMemo(() => soHaras(vermifugacoesAnimais), [vermifugacoesAnimais, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const opgsH              = useMemo(() => soHaras(opgs), [opgs, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const progProgramasH     = useMemo(() => soHaras(progProgramas), [progProgramas, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const progAplicacoesH    = useMemo(() => soHaras(progAplicacoes), [progAplicacoes, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const frascosAbertosH    = useMemo(() => soHaras(frascosAbertos), [frascosAbertos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
@@ -1998,14 +2062,14 @@ const loadAllData = async () => {
       onLogout={handleLogout}
     />;
   }
-  else if (screen === 'home') content = <HomeScreen registros={registros} setScreen={goScreen} density={tweaks.density} avisos={avisos} cavalos={cavalosHaras} compras={compras} atividades={atividades} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
-  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisos} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
+  else if (screen === 'home') content = <HomeScreen registros={registrosH} setScreen={goScreen} density={tweaks.density} avisos={avisosH} cavalos={cavalosHaras} compras={compras} atividades={atividadesH} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
+  else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisosH} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalosHaras} proprietarios={proprietariosHaras} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} updateCavalo={updateCavalo} insumos={insumos} addRegistro={addRegistro} currentUser={currentUser} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalosHaras} setCavalos={setCavalos} proprietarios={proprietariosHaras} />;
   else if (screen === 'addCavalo') content = <AddCavaloScreen setScreen={goScreen} addCavalo={addCavalo} cavalos={cavalosHaras} setNovoCavaloPendente={setNovoCavaloPendente} pendingEntradaCavalo={pendingEntradaCavalo} setPendingEntradaCavalo={setPendingEntradaCavalo} proprietarios={proprietariosHaras} addProprietario={addProprietario} insumos={insumos} />;
-  else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registros} procedimentos={procedimentos} setSelected={setSelected} cavalos={cavalosHaras} servicos={servicos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} insumos={insumos} />;
+  else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registrosH} procedimentos={procedimentosH} setSelected={setSelected} cavalos={cavalosHaras} servicos={servicos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} insumos={insumos} />;
   else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalosHaras} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} insumos={insumos} />;
   else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietariosHaras} cavalos={cavalosHaras} updateProprietario={updateProprietario} refetchProprietario={refetchProprietario} />;
   else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;
@@ -2015,29 +2079,29 @@ const loadAllData = async () => {
   else if (screen === 'addInsumo') content = <AddInsumoScreen setScreen={goScreen} addInsumo={addInsumo} insumos={insumos} />;
   else if (screen === 'editarInsumo') content = <EditarInsumoScreen id={selected} setScreen={goScreen} insumos={insumos} updateInsumo={updateInsumo} deleteInsumo={deleteInsumo} />;
   else if (screen === 'cadServicos') content = <CadServicosScreen setScreen={goScreen} servicos={servicos} addServico={addServico} updateServico={updateServico} setSelected={setSelected} deleteServico={deleteServico} insumos={insumos} />;
-  else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicos} cavalos={cavalosHaras} insumos={insumos} addProcedimento={addProcedimento} addAtividade={addAtividade} mesDestino={mesRegistroDestino} />;
+  else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicosHaras} cavalos={cavalosHaras} insumos={insumosHaras} addProcedimento={addProcedimento} addAtividade={addAtividade} mesDestino={mesRegistroDestino} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} cavalos={cavalosHaras} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietariosHaras} cavalos={cavalosHaras} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} proprietariosTodos={proprietarios} cavalosTodos={cavalos} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registrosH} insumos={insumos} proprietarios={proprietariosHaras} cavalos={cavalosHaras} movimentacoes={movimentacoesH} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentosH} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} proprietariosTodos={proprietarios} cavalosTodos={cavalos} />;
   else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalosHaras} insumos={insumos} custosFixos={custosFixos} proprietarios={proprietariosHaras} />;
   else if (screen === 'custosFixos') content = <CustosFixosScreen custosFixos={custosFixos} funcionarios={funcionarios} cavalos={cavalosHaras} addCustoFixo={addCustoFixo} updateCustoFixo={updateCustoFixo} deleteCustoFixo={deleteCustoFixo} onBack={() => goScreen('faturas')} />;
-  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registros} proprietarios={proprietariosHaras} cavalos={cavalosHaras} insumos={insumos} movimentacoes={movimentacoes} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentos} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} setMesRegistroDestino={setMesRegistroDestino} />;
+  else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registrosH} proprietarios={proprietariosHaras} cavalos={cavalosHaras} insumos={insumos} movimentacoes={movimentacoesH} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentosH} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} setMesRegistroDestino={setMesRegistroDestino} />;
   else if (screen === 'planner') content = <PlannerScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} notas={notas} setNotas={setNotas} eventos={eventos} addEvento={addEvento} removeEvento={removeEvento} />;
   else if (screen === 'funcionarios') content = <FuncionariosScreen setScreen={goScreen} setSelected={setSelected} funcionarios={funcionarios} currentUser={currentUser} />;
   else if (screen === 'cadVetsExternos') content = <CadVetsExternosScreen setScreen={goScreen} vetsExternos={vetsExternos} addVetExterno={addVetExterno} updateVetExterno={updateVetExterno} deleteVetExterno={deleteVetExterno} refetchVetExterno={refetchVetExterno} />;
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} sessions={sessions} activeKey={activeKey} onSwitchSession={handleSwitchSession} onAddAccount={handleAddAccount} onRemoveSession={handleRemoveSessao} />;
-  else if (screen === 'cronogramaVet') content = <VeterinariaScreen initialSecao="cronograma" setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
-  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partos} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoes} insumos={insumos} servicos={servicos} registros={registros} procedimentos={procedimentos} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} opgs={opgs} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoes} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicas} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={exames} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproducao} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergencias} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertos} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramas} progAplicacoes={progAplicacoes} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
-  else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partos} />;
-  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partos} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalosHaras} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} insumos={insumos} addProcedimento={addProcedimento} />;
-  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} updateCavalo={updateCavalo} proprietarios={proprietariosHaras} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partos} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimais} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimais} addVermifugacaoAnimal={addVermifugacaoAnimal} addRegistro={addRegistro} servicos={servicos} addProcedimento={addProcedimento} />;
-  else if (screen === 'historico') content = <HistoricoScreen atividades={atividades} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalosHaras} />;
+  else if (screen === 'cronogramaVet') content = <VeterinariaScreen initialSecao="cronograma" setScreen={goScreen} setSelected={setSelected} partos={partosH} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoesH} insumos={insumos} servicos={servicos} registros={registrosH} procedimentos={procedimentosH} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} opgs={opgsH} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoesH} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicasH} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={examesH} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproH} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
+  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partosH} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoesH} insumos={insumos} servicos={servicos} registros={registrosH} procedimentos={procedimentosH} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} opgs={opgsH} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoesH} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicasH} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={examesH} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproH} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} />;
+  else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partosH} addRegistro={addRegistro} />;
+  else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partosH} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalosHaras} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} insumos={insumos} addProcedimento={addProcedimento} addRegistro={addRegistro} deleteRegistro={deleteRegistro} />;
+  else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} updateCavalo={updateCavalo} proprietarios={proprietariosHaras} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partosH} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} addVermifugacaoAnimal={addVermifugacaoAnimal} addRegistro={addRegistro} servicos={servicos} addProcedimento={addProcedimento} />;
+  else if (screen === 'historico') content = <HistoricoScreen atividades={atividadesH} setScreen={goScreen} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalosHaras} />;
   else if (screen === 'registrar') {
     if (!fluxo) content = <RegistrarHub setScreen={goScreen} setFluxo={setFluxo} />;
-    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
-    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
-    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumos} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
+    else if (fluxo === 'cavalo') content = <RegistrarPorCavalo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumosHaras} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
+    else if (fluxo === 'insumo') content = <RegistrarPorInsumo setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumosHaras} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
+    else if (fluxo === 'setor') content = <RegistrarPorSetor setScreen={goScreen} addRegistro={addRegistro} addAtividade={addAtividade} insumos={insumosHaras} cavalos={cavalosHaras} currentUser={currentUser} mesDestino={mesRegistroDestino} />;
   }
 
   const isOperacional = currentUser?.role === 'operacional';

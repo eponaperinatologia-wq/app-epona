@@ -102,7 +102,7 @@ const HorseRow = ({ c, insumos, trato, currentUser, setSelected, setScreen, last
   const toggleRacaoBlock = (turno) => {
     const novoBlock = { ...block, [turno]: !block[turno] };
     updateCavalo(c.id, { nutricao: { ...n, racaoBlock: novoBlock } });
-    const hoje = new Date().toISOString().split('T')[0];
+    const hoje = new Date().toLocaleDateString('sv-SE');
     if (novoBlock[turno]) {
       addAviso({
         id: 'racaoBlock_' + c.id + '_' + turno,

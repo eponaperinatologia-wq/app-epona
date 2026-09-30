@@ -1,6 +1,7 @@
 import { jsPDF } from 'jspdf';
 
-const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
+// Com separador de milhar (R$ 12.345,67); NaN vira 0 explicitamente.
+const BRL = (v) => (Number(v) || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 // Formato "ticket": largura fixa estreita, altura calculada dinamicamente
 // para caber todo o conteúdo numa única página, sem cortes.
@@ -108,6 +109,9 @@ export function gerarPdfFatura({
       doc.text(leftLines[0] || '', L, y);
       doc.setFont('helvetica', 'bold');
       doc.text(safeStr(right), R, y, { align: 'right' });
+      // Nomes longos: imprime as linhas seguintes (antes eram cortados)
+      doc.setFont('helvetica', 'normal');
+      for (let i = 1; i < leftLines.length; i++) { y += 3.8; doc.text(leftLines[i], L, y); }
       if (sub) {
         y += 3.2;
         doc.setFont('helvetica', 'normal');
@@ -183,6 +187,7 @@ export function gerarPdfFatura({
         const share = l.share || 1;
         const sub = [
           l.cav?.nome || '—',
+          l.reg?.data ? new Date(l.reg.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : null,
           `${l.reg.qtd} ${l.ins?.unidade || ''}`.trim(),
           share > 1 ? `${share} prop.` : null,
         ].filter(Boolean).join(' · ');
@@ -197,8 +202,6 @@ export function gerarPdfFatura({
       procLinhas.forEach(l => {
         const share = l.share || 1;
         const dataStr = l.proc?.data ? new Date(l.proc.data + 'T12:00:00').toLocaleDateString('pt-BR') : '';
-        const isExamesLab = l.proc?.servicoId === '__exames_lab__';
-        const exames = isExamesLab ? (l.proc?.examesSelecionados || []) : [];
         const subParts = [
           l.cav?.nome || '—',
           dataStr,
@@ -206,14 +209,14 @@ export function gerarPdfFatura({
           share > 1 ? `${share} prop.` : null,
         ].filter(Boolean);
         let sub = subParts.join(' · ');
-        if (exames.length > 0) {
-          sub += '\n' + exames.map(e => `• ${e.nome} — ${BRL(e.valor || 0)}`).join('\n');
-        }
-        const motoboyAtivo = l.proc?.motoboy?.ativo && (Number(l.proc.motoboy.valor) || 0) > 0;
-        if (motoboyAtivo) {
-          const mbValor = (Number(l.proc.motoboy.valor) || 0) / share;
-          const mbNome = l.proc.motoboy.nome ? ` — ${l.proc.motoboy.nome}` : '';
-          sub += `\n• Motoboy${mbNome} — ${BRL(mbValor)}`;
+        // Composição do procedimento (serviço, descartáveis, insumos, exames,
+        // motoboy) — valores já na cota do proprietário.
+        const detalhe = l.detalhe || [];
+        if (detalhe.length > 0) {
+          sub += '\n' + detalhe.map(d => {
+            const qtd = d.qtd ? ` × ${String(d.qtd).replace('.', ',')}${d.unidade ? ' ' + d.unidade : ''}` : '';
+            return `• ${d.nome}${qtd} — ${BRL(d.valor)}`;
+          }).join('\n');
         }
         row(l.nomeSv || l.sv?.nome || 'Procedimento', sub, BRL(l.total));
       });
@@ -327,6 +330,7 @@ export function gerarPdfFatura({
 }
 
 export function nomePdfFatura(proprietario, ref, mesNome) {
-  const nomeLimpo = (proprietario.nome || 'proprietario').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+  // Remove acentos antes de limpar ("João" → "joao", não "joo")
+  const nomeLimpo = (proprietario.nome || 'proprietario').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
   return `fatura-${nomeLimpo}-${mesNome.toLowerCase()}-${ref.ano}.pdf`;
 }

@@ -136,7 +136,8 @@ export const fromDbFuncionario = r => ({
 
 export const fromDbRegistro = r => ({
   id: r.id, cavaloId: r.cavalo_id, insumoId: r.insumo_id,
-  qtd: Number(r.qtd) || 1, hora: r.hora || '', usuario: r.usuario || '',
+  // qtd 0 é 0 (antes virava 1 e cobrava uma unidade que não foi usada)
+  qtd: r.qtd == null || r.qtd === '' ? 1 : (Number(r.qtd) || 0), hora: r.hora || '', usuario: r.usuario || '',
   isAuto: !!r.is_auto, data: r.data,
   // Se true, cobra na fatura mesmo se insumo é incluidoMensalidade ou
   // categoria ração/nutrição — usado quando insumo é dado "avulso"
@@ -199,6 +200,9 @@ export const fromDbFaturaFechada = r => ({
   insumosAvulsos: Number(r.insumos_avulsos) || 0,
   procedimentosAvulsos: Number(r.procedimentos_avulsos) || 0,
   linhas: r.linhas || [], fechadaEm: r.fechada_em, fechadaPor: r.fechada_por || '',
+  // Não há coluna própria: deriva das linhas (antes vinha undefined → 0 e a
+  // fatura fechada mostrava subtotais que não somavam o total).
+  custoFixoRateado: (r.linhas || []).filter(l => l.tipo === 'custoFixo').reduce((s, l) => s + (Number(l.valor) || 0), 0),
 });
 
 export const fromDbConfiguracao = r => r?.empresa || {};
@@ -286,7 +290,7 @@ export const toDbFuncionario = f => ({
 
 export const toDbRegistro = r => ({
   id: r.id, cavalo_id: r.cavaloId, insumo_id: r.insumoId,
-  qtd: Number(r.qtd) || 1, hora: r.hora || '', usuario: r.usuario || '',
+  qtd: r.qtd == null || r.qtd === '' ? 1 : (Number(r.qtd) || 0), hora: r.hora || '', usuario: r.usuario || '',
   is_auto: !!r.isAuto, data: r.data,
   cobrar_avulso: !!r.cobrarAvulso,
 });
@@ -825,15 +829,35 @@ export { CAVALO_MAP, PROPRIETARIO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCI
 export async function fetchAll(table, mapper, hardLimit = 50000) {
   const PAGE = 1000;
   const out = [];
+  const vistos = new Set();
   let offset = 0;
+  // Ordena por id: sem ORDER BY o Postgres não garante a mesma ordem entre
+  // páginas, então uma linha podia vir 2× (insumo duplicado na fatura) e
+  // outra sumir. Se a tabela não tiver coluna id, cai para sem ordem.
+  let ordenar = true;
   while (offset < hardLimit) {
-    const { data, error } = await supabase
-      .from(table)
-      .select('*')
-      .range(offset, offset + PAGE - 1);
-    if (error) { console.error(`fetchAll ${table}:`, error.message); break; }
+    let q = supabase.from(table).select('*');
+    if (ordenar) q = q.order('id', { ascending: true });
+    const { data, error } = await q.range(offset, offset + PAGE - 1);
+    if (error) {
+      const msg = String(error.message || '');
+      if (ordenar && /column .*id.* does not exist/i.test(msg)) { ordenar = false; continue; }
+      // Tabela ainda não criada (migração pendente): trata como vazia, como antes.
+      if (offset === 0 && /relation .* does not exist|Could not find the table/i.test(msg)) {
+        console.warn(`fetchAll ${table}: tabela ausente`);
+        return [];
+      }
+      // Falha no meio da paginação: antes retornava dados PARCIAIS em silêncio
+      // (e o auto-fechar congelava faturas incompletas). Agora falha alto.
+      console.error(`fetchAll ${table}:`, msg);
+      throw new Error(`Falha ao carregar "${table}": ${msg}`);
+    }
     const rows = data || [];
-    out.push(...rows);
+    for (const r of rows) {
+      const k = r?.id;
+      if (k != null) { if (vistos.has(k)) continue; vistos.add(k); }
+      out.push(r);
+    }
     if (rows.length < PAGE) break; // fim
     offset += PAGE;
   }
