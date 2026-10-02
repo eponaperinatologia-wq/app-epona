@@ -219,6 +219,35 @@ export const toDbFaturaFechada = f => ({
   fechada_em: f.fechadaEm || new Date().toISOString(),
 });
 
+// ── faturas_repro ────────────────────────────────────────────
+// Fatura mensal da Epona Repro Team (workspace repro). O snapshot
+// congela o retorno de calcFaturaRepro no fechamento; a divisão
+// congela o retorno de dividirFatura. Status: 'fechada' | 'paga'.
+export const fromDbFaturaRepro = r => ({
+  id: r.id,
+  proprietarioId: r.proprietario_id,
+  ano: r.ano, mes: r.mes,
+  total: Number(r.total) || 0,
+  snapshot: r.snapshot || {},
+  divisao: r.divisao || { epona: 0, porVet: {} },
+  status: r.status || 'fechada',
+  fechadaEm: r.fechada_em,
+  fechadaPor: r.fechada_por || '',
+  pagoEm: r.pago_em || null,
+});
+export const toDbFaturaRepro = f => ({
+  id: f.id,
+  proprietario_id: f.proprietarioId,
+  ano: f.ano, mes: f.mes,
+  total: Number(f.total) || 0,
+  snapshot: f.snapshot || {},
+  divisao: f.divisao || { epona: 0, porVet: {} },
+  status: f.status || 'fechada',
+  fechada_em: f.fechadaEm || new Date().toISOString(),
+  fechada_por: f.fechadaPor || '',
+  pago_em: f.pagoEm || null,
+});
+
 // ── toDb: App (camelCase) → DB (snake_case) ───────────────────
 
 export const toDbCavalo = c => ({

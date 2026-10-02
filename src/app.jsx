@@ -47,6 +47,7 @@ import {
   fromDbAvisoRepro, toDbAvisoRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
+  fromDbFaturaRepro, toDbFaturaRepro,
   fromDbLancamento, toDbLancamento,
   fromDbRecorrencia, toDbRecorrencia,
   fromDbEstoqueCompra, toDbEstoqueCompra,
@@ -117,6 +118,7 @@ function AppEpona() {
   const [servicos, setServicos] = useState([]);
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
+  const [faturasRepro, setFaturasRepro] = useState([]);
   const [lancamentos, setLancamentos] = useState([]);
   const [recorrencias, setRecorrencias] = useState([]);
   const [estoqueCompras, setEstoqueCompras] = useState([]);
@@ -192,7 +194,7 @@ const loadAllData = async () => {
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
       vetsExternosData, locaisReproData, vetKmLocaisData,
-      avisosReproData,
+      avisosReproData, faturasReproData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -236,6 +238,7 @@ const loadAllData = async () => {
       fetchAll('locais_repro', fromDbLocalRepro),
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
+      fetchAll('faturas_repro', fromDbFaturaRepro),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -276,6 +279,7 @@ const loadAllData = async () => {
     setLocaisRepro(locaisReproData || []);
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
+    setFaturasRepro(faturasReproData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
@@ -436,6 +440,11 @@ const loadAllData = async () => {
         if (et === 'INSERT') setFaturasFechadas(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaFechada(n)]);
         if (et === 'UPDATE') setFaturasFechadas(prev => prev.map(f => f.id === n.id ? fromDbFaturaFechada(n) : f));
         if (et === 'DELETE') setFaturasFechadas(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'faturas_repro' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setFaturasRepro(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaRepro(n)]);
+        if (et === 'UPDATE') setFaturasRepro(prev => prev.map(f => f.id === n.id ? fromDbFaturaRepro(n) : f));
+        if (et === 'DELETE') setFaturasRepro(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'financeiro_lancamentos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setLancamentos(prev => prev.some(l => l.id === n.id) ? prev : [...prev, fromDbLancamento(n)]);
@@ -1645,6 +1654,37 @@ const loadAllData = async () => {
     return true;
   };
 
+  // ── Faturas Repro (Epona Repro Team) ──────────────────────────
+  // Snapshot da fatura mensal (calcFaturaRepro) + divisão congelada
+  // (dividirFatura). Status: 'fechada' | 'paga'. Reabrir = DELETE.
+  const addFaturaRepro = async (f) => {
+    const prevSnapshot = faturasRepro;
+    setFaturasRepro(prev => [...prev.filter(x => x.id !== f.id), f]);
+    const ok = await dbUpsert('faturas_repro', toDbFaturaRepro(f));
+    if (!ok) {
+      setFaturasRepro(prevSnapshot);
+      return false;
+    }
+    return true;
+  };
+  const updateFaturaRepro = async (id, patch) => {
+    const prevSnapshot = faturasRepro;
+    const atual = faturasRepro.find(f => f.id === id);
+    if (!atual) return false;
+    const merged = { ...atual, ...patch };
+    setFaturasRepro(prev => prev.map(f => f.id === id ? merged : f));
+    const ok = await dbUpsert('faturas_repro', toDbFaturaRepro(merged));
+    if (!ok) {
+      setFaturasRepro(prevSnapshot);
+      return false;
+    }
+    return true;
+  };
+  const removeFaturaRepro = (id) => {
+    setFaturasRepro(prev => prev.filter(f => f.id !== id));
+    dbDelete('faturas_repro', id);
+  };
+
   // ── Minha conta ───────────────────────────────────────────────
   const updateMinhaConta = (data) => {
     if (!currentUser) return;
@@ -1970,6 +2010,10 @@ const loadAllData = async () => {
       vetKmLocais={vetKmLocais}
       avisosRepro={avisosRepro}
       resolverAvisoRepro={resolverAvisoRepro}
+      faturasRepro={faturasRepro}
+      addFaturaRepro={addFaturaRepro}
+      updateFaturaRepro={updateFaturaRepro}
+      removeFaturaRepro={removeFaturaRepro}
       empresaInfo={empresaInfo}
       proprietarios={proprietarios /* completo — ReproApp filtra internamente */}
       cavalos={cavalos /* completo — ReproApp filtra internamente */}

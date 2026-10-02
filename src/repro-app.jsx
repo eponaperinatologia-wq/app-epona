@@ -2383,7 +2383,7 @@ function BlocoDescartaveisObrigatorios({ insumos, descartaveis, setDescartaveis 
 
 // Bloco compartilhado — adição/remoção de insumos usados no registro
 // do caderno. Cada linha: select do insumo + qtd + remover.
-function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
+function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados, obrigatoriosIds = new Set() }) {
   const addLinha = () => setInsumosUsados([...insumosUsados, { insumoId: '', qtd: 1 }]);
   const alterar = (i, patch) => setInsumosUsados(insumosUsados.map((u, idx) => idx === i ? { ...u, ...patch } : u));
   const remover = (i) => setInsumosUsados(insumosUsados.filter((_, idx) => idx !== i));
@@ -2394,6 +2394,11 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
   const inputStyle = {
     padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
     background: 'var(--bg)', fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+  };
+  const badgeObrig = {
+    fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+    background: '#dbeafe', color: '#1e40af', textTransform: 'uppercase', letterSpacing: '0.04em',
+    whiteSpace: 'nowrap',
   };
 
   return (
@@ -2407,30 +2412,38 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados }) {
         </div>
       )}
       {insumosUsados.map((u, i) => {
-        const ins = insumos.find(x => x.id === u.insumoId);
+        const isObrig = obrigatoriosIds.has(u.insumoId);
         return (
-          <div key={i} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 64px 28px', gap: 4, marginBottom: 6, alignItems: 'center' }}>
-            <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
-              <option value="">— Selecionar insumo —</option>
-              {opcoes.map(o => (
-                <option key={o.id} value={o.id}>
-                  {o.nome}{o.injetavel ? ' 💉' : ''}{o.workspaceId === 'haras' ? ' (haras)' : ''}
-                </option>
-              ))}
-            </select>
-            <input
-              type="number" min="0" step="0.5" value={u.qtd}
-              onChange={e => alterar(i, { qtd: Number(e.target.value) || 0 })}
-              style={{ ...inputStyle, textAlign: 'right' }}
-              placeholder="qtd"
-            />
-            <button onClick={() => remover(i)} style={{
-              width: 32, height: 32, borderRadius: 8, border: '1px solid var(--line)',
-              background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
-              display: 'grid', placeItems: 'center',
-            }}>
-              <Icon name="x" size={12} />
-            </button>
+          <div key={i} style={{ marginBottom: 6 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 64px 28px', gap: 4, alignItems: 'center' }}>
+              <select value={u.insumoId} onChange={e => alterar(i, { insumoId: e.target.value })} style={inputStyle}>
+                <option value="">— Selecionar insumo —</option>
+                {opcoes.map(o => (
+                  <option key={o.id} value={o.id}>
+                    {o.nome}{o.injetavel ? ' 💉' : ''}{o.workspaceId === 'haras' ? ' (haras)' : ''}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="number" min="0" step="0.5" value={u.qtd}
+                onChange={e => alterar(i, { qtd: Number(e.target.value) || 0 })}
+                style={{ ...inputStyle, textAlign: 'right' }}
+                placeholder="qtd"
+              />
+              <button onClick={() => remover(i)} style={{
+                width: 32, height: 32, borderRadius: 8, border: '1px solid var(--line)',
+                background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="x" size={12} />
+              </button>
+            </div>
+            {isObrig && (
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2, display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={badgeObrig}>Obrig.</span>
+                <span>Vem do cadastro do serviço — edite ou remova se não usou nessa.</span>
+              </div>
+            )}
           </div>
         );
       })}
@@ -2594,22 +2607,68 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
   return finalInsumos;
 }
 
-// Insumos manuais de um registro salvo. Registros novos guardam em
-// dados.insumosManuais; nos antigos, deriva tirando da lista salva a parte
-// automática (recalculada a partir dos dados do próprio registro).
-function derivarManuaisLegado(registro, insumos, servicos) {
+// Obrigatórios dos serviços vinculados ao tipo+dados do registro.
+// Fonte: cadastro de serviço (campo descartaveisObrigatorios), com a
+// mesma lógica de match que montarInsumosFinais usa internamente —
+// extraída pra ser consumida também pelo formulário, que pré-popula a
+// lista editável de insumos para o usuário poder ajustar quantidade.
+function obrigatoriosDoServico(tipo, dados = {}, servicos = []) {
+  const padrao = servicosPadrao(servicos);
+  const svcs = [];
+  if (tipo === 'inseminacao_artificial' && padrao.ia) svcs.push(padrao.ia);
+  else if (tipo === 'transferencia_embriao' && padrao.te) svcs.push(padrao.te);
+  else if (tipo === 'servico_avulso' && dados.servicoId) {
+    const sv = servicos.find(s => s.id === dados.servicoId);
+    if (sv) svcs.push(sv);
+  } else if (tipo === 'tratamento_uterino') {
+    const svcTU = resolverServicoPorMatcher(servicos, TU_MATCHERS.servTratamentoUterino);
+    if (svcTU) svcs.push(svcTU);
+    if (dados.tu?.lavagem?.ozonio) {
+      const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servOzonio);
+      if (sv) svcs.push(sv);
+    }
+    if (dados.tu?.infusao?.prp) {
+      const sv = resolverServicoPorMatcher(servicos, TU_MATCHERS.servPrp);
+      if (sv) svcs.push(sv);
+    }
+  } else if (tipo === 'diagnostico_avulso') {
+    if (dados.dx?.biopsia) {
+      const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.biopsia);
+      if (sv) svcs.push(sv);
+    }
+    if (dados.dx?.cultura) {
+      const sv = resolverServicoPorMatcher(servicos, DIAG_MATCHERS.cultura);
+      if (sv) svcs.push(sv);
+    }
+  }
+  const lista = [];
+  const vistos = new Set();
+  for (const sv of svcs) {
+    for (const d of (sv.descartaveisObrigatorios || [])) {
+      if (!d?.insumoId || vistos.has(d.insumoId)) continue;
+      vistos.add(d.insumoId);
+      lista.push({ insumoId: d.insumoId, qtd: Number(d.qtd) || 1 });
+    }
+  }
+  return lista;
+}
+
+// Insumos editáveis mostrados no formulário. Antes: só os manuais
+// (automáticos — descartáveis obrigatórios, medRapidos, TU — eram
+// adicionados só no salvar e nunca ficavam visíveis). Novo: devolve
+// tudo o que já está salvo no registro, pra o usuário ver e ajustar
+// quantidade dos obrigatórios por registro (ex: "nessa IA usei 2
+// luvas", "nesse CE não usei o ringer"). Edits sobrevivem ao resave
+// porque empilhar() em montarInsumosFinais já faz dedup por insumoId.
+function derivarManuaisLegado(registro, _insumos, _servicos) {
   if (!registro) return [];
-  if (Array.isArray(registro.dados?.insumosManuais)) return registro.dados.insumosManuais;
-  const auto = montarInsumosFinais({ manuais: [], tipo: registro.tipo, dados: registro.dados || {}, insumos, servicos });
-  const restante = new Map();
-  for (const u of (registro.insumosUsados || [])) {
-    if (!u?.insumoId) continue;
-    restante.set(u.insumoId, (restante.get(u.insumoId) || 0) + (Number(u.qtd) || 0));
+  if (Array.isArray(registro.dados?.insumosManuais)) {
+    // Rascunho pós-nova lógica: manuais já incluem os obrigatórios que
+    // o usuário manteve/editou. Devolve direto.
+    return registro.dados.insumosManuais;
   }
-  for (const a of auto) {
-    if (restante.has(a.insumoId)) restante.set(a.insumoId, restante.get(a.insumoId) - (Number(a.qtd) || 0));
-  }
-  return [...restante.entries()].filter(([, q]) => q > 0.0001).map(([insumoId, qtd]) => ({ insumoId, qtd }));
+  // Legacy: devolve insumosUsados completo pra o usuário ver tudo.
+  return (registro.insumosUsados || []).map(u => ({ insumoId: u.insumoId, qtd: Number(u.qtd) || 0 }));
 }
 
 function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
@@ -2696,6 +2755,38 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
   }, [eguaId]);
 
   const setDado = (k, v) => setDados(d => ({ ...d, [k]: v }));
+
+  // IDs dos insumos obrigatórios do serviço vinculado ao tipo/dados
+  // atuais. Usado tanto pra pré-popular insumosUsados no init quanto pra
+  // o badge "obrig." nas linhas. Memoizado pra não recomputar a cada tecla.
+  const obrigatoriosAtuais = useMemo(
+    () => obrigatoriosDoServico(tipo, dados, servicos),
+    [tipo, dados, servicos],
+  );
+  const obrigatoriosIds = useMemo(
+    () => new Set(obrigatoriosAtuais.map(o => o.insumoId)),
+    [obrigatoriosAtuais],
+  );
+
+  // Pré-popular obrigatórios no insumosUsados.
+  // - NOVO registro: ao mudar o tipo, adiciona os obrigatórios do novo
+  //   tipo (removendo os do tipo anterior se não estiverem presentes
+  //   nos obrigatórios novos).
+  // - EDIT: só adiciona obrigatórios ausentes (preserva qty editada do
+  //   que já está salvo).
+  useEffect(() => {
+    setInsumosUsados(prev => {
+      const base = [...prev];
+      // Adiciona obrigatórios ausentes com a qty padrão do catálogo.
+      for (const ob of obrigatoriosAtuais) {
+        if (!base.some(u => u.insumoId === ob.insumoId)) {
+          base.push({ insumoId: ob.insumoId, qtd: ob.qtd });
+        }
+      }
+      return base;
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obrigatoriosAtuais]);
 
   // Datas automáticas com base no tipo
   useEffect(() => {
@@ -3058,11 +3149,14 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
 
       {/* Insumos utilizados — bloco compartilhado por todos os tipos.
           Adicionar um insumo injetável auto-empilha agulha + seringa +
-          algodão-álcool na hora de salvar (regra do haras). */}
+          algodão-álcool na hora de salvar (regra do haras).
+          Obrigatórios do serviço são pré-populados e marcados visualmente;
+          usuário pode editar qty ou remover. */}
       <BlocoInsumosRepro
         insumos={insumos}
         insumosUsados={insumosUsados}
         setInsumosUsados={setInsumosUsados}
+        obrigatoriosIds={obrigatoriosIds}
       />
 
       <FormField label="Observações">
@@ -4228,6 +4322,7 @@ function ReproCobrancas({
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
   vetsExternos, empresaInfo,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
 }) {
   const [sub, setSub] = useState('faturas');
   const abas = [
@@ -4272,6 +4367,10 @@ function ReproCobrancas({
           addRegistroReproducao={addRegistroReproducao}
           updateRegistroReproducao={updateRegistroReproducao}
           deleteRegistroReproducao={deleteRegistroReproducao}
+          faturasRepro={faturasRepro}
+          addFaturaRepro={addFaturaRepro}
+          updateFaturaRepro={updateFaturaRepro}
+          removeFaturaRepro={removeFaturaRepro}
         />
       )}
       {sub === 'divisao' && (
@@ -4285,6 +4384,7 @@ function ReproCobrancas({
           vetKmLocais={vetKmLocais}
           locais={locaisRepro}
           vetsExternos={vetsExternos}
+          faturasRepro={faturasRepro}
         />
       )}
     </div>
@@ -4328,16 +4428,30 @@ function ReproFaturas({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
   vetKmLocais, locais, vetsExternos, empresaInfo, currentUser,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [propAberto, setPropAberto] = useState(null);
 
   const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
+  // Lookup de fatura persistida (fechada ou paga) por proprietário.
+  // Fatura persistida vence o cálculo on-the-fly: o snapshot representa
+  // o que foi efetivamente fechado — não deve recalcular depois.
+  const faturaPersistida = (propId) => faturasRepro.find(
+    f => f.proprietarioId === propId && f.ano === mesRef.ano && f.mes === mesRef.mes,
+  );
   const lista = [...propRepro]
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
-    .map(p => ({ prop: p, fat: calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true }) }))
-    .filter(x => x.fat.total > 0);
+    .map(p => {
+      const persist = faturaPersistida(p.id);
+      // Se já tem fatura persistida, usa o snapshot — não recalcula.
+      const fat = persist?.snapshot?.total !== undefined
+        ? persist.snapshot
+        : calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
+      return { prop: p, fat, persist };
+    })
+    .filter(x => x.fat.total > 0 || x.persist);
 
   if (propAberto) {
     const item = lista.find(x => x.prop.id === propAberto);
@@ -4350,6 +4464,7 @@ function ReproFaturas({
       return (
         <ReproFaturaDetalhe
           fatura={item.fat}
+          persist={item.persist}
           empresaInfo={empresaInfo}
           vetsExternos={vetsExternos}
           onBack={() => setPropAberto(null)}
@@ -4365,6 +4480,9 @@ function ReproFaturas({
           updateRegistroReproducao={updateRegistroReproducao}
           deleteRegistroReproducao={deleteRegistroReproducao}
           mesRef={mesRef}
+          addFaturaRepro={addFaturaRepro}
+          updateFaturaRepro={updateFaturaRepro}
+          removeFaturaRepro={removeFaturaRepro}
         />
       );
     }
@@ -4389,27 +4507,53 @@ function ReproFaturas({
             Sem faturas pra fechar neste mês.
           </div>
         )}
-        {lista.map(({ prop, fat }) => (
-          <button key={prop.id} onClick={() => setPropAberto(prop.id)} style={{
-            width: '100%', textAlign: 'left', cursor: 'pointer',
-            background: 'var(--card)', border: '1px solid var(--line)',
-            borderRadius: 12, padding: '12px 14px', marginBottom: 8, color: 'var(--ink)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, flex: 1, minWidth: 0 }}>{prop.nome}</div>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{formatBRL(fat.total)}</div>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
-              {[
-                fat.visitasLinhas.length ? `${fat.visitasLinhas.length} visita(s)` : null,
-                fat.insumosLinhas.length ? `${fat.insumosLinhas.length} insumo(s)` : null,
-                fat.procedimentosLinhas.length ? `${fat.procedimentosLinhas.length} proc.` : null,
-                fat.avulsosLinhas.length ? `${fat.avulsosLinhas.length} avulso(s)` : null,
-                fat.resultadosLinhas.length ? `${fat.resultadosLinhas.length} DG30+` : null,
-              ].filter(Boolean).join(' · ')}
-            </div>
-          </button>
-        ))}
+        {lista.map(({ prop, fat, persist }) => {
+          const status = persist?.status || 'aberta';
+          const chipStyle = {
+            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+          };
+          const chip = status === 'paga'
+            ? { ...chipStyle, background: '#dcfce7', color: '#166534' }
+            : status === 'fechada'
+              ? { ...chipStyle, background: '#fef3c7', color: '#92400e' }
+              : { ...chipStyle, background: 'var(--soft)', color: 'var(--ink-3)' };
+          const chipLabel = status === 'paga' ? 'Paga' : status === 'fechada' ? 'A receber' : 'Aberta';
+          const divisaoResumo = persist?.divisao;
+          return (
+            <button key={prop.id} onClick={() => setPropAberto(prop.id)} style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer',
+              background: 'var(--card)', border: '1px solid var(--line)',
+              borderRadius: 12, padding: '12px 14px', marginBottom: 8, color: 'var(--ink)',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 15, flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span>{prop.nome}</span>
+                  <span style={chip}>{chipLabel}</span>
+                </div>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{formatBRL(fat.total)}</div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
+                {[
+                  (fat.visitasLinhas || []).length ? `${fat.visitasLinhas.length} visita(s)` : null,
+                  (fat.insumosLinhas || []).length ? `${fat.insumosLinhas.length} insumo(s)` : null,
+                  (fat.procedimentosLinhas || []).length ? `${fat.procedimentosLinhas.length} proc.` : null,
+                  (fat.avulsosLinhas || []).length ? `${fat.avulsosLinhas.length} avulso(s)` : null,
+                  (fat.resultadosLinhas || []).length ? `${fat.resultadosLinhas.length} DG30+` : null,
+                ].filter(Boolean).join(' · ')}
+              </div>
+              {divisaoResumo && (
+                <div style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <span>Epona {formatBRL(divisaoResumo.epona || 0)}</span>
+                  {Object.entries(divisaoResumo.porVet || {}).map(([vetId, v]) => {
+                    const vet = vetsExternos.find(x => x.id === vetId);
+                    return <span key={vetId}>{vet?.nome?.split(' ')[0] || 'Sem vet'} {formatBRL(v)}</span>;
+                  })}
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -4418,12 +4562,67 @@ function ReproFaturas({
 // ─────────────────────────────────────────────────────────────
 // Detalhe da fatura + PDF
 // ─────────────────────────────────────────────────────────────
+const StatusChip = ({ status, pagoEm, fechadaEm }) => {
+  const base = {
+    fontSize: 10, fontWeight: 700, padding: '3px 10px', borderRadius: 10,
+    textTransform: 'uppercase', letterSpacing: '0.04em',
+  };
+  const fmt = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR') : '';
+  if (status === 'paga') return <span style={{ ...base, background: '#dcfce7', color: '#166534' }} title={`Paga em ${fmt(pagoEm)}`}>Paga · {fmt(pagoEm)}</span>;
+  if (status === 'fechada') return <span style={{ ...base, background: '#fef3c7', color: '#92400e' }} title={`Fechada em ${fmt(fechadaEm)}`}>A receber</span>;
+  return <span style={{ ...base, background: 'var(--soft)', color: 'var(--ink-3)' }}>Aberta</span>;
+};
+
 function ReproFaturaDetalhe({
-  fatura, empresaInfo, vetsExternos, onBack,
+  fatura, persist = null, empresaInfo, vetsExternos, onBack,
   registros = [], eguasDoProp = [], eguasRepro = [], propRepro = [], locaisRepro = [], servicos = [], insumos = [], currentUser,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   mesRef,
+  addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
 }) {
+  const status = persist?.status || 'aberta';
+  const isFechada = status === 'fechada' || status === 'paga';
+  const isPaga = status === 'paga';
+  // Divisão desta fatura: usa a congelada se já fechada; senão calcula on-the-fly
+  const divisaoAtual = persist?.divisao || dividirFatura(fatura);
+  const fecharFatura = async () => {
+    if (!addFaturaRepro || !fatura?.proprietario?.id) return;
+    const id = `frr_${fatura.proprietario.id}_${fatura.ref.ano}_${String(fatura.ref.mes).padStart(2, '0')}`;
+    const snapshot = {
+      proprietario: fatura.proprietario, ref: fatura.ref,
+      visitasLinhas: fatura.visitasLinhas || [], visitasTotal: fatura.visitasTotal || 0,
+      insumosLinhas: fatura.insumosLinhas || [], insumosTotal: fatura.insumosTotal || 0,
+      procedimentosLinhas: fatura.procedimentosLinhas || [], procedimentosTotal: fatura.procedimentosTotal || 0,
+      avulsosLinhas: fatura.avulsosLinhas || [], avulsosTotal: fatura.avulsosTotal || 0,
+      resultadosLinhas: fatura.resultadosLinhas || [], resultadosTotal: fatura.resultadosTotal || 0,
+      total: fatura.total || 0,
+    };
+    const divisao = dividirFatura(fatura);
+    await addFaturaRepro({
+      id,
+      proprietarioId: fatura.proprietario.id,
+      ano: fatura.ref.ano, mes: fatura.ref.mes,
+      total: fatura.total || 0,
+      snapshot, divisao,
+      status: 'fechada',
+      fechadaEm: new Date().toISOString(),
+      fechadaPor: currentUser?.nome || '',
+    });
+  };
+  const marcarPaga = async () => {
+    if (!updateFaturaRepro || !persist?.id) return;
+    await updateFaturaRepro(persist.id, { status: 'paga', pagoEm: new Date().toISOString() });
+  };
+  const desmarcarPaga = async () => {
+    if (!updateFaturaRepro || !persist?.id) return;
+    if (!window.confirm('Desmarcar pagamento desta fatura?')) return;
+    await updateFaturaRepro(persist.id, { status: 'fechada', pagoEm: null });
+  };
+  const reabrirFatura = () => {
+    if (!removeFaturaRepro || !persist?.id) return;
+    if (!window.confirm('Reabrir esta fatura? O snapshot e a divisão congelada serão apagados; a fatura voltará a ser calculada em tempo real.')) return;
+    removeFaturaRepro(persist.id);
+  };
   const meses = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
   const mesNome = meses[fatura.ref.mes - 1];
   const [editRegId, setEditRegId] = useState(null);
@@ -4491,11 +4690,76 @@ function ReproFaturaDetalhe({
         <div style={{
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14, marginBottom: 12,
         }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>Total</div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Total</div>
+            <StatusChip status={status} pagoEm={persist?.pagoEm} fechadaEm={persist?.fechadaEm} />
+          </div>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 28, color: 'var(--ink)' }}>{formatBRL(fatura.total)}</div>
         </div>
 
-        {addRegistroReproducao && (
+        {/* Divisão desta fatura (sempre visível — mesma regra pra aberta e fechada) */}
+        <div style={{
+          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 12,
+        }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
+            Divisão {isFechada ? '(congelada no fechamento)' : '(cálculo atual)'}
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
+            <span style={{ color: 'var(--ink)' }}>Epona Stud</span>
+            <span style={{ fontFamily: 'var(--serif)' }}>{formatBRL(divisaoAtual.epona)}</span>
+          </div>
+          {Object.entries(divisaoAtual.porVet || {}).map(([vetId, v]) => {
+            const vet = vetsExternos.find(x => x.id === vetId) || { nome: 'Sem vet identificado' };
+            return (
+              <div key={vetId} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '4px 0' }}>
+                <span style={{ color: 'var(--ink)' }}>{vet.nome}</span>
+                <span style={{ fontFamily: 'var(--serif)' }}>{formatBRL(v)}</span>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Ações de ciclo de vida da fatura */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          {!isFechada && addFaturaRepro && (
+            <button onClick={fecharFatura} style={{
+              flex: 1, padding: '11px', borderRadius: 10, border: 'none',
+              background: '#92400e', color: '#fff', fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>
+              Fechar fatura
+            </button>
+          )}
+          {isFechada && !isPaga && updateFaturaRepro && (
+            <button onClick={marcarPaga} style={{
+              flex: 1, padding: '11px', borderRadius: 10, border: 'none',
+              background: '#166534', color: '#fff', fontSize: 13, fontWeight: 700,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>
+              Marcar como paga
+            </button>
+          )}
+          {isPaga && updateFaturaRepro && (
+            <button onClick={desmarcarPaga} style={{
+              flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)',
+              background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>
+              Desmarcar pagamento
+            </button>
+          )}
+          {isFechada && removeFaturaRepro && (
+            <button onClick={reabrirFatura} style={{
+              padding: '11px 14px', borderRadius: 10, border: '1px solid var(--line)',
+              background: 'var(--card)', color: 'var(--ink-3)', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>
+              Reabrir
+            </button>
+          )}
+        </div>
+
+        {addRegistroReproducao && !isFechada && (
           <button onClick={criarRegistroNovo} style={{
             width: '100%', padding: '11px', borderRadius: 10, border: '1px dashed var(--line)',
             background: 'var(--soft)', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
@@ -4617,33 +4881,77 @@ const SecaoFat = ({ titulo, linhas }) => (
 );
 
 // ─────────────────────────────────────────────────────────────
-// Divisão da equipe — soma das faturas do mês → split por vet + Epona
+// Divisão da equipe — faturas do mês listadas uma a uma, cada
+// uma com sua divisão própria. Totais finais separam o que já
+// foi pago (a repassar agora) do que ainda está em aberto.
 // ─────────────────────────────────────────────────────────────
+const ResumoStatus = ({ label, color, bg, total }) => (
+  <div style={{
+    background: bg, borderRadius: 10, padding: '8px 10px',
+  }}>
+    <div style={{ fontSize: 10, color, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>{label}</div>
+    <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color, marginTop: 2 }}>{formatBRL(total)}</div>
+  </div>
+);
+const LinhaDivisao = ({ label, sub, valor, icon, iconBg, iconColor, iniciais }) => (
+  <div style={{
+    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+    padding: '12px 14px', marginBottom: 8,
+    display: 'flex', alignItems: 'center', gap: 10,
+  }}>
+    <div style={{
+      width: 32, height: 32, borderRadius: icon ? 8 : 32, background: iconBg, color: iconColor,
+      display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700,
+    }}>
+      {icon ? <Icon name={icon} size={16} /> : iniciais}
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{label}</div>
+      {sub && <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{sub}</div>}
+    </div>
+    <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(valor)}</div>
+  </div>
+);
 function ReproDivisao({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
-  vetKmLocais, locais, vetsExternos,
+  vetKmLocais, locais, vetsExternos, faturasRepro = [],
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
 
   const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
-  const acc = { epona: 0, porVet: {} };
-  let totalMes = 0;
+  // Pra cada proprietário, pega a fatura (persistida se houver, senão on-the-fly)
+  // e computa a divisão daquela fatura individual.
+  const itens = [];
   for (const p of propRepro) {
-    const fat = calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
-    totalMes += fat.total;
-    const d = dividirFatura(fat);
-    acc.epona += d.epona;
-    for (const [vetId, v] of Object.entries(d.porVet)) {
-      acc.porVet[vetId] = (acc.porVet[vetId] || 0) + v;
+    const persist = faturasRepro.find(f => f.proprietarioId === p.id && f.ano === mesRef.ano && f.mes === mesRef.mes);
+    const fat = persist?.snapshot?.total !== undefined
+      ? persist.snapshot
+      : calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
+    if (!persist && (fat.total || 0) <= 0) continue;
+    const divisao = persist?.divisao || dividirFatura(fat);
+    itens.push({ prop: p, fat, persist, divisao });
+  }
+  itens.sort((a, b) => (a.prop.nome || '').localeCompare(b.prop.nome || '', 'pt'));
+
+  // Totais acumulados por status (apenas faturas efetivamente pagas contam no
+  // "a repassar" — alinhado com a lógica de pagamento individual).
+  const totais = { aberta: { epona: 0, porVet: {} }, fechada: { epona: 0, porVet: {} }, paga: { epona: 0, porVet: {} } };
+  for (const it of itens) {
+    const bucket = totais[it.persist?.status || 'aberta'];
+    bucket.epona += it.divisao.epona || 0;
+    for (const [vetId, v] of Object.entries(it.divisao.porVet || {})) {
+      bucket.porVet[vetId] = (bucket.porVet[vetId] || 0) + v;
     }
   }
-  // Parte sem vet identificado (vet excluído, registro sem vet, DG sem IA
-  // rastreável) aparece numa linha própria — antes sumia da divisão.
-  const linhasVets = Object.entries(acc.porVet)
+
+  const vetsOrdenados = (porVet) => Object.entries(porVet || {})
     .map(([vetId, v]) => ({ vet: vetsExternos.find(x => x.id === vetId) || { id: vetId, nome: 'Sem vet identificado' }, valor: v }))
     .sort((a, b) => b.valor - a.valor);
-  const totalDividido = acc.epona + linhasVets.reduce((s, l) => s + l.valor, 0);
+
+  const totalPago = totais.paga.epona + Object.values(totais.paga.porVet).reduce((s, v) => s + v, 0);
+  const totalAReceber = totais.fechada.epona + Object.values(totais.fechada.porVet).reduce((s, v) => s + v, 0);
+  const totalAberto = totais.aberta.epona + Object.values(totais.aberta.porVet).reduce((s, v) => s + v, 0);
 
   return (
     <div>
@@ -4658,60 +4966,65 @@ function ReproDivisao({
           <strong> avulsos 100 vet</strong>
         </div>
       </div>
-      <div style={{ padding: '10px 20px 20px' }}>
-        <div style={{
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, padding: 14, marginBottom: 12,
-        }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Faturado no mês</div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 24, color: 'var(--ink)', marginTop: 2 }}>{formatBRL(totalMes)}</div>
-          {Math.abs(totalDividido - totalMes) > 0.01 && (
-            <div style={{ fontSize: 10, color: '#dc2626', marginTop: 4 }}>
-              Divisão: {formatBRL(totalDividido)} (diferença: {formatBRL(totalMes - totalDividido)})
-            </div>
-          )}
+
+      {/* ── Resumo do mês por status ── */}
+      <div style={{ padding: '10px 20px 6px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+        <ResumoStatus label="Pago" color="#166534" bg="#dcfce7" total={totalPago} />
+        <ResumoStatus label="A receber" color="#92400e" bg="#fef3c7" total={totalAReceber} />
+        <ResumoStatus label="Em aberto" color="var(--ink-3)" bg="var(--soft)" total={totalAberto} />
+      </div>
+
+      {/* ── Total a repassar AGORA (só o pago) ── */}
+      {(totais.paga.epona > 0 || Object.keys(totais.paga.porVet).length > 0) && (
+        <div style={{ padding: '12px 20px 4px' }}>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 8 }}>
+            A repassar agora (faturas pagas)
+          </div>
+          <LinhaDivisao
+            label="Epona Stud" sub="Insumos + 30 IA/TE + 50 resultado"
+            valor={totais.paga.epona} icon="building" iconBg="var(--accent-soft)" iconColor="var(--accent)"
+          />
+          {vetsOrdenados(totais.paga.porVet).map(({ vet, valor }) => (
+            <LinhaDivisao
+              key={vet.id} label={vet.nome} sub="Km + 70 IA/TE + 50 resultado + avulsos"
+              valor={valor} iconBg={vet.cor || CORES_TAB_ATIVA} iconColor="#fff"
+              iniciais={(vet.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
+            />
+          ))}
         </div>
+      )}
 
-        <div style={{
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-          padding: '12px 14px', marginBottom: 8,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8, background: 'var(--accent-soft)', color: 'var(--accent)',
-            display: 'grid', placeItems: 'center',
-          }}>
-            <Icon name="building" size={16} />
-          </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>Epona Stud</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Insumos + 30 IA/TE + 50 resultado</div>
-          </div>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(acc.epona)}</div>
+      {/* ── Fatura por fatura ── */}
+      <div style={{ padding: '14px 20px 20px' }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 8 }}>
+          Fatura por fatura
         </div>
-
-        {linhasVets.map(({ vet, valor }) => (
-          <div key={vet.id} style={{
-            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
-            padding: '12px 14px', marginBottom: 8,
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <div style={{
-              width: 32, height: 32, borderRadius: 32, background: vet.cor || CORES_TAB_ATIVA, color: '#fff',
-              display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700,
-            }}>{(vet.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}</div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{vet.nome}</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Km + 70 IA/TE + 50 resultado + avulsos</div>
-            </div>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(valor)}</div>
-          </div>
-        ))}
-
-        {linhasVets.length === 0 && acc.epona === 0 && (
+        {itens.length === 0 && (
           <div style={{ textAlign: 'center', padding: '20px', color: 'var(--ink-3)', fontSize: 12 }}>
             Nada a dividir neste mês.
           </div>
         )}
+        {itens.map(({ prop, fat, persist, divisao }) => (
+          <div key={prop.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
+            padding: '10px 14px', marginBottom: 8,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10, marginBottom: 6 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 14, flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span>{prop.nome}</span>
+                <StatusChip status={persist?.status || 'aberta'} pagoEm={persist?.pagoEm} fechadaEm={persist?.fechadaEm} />
+              </div>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-2)' }}>{formatBRL(fat.total || 0)}</div>
+            </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', fontSize: 11.5, color: 'var(--ink-2)' }}>
+              <span>Epona {formatBRL(divisao.epona || 0)}</span>
+              {Object.entries(divisao.porVet || {}).map(([vetId, v]) => {
+                const vet = vetsExternos.find(x => x.id === vetId) || { nome: 'Sem vet' };
+                return <span key={vetId}>{vet.nome?.split(' ')[0] || 'Sem vet'} {formatBRL(v)}</span>;
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -5078,6 +5391,7 @@ export function ReproApp({
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
+  faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   empresaInfo = null,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
@@ -5465,6 +5779,10 @@ export function ReproApp({
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
+      faturasRepro={faturasRepro}
+      addFaturaRepro={addFaturaRepro}
+      updateFaturaRepro={updateFaturaRepro}
+      removeFaturaRepro={removeFaturaRepro}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta
