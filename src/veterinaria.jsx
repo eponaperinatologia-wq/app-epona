@@ -770,6 +770,7 @@ export function VeterinariaScreen({
         deleteVisitaClinica={deleteVisitaClinica}
         currentUser={currentUser}
         onBack={() => setSecao(null)}
+        empresaInfo={empresaInfo}
         // Dados para o painel de preparação da visita (C4):
         cavalos={cavalos}
         protocolosVacinacao={protocolosVacinacao}
@@ -781,6 +782,10 @@ export function VeterinariaScreen({
         anotacoesClinicas={anotacoesClinicas}
         registrosReproducao={registrosReproducao}
         partos={partos}
+        // Mutators pros atalhos do caderno (C7)
+        addAnotacaoClinica={addAnotacaoClinica}
+        updateAnotacaoClinica={updateAnotacaoClinica}
+        deleteAnotacaoClinica={deleteAnotacaoClinica}
       />
     );
   }

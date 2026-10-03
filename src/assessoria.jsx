@@ -15,11 +15,13 @@ export function AssessoriaFlow({
   proprietarios = [], locais = [], vetsExternos = [],
   addContratoAssessoria, updateContratoAssessoria, deleteContratoAssessoria,
   addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
-  currentUser, onBack,
+  currentUser, onBack, empresaInfo = null,
   // Dados pra pendências do painel (C4)
   cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
   protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
   medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
+  // Mutators pros atalhos do caderno (C7)
+  addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
 }) {
   const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato' | 'visitaDetalhe'
   const [contratoSelId, setContratoSelId] = useState(null);
@@ -104,6 +106,7 @@ export function AssessoriaFlow({
         updateVisitaClinica={updateVisitaClinica}
         deleteVisitaClinica={deleteVisitaClinica}
         currentUser={currentUser}
+        empresaInfo={empresaInfo}
         cavalos={cavalos}
         protocolosVacinacao={protocolosVacinacao}
         vacinacoesAnimais={vacinacoesAnimais}
@@ -114,6 +117,9 @@ export function AssessoriaFlow({
         anotacoesClinicas={anotacoesClinicas}
         registrosReproducao={registrosReproducao}
         partos={partos}
+        addAnotacaoClinica={addAnotacaoClinica}
+        updateAnotacaoClinica={updateAnotacaoClinica}
+        deleteAnotacaoClinica={deleteAnotacaoClinica}
       />
     );
   }
@@ -587,18 +593,321 @@ const AgendarButton = ({ onPick }) => {
 // Em C4 recebe os blocos de pendências automáticas e atalhos pra
 // registrar. Por enquanto: resumo + finalizar/cancelar.
 // ─────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────
+// Caderno da visita: observações gerais + anotações clínicas
+// vinculadas à visita (por animal). O vet escreve livremente aqui
+// durante a visita; vai pro PDF e pro histórico do animal.
+// ─────────────────────────────────────────────────────────────
+const TIPOS_ANOTACAO = ['Clínica', 'Nutricional', 'Obstétrica', 'Comportamento', 'Outro'];
+
+function CadernoVisita({
+  visita, contrato, animaisDoHaras = [], vetsExternos = [],
+  anotacoesClinicas = [], addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+  currentUser, obs, setObs,
+}) {
+  const readonly = !addAnotacaoClinica;
+  // Anotações feitas nesta visita (vinculadas via visita_clinica_id)
+  const minhas = useMemo(
+    () => anotacoesClinicas
+      .filter(a => a.visitaClinicaId === visita.id)
+      .sort((a, b) => (b.data || '').localeCompare(a.data || '') || (b.hora || '').localeCompare(a.hora || '')),
+    [anotacoesClinicas, visita.id],
+  );
+
+  const [novaAberto, setNovaAberto] = useState(false);
+  const [editId, setEditId] = useState(null);
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+    borderRadius: 10, border: '1px solid var(--line)',
+    background: 'var(--card)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {/* Observações gerais da visita (textarea grande, auto-salva) */}
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6 }}>
+          Observações da visita
+        </div>
+        <textarea
+          value={obs}
+          onChange={setObs ? (e => setObs(e.target.value)) : undefined}
+          readOnly={!setObs}
+          rows={6}
+          placeholder="Apontamentos clínicos gerais da visita (nutrição, obstetrícia, comportamento, sugestões, etc.)…"
+          style={{
+            ...inputStyle, resize: 'vertical', minHeight: 100,
+            background: !setObs ? 'var(--soft)' : 'var(--card)',
+          }}
+        />
+        {setObs && (
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+            Salvamento automático após 1s sem digitar.
+          </div>
+        )}
+      </div>
+
+      {/* Anotações clínicas da visita */}
+      <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+          Anotações por animal · {minhas.length}
+        </div>
+        {!readonly && !novaAberto && (
+          <button onClick={() => { setNovaAberto(true); setEditId(null); }} style={{
+            padding: '6px 10px', borderRadius: 8, border: '1px dashed var(--line)',
+            background: 'var(--card)', color: '#7c2d8c', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>
+            + Nova anotação
+          </button>
+        )}
+      </div>
+
+      {novaAberto && !readonly && (
+        <AnotacaoForm
+          animaisDoHaras={animaisDoHaras}
+          visita={visita}
+          currentUser={currentUser}
+          onCancel={() => setNovaAberto(false)}
+          onSave={(payload) => {
+            addAnotacaoClinica(payload);
+            setNovaAberto(false);
+          }}
+        />
+      )}
+
+      {minhas.length === 0 && !novaAberto && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '12px', textAlign: 'center' }}>
+          Nenhuma anotação por animal nesta visita ainda.
+        </div>
+      )}
+
+      {minhas.map(a => (
+        <AnotacaoCard
+          key={a.id}
+          anotacao={a}
+          animal={animaisDoHaras.find(c => c.id === a.cavaloId)}
+          readonly={readonly}
+          editando={editId === a.id}
+          onEditar={() => setEditId(a.id)}
+          onCancelarEdicao={() => setEditId(null)}
+          onSalvar={(payload) => { updateAnotacaoClinica(a.id, payload); setEditId(null); }}
+          onExcluir={() => {
+            if (window.confirm('Apagar esta anotação?')) deleteAnotacaoClinica(a.id);
+          }}
+          animaisDoHaras={animaisDoHaras}
+        />
+      ))}
+    </div>
+  );
+}
+
+const AnotacaoForm = ({ anotacao = null, animaisDoHaras = [], visita, currentUser, onSave, onCancel }) => {
+  const [cavaloId, setCavaloId] = useState(anotacao?.cavaloId || '');
+  const [tipo, setTipo] = useState(anotacao?.tipo || 'Clínica');
+  const [titulo, setTitulo] = useState(anotacao?.titulo || '');
+  const [descricao, setDescricao] = useState(anotacao?.descricao || '');
+  const canSave = cavaloId && titulo.trim();
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+    borderRadius: 10, border: '1px solid var(--line)',
+    background: 'var(--card)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  const handleSave = () => {
+    if (!canSave) return;
+    const hoje = visita?.data || new Date().toISOString().slice(0, 10);
+    const payload = {
+      id: anotacao?.id || 'anot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      cavaloId, data: hoje, hora: new Date().toTimeString().slice(0, 5),
+      tipo, gravidade: '',
+      titulo: titulo.trim(), descricao: descricao.trim(),
+      autor: currentUser?.nome || '',
+      mes: hoje.slice(0, 7),
+      insumosCriados: [], procsCriados: [],
+      visitaClinicaId: visita?.id || null,
+    };
+    onSave(payload);
+  };
+
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid #7c2d8c40',
+      borderRadius: 10, padding: 12, marginBottom: 10,
+    }}>
+      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 8, marginBottom: 8 }}>
+        <select value={cavaloId} onChange={e => setCavaloId(e.target.value)} style={inputStyle}>
+          <option value="">— Animal —</option>
+          {[...animaisDoHaras].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(c => (
+            <option key={c.id} value={c.id}>{c.nome}</option>
+          ))}
+        </select>
+        <select value={tipo} onChange={e => setTipo(e.target.value)} style={inputStyle}>
+          {TIPOS_ANOTACAO.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+      <input value={titulo} onChange={e => setTitulo(e.target.value)}
+        placeholder="Título da anotação" style={{ ...inputStyle, marginBottom: 8 }} />
+      <textarea value={descricao} onChange={e => setDescricao(e.target.value)} rows={4}
+        placeholder="Descrição / detalhes…"
+        style={{ ...inputStyle, resize: 'vertical' }} />
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={onCancel} style={{
+          flex: 1, padding: '10px', borderRadius: 8, border: '1px solid var(--line)',
+          background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+          cursor: 'pointer', fontFamily: 'var(--sans)',
+        }}>Cancelar</button>
+        <button onClick={handleSave} disabled={!canSave} style={{
+          flex: 2, padding: '10px', borderRadius: 8, border: 'none',
+          background: '#7c2d8c', color: '#fff', fontSize: 13, fontWeight: 700,
+          cursor: canSave ? 'pointer' : 'default', opacity: canSave ? 1 : 0.5,
+          fontFamily: 'var(--sans)',
+        }}>Salvar anotação</button>
+      </div>
+    </div>
+  );
+};
+
+const AnotacaoCard = ({
+  anotacao, animal, readonly, editando, onEditar, onCancelarEdicao, onSalvar, onExcluir,
+  animaisDoHaras,
+}) => {
+  if (editando) {
+    return (
+      <AnotacaoForm
+        anotacao={anotacao}
+        animaisDoHaras={animaisDoHaras}
+        visita={{ id: anotacao.visitaClinicaId, data: anotacao.data }}
+        currentUser={{ nome: anotacao.autor }}
+        onCancel={onCancelarEdicao}
+        onSave={(payload) => onSalvar({
+          titulo: payload.titulo, descricao: payload.descricao,
+          tipo: payload.tipo, hora: payload.hora, data: payload.data, mes: payload.mes,
+        })}
+      />
+    );
+  }
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)',
+      borderLeft: '3px solid #7c2d8c',
+      borderRadius: 8, padding: '10px 12px', marginBottom: 6,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+          <span style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>
+            {animal?.nome || '(animal removido)'}
+          </span>
+          <span style={{
+            fontSize: 10, padding: '1px 6px', borderRadius: 4,
+            background: '#f5e8ff', color: '#6b21a8', fontWeight: 700,
+          }}>{anotacao.tipo}</span>
+        </div>
+        {!readonly && (
+          <div style={{ display: 'flex', gap: 4 }}>
+            <button onClick={onEditar} style={iconBtnStyle} title="Editar"><Icon name="edit" size={11} /></button>
+            <button onClick={onExcluir} style={{ ...iconBtnStyle, color: '#dc2626', borderColor: '#fecaca', background: '#fef2f2' }} title="Excluir"><Icon name="x" size={11} /></button>
+          </div>
+        )}
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600, marginBottom: 4 }}>{anotacao.titulo}</div>
+      {anotacao.descricao && (
+        <div style={{ fontSize: 12, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{anotacao.descricao}</div>
+      )}
+      <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+        {anotacao.autor ? `${anotacao.autor} · ` : ''}{anotacao.hora || ''}
+      </div>
+    </div>
+  );
+};
+
+const iconBtnStyle = {
+  width: 24, height: 24, borderRadius: 6, border: '1px solid var(--line)',
+  background: 'var(--card)', color: 'var(--ink-3)', cursor: 'pointer',
+  display: 'grid', placeItems: 'center',
+};
+
+// ─────────────────────────────────────────────────────────────
+// Lista de animais do haras — info-chave rápida
+// ─────────────────────────────────────────────────────────────
+function AnimaisDoHaras({ animais = [], proprietarios = [], medicoes = [], vacinacoesAnimais = [], vermifugacoesAnimais = [], anotacoesClinicas = [] }) {
+  const hoje = new Date().toISOString().slice(0, 10);
+  return (
+    <div style={{ marginBottom: 14 }}>
+      {animais.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '12px', textAlign: 'center' }}>
+          Nenhum animal cadastrado neste haras.
+        </div>
+      )}
+      {[...animais]
+        .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+        .map(c => {
+          const minhasMed = medicoes.filter(m => m.cavaloId === c.id).sort((a, b) => (b.dataRegistro || '').localeCompare(a.dataRegistro || ''));
+          const ultimaMed = minhasMed[0];
+          const minhasAnot = anotacoesClinicas.filter(a => a.cavaloId === c.id).length;
+          const minhasVac = vacinacoesAnimais.filter(v => v.cavaloId === c.id && v.feito).length;
+          const minhasVerm = vermifugacoesAnimais.filter(v => v.cavaloId === c.id).length;
+          const prop = proprietarios.find(p => p.id === c.proprietarioId || (c.proprietarioIds || []).includes(p.id));
+          const gestante = c.categoria === 'Gestante' || (c.categorias || []).includes('Gestante') || c.gestacao?.dataCobricao;
+          const potro = c.categoria === 'Potro ao pé' || (c.categorias || []).includes('Potro ao pé');
+          return (
+            <div key={c.id} style={{
+              background: 'var(--card)', border: '1px solid var(--line)',
+              borderRadius: 10, padding: '10px 12px', marginBottom: 6,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 }}>
+                <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{c.nome}</div>
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {gestante && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fce7f3', color: '#be185d', fontWeight: 700 }}>GEST</span>}
+                  {potro && <span style={{ fontSize: 9, padding: '1px 5px', borderRadius: 3, background: '#fef3c7', color: '#b45309', fontWeight: 700 }}>POTRO</span>}
+                </div>
+              </div>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 2 }}>
+                {prop?.nome || '—'}{c.categoria ? ` · ${c.categoria}` : ''}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-2)', marginTop: 4, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                {ultimaMed && <span>Última medição: {fmtData(ultimaMed.dataRegistro)}{ultimaMed.peso ? ` · ${ultimaMed.peso}kg` : ''}</span>}
+                {minhasAnot > 0 && <span>{minhasAnot} anotação{minhasAnot !== 1 ? 'ões' : ''}</span>}
+                {minhasVac > 0 && <span>{minhasVac} vacinas</span>}
+                {minhasVerm > 0 && <span>{minhasVerm} vermífugos</span>}
+              </div>
+            </div>
+          );
+        })}
+    </div>
+  );
+}
+
 export function VisitaDetalhe({
   visita, contrato, proprietarios = [], locais = [], vetsExternos = [],
   onBack, updateVisitaClinica, deleteVisitaClinica, currentUser,
+  empresaInfo = null,
   cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
   protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
   medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
+  addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
 }) {
   const [editMode, setEditMode] = useState(false);
   const [data, setData] = useState(visita.data);
   const [vetsIds, setVetsIds] = useState(visita.vetsParticipantes || []);
   const [valor, setValor] = useState(String(visita.valorCobrado || contrato?.valorMensal || 0));
   const [obs, setObs] = useState(visita.observacoes || '');
+  // Sub-aba atual: caderno (padrão) | pendencias | animais
+  const [aba, setAba] = useState('caderno');
+  // Autosave do textarea de observações pra não perder enquanto digita
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      if (obs !== visita.observacoes && updateVisitaClinica) {
+        updateVisitaClinica(visita.id, { observacoes: obs });
+      }
+    }, 1200);
+    return () => clearTimeout(t);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obs]);
 
   const finalizada = visita.status === 'finalizada';
   const vets = (visita.vetsParticipantes || [])
@@ -782,13 +1091,42 @@ export function VisitaDetalhe({
       <div style={{ padding: '14px 20px 20px' }}>
         {/* Status chip */}
         <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14,
+          display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 10,
           padding: '4px 10px', borderRadius: 10,
           background: finalizada ? '#dcfce7' : '#fef3c7',
           color: finalizada ? '#166534' : '#92400e',
           fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
         }}>
           {finalizada ? '✓ Finalizada' : '● Em andamento'}
+        </div>
+
+        {/* Sub-abas: Caderno (padrão) | Pendências | Animais */}
+        <div style={{
+          display: 'flex', gap: 2, marginBottom: 14, background: 'var(--soft)',
+          borderRadius: 10, padding: 3,
+        }}>
+          {[
+            ['caderno', 'Caderno', (anotacoesClinicas.filter(a => a.visitaClinicaId === visita.id).length)],
+            ['pendencias', 'Pendências', null],
+            ['animais', 'Animais', animaisDoHaras.length],
+          ].map(([k, lbl, badge]) => (
+            <button key={k} onClick={() => setAba(k)} style={{
+              flex: 1, padding: '8px 6px', borderRadius: 8, border: 'none',
+              background: aba === k ? '#7c2d8c' : 'transparent',
+              color: aba === k ? '#fff' : 'var(--ink-2)',
+              fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+            }}>
+              {lbl}
+              {badge != null && badge > 0 && (
+                <span style={{
+                  fontSize: 10, padding: '1px 6px', borderRadius: 8,
+                  background: aba === k ? 'rgba(255,255,255,0.25)' : '#7c2d8c15',
+                  color: aba === k ? '#fff' : '#7c2d8c',
+                }}>{badge}</span>
+              )}
+            </button>
+          ))}
         </div>
 
         {/* Resumo quando finalizada (snapshot) */}
@@ -830,8 +1168,46 @@ export function VisitaDetalhe({
           </div>
         )}
 
-        {/* Painel de preparação (rascunho) ou edição (finalizada em editMode) */}
-        {(!finalizada || editMode) && (
+        {/* Aba Caderno — anotações clínicas da visita + obs gerais */}
+        {aba === 'caderno' && (!finalizada || editMode) && (
+          <CadernoVisita
+            visita={visita} contrato={contrato}
+            animaisDoHaras={animaisDoHaras} vetsExternos={vetsExternos}
+            anotacoesClinicas={anotacoesClinicas}
+            addAnotacaoClinica={addAnotacaoClinica}
+            updateAnotacaoClinica={updateAnotacaoClinica}
+            deleteAnotacaoClinica={deleteAnotacaoClinica}
+            currentUser={currentUser}
+            obs={obs} setObs={setObs}
+          />
+        )}
+
+        {/* Aba Caderno quando visita finalizada (só leitura) */}
+        {aba === 'caderno' && finalizada && !editMode && (
+          <CadernoVisita
+            visita={visita} contrato={contrato}
+            animaisDoHaras={animaisDoHaras} vetsExternos={vetsExternos}
+            anotacoesClinicas={anotacoesClinicas}
+            addAnotacaoClinica={null /* readonly */}
+            updateAnotacaoClinica={updateAnotacaoClinica}
+            deleteAnotacaoClinica={deleteAnotacaoClinica}
+            currentUser={currentUser}
+            obs={visita.observacoes || ''} setObs={null}
+          />
+        )}
+
+        {/* Aba Animais — lista do haras */}
+        {aba === 'animais' && (
+          <AnimaisDoHaras
+            animais={animaisDoHaras} proprietarios={proprietarios}
+            medicoes={medicoes} vacinacoesAnimais={vacinacoesAnimais}
+            vermifugacoesAnimais={vermifugacoesAnimais}
+            anotacoesClinicas={anotacoesClinicas}
+          />
+        )}
+
+        {/* Aba Pendências — mesmo conteúdo do painel original */}
+        {aba === 'pendencias' && (!finalizada || editMode) && (
           <>
             {/* Resumo do haras */}
             <div style={{
@@ -938,7 +1314,13 @@ export function VisitaDetalhe({
               use a aba Veterinária. Os registros feitos durante a visita aparecem
               automaticamente no histórico.
             </div>
+          </>
+        )}
 
+        {/* Form de finalização — fica fora das abas, sempre visível no rodapé
+            quando rascunho ou em edição. */}
+        {(!finalizada || editMode) && (
+          <>
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
               <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 10 }}>
                 Finalizar visita
@@ -990,9 +1372,8 @@ export function VisitaDetalhe({
                 </div>
               </div>
 
-              <div style={{ marginBottom: 14 }}>
-                {label('Observações gerais')}
-                <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10, padding: '6px 10px', background: 'var(--soft)', borderRadius: 6 }}>
+                Observações gerais da visita ficam na aba <strong>Caderno</strong>. O que você escreveu lá vai pro PDF.
               </div>
 
               <div style={{ display: 'flex', gap: 8 }}>

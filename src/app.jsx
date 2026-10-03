@@ -226,7 +226,7 @@ const loadAllData = async () => {
       fetchAll('vermifugacoes_animais_verm', fromDbVermifugacaoAnimal),
       fetchAll('opgs', fromDbOpg),
       fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
-      fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [] })),
+      fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [], visitaClinicaId: r.visita_clinica_id || null })),
       fetchAll('exames_complementares', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, tipo: r.tipo, descricao: r.descricao || '', arquivoUrl: r.arquivo_url || '', arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '', mes: r.mes })),
       fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes, workspaceId: r.workspace_id || 'haras', vetId: r.vet_id || null, localId: r.local_id || null })),
       fetchAll('custos_fixos', fromDbCustoFixo),
@@ -921,11 +921,13 @@ const loadAllData = async () => {
 
   const addAnotacaoClinica = (a) => {
     setAnotacoesClinicas(prev => [a, ...prev]);
-    dbInsert('anotacoes_clinicas', { id: a.id, cavalo_id: a.cavaloId, data: a.data, hora: a.hora || '', tipo: a.tipo, gravidade: a.gravidade || null, titulo: a.titulo, descricao: a.descricao || '', autor: a.autor || '', mes: a.mes, insumos_criados: a.insumosCriados || [], procs_criados: a.procsCriados || [] });
+    dbInsert('anotacoes_clinicas', { id: a.id, cavalo_id: a.cavaloId, data: a.data, hora: a.hora || '', tipo: a.tipo, gravidade: a.gravidade || null, titulo: a.titulo, descricao: a.descricao || '', autor: a.autor || '', mes: a.mes, insumos_criados: a.insumosCriados || [], procs_criados: a.procsCriados || [], visita_clinica_id: a.visitaClinicaId || null });
   };
   const updateAnotacaoClinica = (id, data) => {
     setAnotacoesClinicas(prev => prev.map(a => a.id === id ? { ...a, ...data } : a));
-    dbUpdate('anotacoes_clinicas', id, { titulo: data.titulo, descricao: data.descricao || '', tipo: data.tipo, gravidade: data.gravidade || null, hora: data.hora || '', data: data.data, mes: data.mes });
+    const patch = { titulo: data.titulo, descricao: data.descricao || '', tipo: data.tipo, gravidade: data.gravidade || null, hora: data.hora || '', data: data.data, mes: data.mes };
+    if (data.visitaClinicaId !== undefined) patch.visita_clinica_id = data.visitaClinicaId;
+    dbUpdate('anotacoes_clinicas', id, patch);
   };
   const deleteAnotacaoClinica = (id) => {
     setAnotacoesClinicas(prev => prev.filter(a => a.id !== id));
