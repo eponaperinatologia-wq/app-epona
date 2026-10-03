@@ -4905,6 +4905,7 @@ function ReproCobrancas({
   vetsExternos, empresaInfo,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  contratosAssessoria = [], visitasClinicas = [],
 }) {
   const [sub, setSub] = useState('faturas');
   const abas = [
@@ -4953,6 +4954,8 @@ function ReproCobrancas({
           addFaturaRepro={addFaturaRepro}
           updateFaturaRepro={updateFaturaRepro}
           removeFaturaRepro={removeFaturaRepro}
+          contratosAssessoria={contratosAssessoria}
+          visitasClinicas={visitasClinicas}
         />
       )}
       {sub === 'divisao' && (
@@ -4967,6 +4970,8 @@ function ReproCobrancas({
           locais={locaisRepro}
           vetsExternos={vetsExternos}
           faturasRepro={faturasRepro}
+          contratosAssessoria={contratosAssessoria}
+          visitasClinicas={visitasClinicas}
         />
       )}
     </div>
@@ -5011,12 +5016,13 @@ function ReproFaturas({
   vetKmLocais, locais, vetsExternos, empresaInfo, currentUser,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  contratosAssessoria = [], visitasClinicas = [],
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [propAberto, setPropAberto] = useState(null);
 
-  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
+  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas };
   // Lookup de fatura persistida (fechada ou paga) por proprietário.
   // Fatura persistida vence o cálculo on-the-fly: o snapshot representa
   // o que foi efetivamente fechado — não deve recalcular depois.
@@ -5122,6 +5128,7 @@ function ReproFaturas({
                   (fat.procedimentosLinhas || []).length ? `${fat.procedimentosLinhas.length} proc.` : null,
                   (fat.avulsosLinhas || []).length ? `${fat.avulsosLinhas.length} avulso(s)` : null,
                   (fat.resultadosLinhas || []).length ? `${fat.resultadosLinhas.length} DG30+` : null,
+                  (fat.assessoriasLinhas || []).length ? `${fat.assessoriasLinhas.length} assess.` : null,
                 ].filter(Boolean).join(' · ')}
               </div>
               {divisaoResumo && (
@@ -5166,7 +5173,7 @@ function ReproFaturaDetalhe({
   const isFechada = status === 'fechada' || status === 'paga';
   const isPaga = status === 'paga';
   // Divisão desta fatura: usa a congelada se já fechada; senão calcula on-the-fly
-  const divisaoAtual = persist?.divisao || dividirFatura(fatura);
+  const divisaoAtual = persist?.divisao || dividirFatura(fatura, vetsExternos);
   const fecharFatura = async () => {
     if (!addFaturaRepro || !fatura?.proprietario?.id) return;
     const id = `frr_${fatura.proprietario.id}_${fatura.ref.ano}_${String(fatura.ref.mes).padStart(2, '0')}`;
@@ -5177,9 +5184,10 @@ function ReproFaturaDetalhe({
       procedimentosLinhas: fatura.procedimentosLinhas || [], procedimentosTotal: fatura.procedimentosTotal || 0,
       avulsosLinhas: fatura.avulsosLinhas || [], avulsosTotal: fatura.avulsosTotal || 0,
       resultadosLinhas: fatura.resultadosLinhas || [], resultadosTotal: fatura.resultadosTotal || 0,
+      assessoriasLinhas: fatura.assessoriasLinhas || [], assessoriasTotal: fatura.assessoriasTotal || 0,
       total: fatura.total || 0,
     };
-    const divisao = dividirFatura(fatura);
+    const divisao = dividirFatura(fatura, vetsExternos);
     await addFaturaRepro({
       id,
       proprietarioId: fatura.proprietario.id,
@@ -5391,6 +5399,14 @@ function ReproFaturaDetalhe({
             readOnly: true,
           }))} />
         )}
+        {(fatura.assessoriasLinhas || []).length > 0 && (
+          <SecaoFat titulo={`Assessoria clínica · ${formatBRL(fatura.assessoriasTotal)}`} linhas={fatura.assessoriasLinhas.map(l => ({
+            principal: l.descricao,
+            sub: `${fmtDataBr(l.data)}${(l.vetsParticipantes || []).length > 0 ? ' · ' + l.vetsParticipantes.map(id => vetNome(id).split(' ')[0]).join(', ') : ''}`,
+            valor: l.valor,
+            readOnly: true,
+          }))} />
+        )}
       </div>
 
       {(registroEmEdicao || novoRegBase) && (
@@ -5499,11 +5515,12 @@ const LinhaDivisao = ({ label, sub, valor, icon, iconBg, iconColor, iniciais }) 
 function ReproDivisao({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
   vetKmLocais, locais, vetsExternos, faturasRepro = [],
+  contratosAssessoria = [], visitasClinicas = [],
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
 
-  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais };
+  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas };
   // Pra cada proprietário, pega a fatura (persistida se houver, senão on-the-fly)
   // e computa a divisão daquela fatura individual.
   const itens = [];
@@ -5513,7 +5530,7 @@ function ReproDivisao({
       ? persist.snapshot
       : calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
     if (!persist && (fat.total || 0) <= 0) continue;
-    const divisao = persist?.divisao || dividirFatura(fat);
+    const divisao = persist?.divisao || dividirFatura(fat, vetsExternos);
     itens.push({ prop: p, fat, persist, divisao });
   }
   itens.sort((a, b) => (a.prop.nome || '').localeCompare(b.prop.nome || '', 'pt'));

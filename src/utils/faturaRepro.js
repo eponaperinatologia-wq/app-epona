@@ -218,6 +218,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   const {
     registros = [], cavalos = [], proprietarios = [],
     servicos = [], insumos = [], vetKmLocais = [], locais = [],
+    // Assessoria clínica (opcional — se não vier, seção fica vazia)
+    contratosAssessoria = [], visitasClinicas = [],
   } = deps;
   const { agruparDescartaveis = false } = opts;
 
@@ -389,7 +391,31 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   }
   const resultadosTotal = resultadosLinhas.reduce((s, l) => s + l.valor, 0);
 
-  const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal + resultadosTotal;
+  // ── 6) Assessoria clínica (visitas finalizadas do mês dos contratos
+  //       deste proprietário). Cada visita vira 1 linha; divisão é feita
+  //       por dividirFatura com regra especial (Epona 100% se só internos;
+  //       Epona 50% + externos dividem 50%).
+  const contratosDoProp = contratosAssessoria.filter(c => c.proprietarioId === propId);
+  const idsContratos = new Set(contratosDoProp.map(c => c.id));
+  const assessoriasLinhas = [];
+  for (const v of visitasClinicas) {
+    if (v.status !== 'finalizada') continue;
+    if (!idsContratos.has(v.contratoId)) continue;
+    if (!isMes(v.data, ref)) continue;
+    const c = contratosDoProp.find(x => x.id === v.contratoId);
+    assessoriasLinhas.push({
+      data: v.data,
+      visitaId: v.id,
+      contratoId: v.contratoId,
+      descricao: c?.nomeApelido ? `Assessoria · ${c.nomeApelido}` : 'Assessoria mensal',
+      valor: Number(v.valorCobrado) || 0,
+      vetsParticipantes: v.vetsParticipantes || [],
+    });
+  }
+  assessoriasLinhas.sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+  const assessoriasTotal = assessoriasLinhas.reduce((s, l) => s + l.valor, 0);
+
+  const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal + resultadosTotal + assessoriasTotal;
 
   const insumosLinhasFinais = agruparDescartaveis
     ? agruparDescartaveisLinhas(insumosLinhas, insumos)
@@ -403,6 +429,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     procedimentosLinhas, procedimentosTotal,
     avulsosLinhas, avulsosTotal,
     resultadosLinhas, resultadosTotal,
+    assessoriasLinhas, assessoriasTotal,
     total,
   };
 }
@@ -415,9 +442,14 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
 //   IA / TE       → 70% vet, 30% Epona
 //   Resultado     → 50% vet inseminou, 50% Epona
 //   Serviço avulso→ 100% vet que fez
+//   Assessoria    → só Epona interno (Alexandre/Carolina) → 100% Epona
+//                 → vet externo participa → Epona 50% + externos dividem 50%
 // Retorna: { epona: n, porVet: { [vetId]: n } }
+// vetsExternos passado opcionalmente pra determinar interno_epona na regra
+// de assessoria. Se não passar, assume que todos participantes contam
+// como externos (comportamento mais conservador — não dá tudo pra Epona).
 // ─────────────────────────────────────────────────────────────
-export function dividirFatura(fatura) {
+export function dividirFatura(fatura, vetsExternos = []) {
   const acc = { epona: 0, porVet: {} };
   // Sem vet identificado vai para uma chave própria (antes era descartado e
   // a soma da divisão ficava menor que o total da fatura).
@@ -441,6 +473,22 @@ export function dividirFatura(fatura) {
   for (const l of fatura.resultadosLinhas) {
     addVet(l.vetIdInsem, l.valor * 0.5);
     acc.epona += l.valor * 0.5;
+  }
+  // Assessoria clínica → regra especial.
+  for (const l of (fatura.assessoriasLinhas || [])) {
+    const participantes = (l.vetsParticipantes || [])
+      .map(id => vetsExternos.find(v => v.id === id))
+      .filter(Boolean);
+    const externos = participantes.filter(v => !v.internoEpona);
+    if (externos.length === 0) {
+      // Só Epona interno (ou ninguém): 100% Epona
+      acc.epona += l.valor;
+    } else {
+      // Epona 50% garantido + 50% dividido entre externos
+      acc.epona += l.valor * 0.5;
+      const porCada = (l.valor * 0.5) / externos.length;
+      for (const v of externos) addVet(v.id, porCada);
+    }
   }
   return acc;
 }
