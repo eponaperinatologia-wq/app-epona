@@ -481,21 +481,33 @@ function DraggableEvento({
       style={{
         width: '100%', textAlign: 'left', boxSizing: 'border-box',
         cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
-        background: 'var(--card)', border: '1px solid var(--line)',
+        background: ev.cumprido ? 'var(--soft)' : 'var(--card)',
+        border: '1px solid var(--line)',
         borderLeft: `3px solid ${cor}`,
         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
-        opacity: sendoArrastado ? 0.4 : 1,
+        opacity: sendoArrastado ? 0.4 : (ev.cumprido ? 0.7 : 1),
         touchAction: canDrag ? 'none' : 'auto',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         WebkitTouchCallout: 'none',
         WebkitTapHighlightColor: 'transparent',
+        position: 'relative',
       }}
     >
-      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+      {/* Check verde no canto quando o evento já foi cumprido (feito hoje) */}
+      {ev.cumprido && (
+        <div style={{
+          position: 'absolute', top: 4, right: 6,
+          width: 16, height: 16, borderRadius: 8,
+          background: '#16a34a', color: '#fff',
+          display: 'grid', placeItems: 'center',
+          fontSize: 10, fontWeight: 700, lineHeight: 1,
+        }} title="Já registrado hoje">✓</div>
+      )}
+      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', paddingRight: ev.cumprido ? 20 : 0 }}>
         {rotulo}
       </div>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25 }}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, textDecoration: ev.cumprido ? 'line-through' : 'none' }}>
         {egua?.nome || 'égua'}
       </div>
       {vet && ev.fonte !== 'vet' && (
@@ -770,13 +782,17 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                 {evs.length === 0 && (
                   <div style={{ fontSize: 11, color: 'var(--ink-3)', padding: '4px 0' }}>—</div>
                 )}
-                {evs.map((ev, i) => {
+                {/* Ordena: pendentes (!cumprido) primeiro, cumpridos
+                    (com check) no final. Dentro de cada grupo mantém a
+                    ordem natural que já vinha. */}
+                {[...evs].sort((a, b) => Number(!!a.cumprido) - Number(!!b.cumprido)).map((ev, i) => {
                   const vet = vetsExternos.find(v => v.id === ev.vetId);
                   const egua = eguasRepro.find(e => e.id === ev.eguaId);
                   const rotulo = rotuloEventoAmpliado(ev);
                   const cor = corEventoAmpliado(ev, vet);
                   const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
-                  const canDrag = ehRemarcavelEv(ev);
+                  // Cumprido não precisa remarcar (já foi feito)
+                  const canDrag = ehRemarcavelEv(ev) && !ev.cumprido;
                   const sendoArrastado = draggingEv && draggingEv.id === ev.id;
                   return (
                     <DraggableEvento
@@ -986,22 +1002,34 @@ function eventosPendentes(registros, hoje) {
   const out = [];
   // Os chamadores já passam a lista do workspace certo (Repro Team ou
   // haras). Antes só aceitava 'repro' e a agenda do haras ficava vazia.
+  // Eventos cumpridos continuam ocultos no passado/futuro, mas os
+  // cumpridos de HOJE entram com flag cumprido:true pra UI mostrar
+  // separados (com check, embaixo da coluna) — ajuda o vet a ver num
+  // relance "o que já fiz hoje × o que ainda falta".
   for (const r of (registros || [])) {
     const dados = r.dados || {};
-    // Procedimento agendado no futuro (ou hoje) — só faz sentido se a
-    // data do próprio registro é futura. Como o vet cria o registro
-    // no dia que faz o procedimento, isso normalmente é 'hoje'.
+    // Procedimento agendado no futuro (ou hoje). Se é hoje, considera
+    // cumprido (foi registrado hoje = feito).
     if (r.data && r.data >= hoje) {
-      out.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data, fonte: 'repro' });
+      out.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data, fonte: 'repro', cumprido: r.data === hoje });
     }
-    if (r.dataRetorno && !retornoCumprido(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro' });
+    if (r.dataRetorno) {
+      const cumprido = retornoCumprido(r, registros);
+      if (!cumprido || r.dataRetorno === hoje) {
+        out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro', cumprido });
+      }
     }
-    if (dados.dataColetaAgendada && !coletaCumprida(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro' });
+    if (dados.dataColetaAgendada) {
+      const cumprido = coletaCumprida(r, registros);
+      if (!cumprido || dados.dataColetaAgendada === hoje) {
+        out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro', cumprido });
+      }
     }
-    if (dados.dataInducaoOvulacao && !inducaoCumprida(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', fonte: 'repro' });
+    if (dados.dataInducaoOvulacao) {
+      const cumprido = inducaoCumprida(r, registros);
+      if (!cumprido || dados.dataInducaoOvulacao === hoje) {
+        out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', fonte: 'repro', cumprido });
+      }
     }
   }
   return out;
@@ -1828,6 +1856,7 @@ function ReproCaderno({
           eguasRepro={eguasRepro}
           propRepro={propRepro}
           locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
           currentUser={currentUser}
           servicos={servicos}
           insumos={insumos}
@@ -3003,7 +3032,8 @@ function derivarManuaisLegado(registro, _insumos, _servicos) {
 // Card compacto mostrando a última anotação da égua selecionada no form.
 // Mostra campos relevantes por tipo (CF, IA, TE, DG, tratamento, avulso),
 // pra guiar a decisão do próximo passo sem precisar sair do form.
-function UltimaAnotacaoEgua({ eguaId, registrosRepro = [], servicos = [], insumos = [], ignorarRegistroId = null }) {
+function UltimaAnotacaoEgua({ eguaId, eguasRepro = [], propRepro = [], locaisRepro = [], vetsExternos = [], registrosRepro = [], servicos = [], insumos = [], ignorarRegistroId = null }) {
+  const [mostrarHistorico, setMostrarHistorico] = useState(false);
   const ultimo = useMemo(() => {
     if (!eguaId) return null;
     return [...(registrosRepro || [])]
@@ -3011,6 +3041,7 @@ function UltimaAnotacaoEgua({ eguaId, registrosRepro = [], servicos = [], insumo
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
   }, [eguaId, registrosRepro, ignorarRegistroId]);
   if (!ultimo) return null;
+  const egua = eguasRepro.find(e => e.id === eguaId);
 
   const d = ultimo.dados || {};
   const meta = TIPO_META[ultimo.tipo] || { label: ultimo.tipo, cor: 'var(--ink-3)', bg: 'var(--soft)' };
@@ -3110,11 +3141,56 @@ function UltimaAnotacaoEgua({ eguaId, registrosRepro = [], servicos = [], insumo
           <span style={{ color: 'var(--ink-2)' }}>{insumosLinhas.join(', ')}</span>
         </div>
       )}
+
+      {/* Botão pra ver histórico completo da égua (modal flutuante por
+          cima do form, pra não perder o rascunho sendo preenchido). */}
+      {egua && (
+        <div style={{ marginTop: 8, paddingTop: 6, borderTop: `1px solid ${meta.cor}20`, display: 'flex' }}>
+          <button
+            type="button"
+            onClick={() => setMostrarHistorico(true)}
+            style={{
+              background: 'transparent', border: 'none', color: meta.cor,
+              fontSize: 11, fontWeight: 700, cursor: 'pointer',
+              fontFamily: 'var(--sans)', padding: 0,
+              display: 'flex', alignItems: 'center', gap: 4,
+            }}
+          >
+            <Icon name="clock" size={11} /> Ver histórico da égua
+          </button>
+        </div>
+      )}
+
+      {mostrarHistorico && egua && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 10001,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'stretch', justifyContent: 'center',
+        }} onClick={() => setMostrarHistorico(false)}>
+          <div
+            style={{
+              background: 'var(--bg)', width: '100%', maxWidth: 480,
+              overflowY: 'auto', boxShadow: '0 0 40px rgba(0,0,0,0.3)',
+            }}
+            onClick={e => e.stopPropagation()}
+          >
+            <HistoricoEgua
+              egua={egua}
+              registrosRepro={registrosRepro}
+              vetsExternos={vetsExternos}
+              locaisRepro={locaisRepro}
+              propRepro={propRepro}
+              onBack={() => setMostrarHistorico(false)}
+              onOpenRegistro={() => setMostrarHistorico(false)}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel, updateRegistroReproducao = null }) {
+function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, vetsExternos = [], currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel, updateRegistroReproducao = null }) {
   // Data local (toISOString é UTC: depois das 21h caía no dia seguinte e
   // o registro do último dia do mês ia para a fatura do mês seguinte).
   const hoje = new Date().toLocaleDateString('sv-SE');
@@ -3325,6 +3401,10 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       {eguaId && (
         <UltimaAnotacaoEgua
           eguaId={eguaId}
+          eguasRepro={eguasRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
           registrosRepro={registrosRepro}
           servicos={servicos}
           insumos={insumos}
@@ -5320,6 +5400,7 @@ function ReproFaturaDetalhe({
           eguasRepro={eguasRepro}
           propRepro={propRepro}
           locaisRepro={locaisRepro}
+          vetsExternos={vetsExternos}
           currentUser={currentUser}
           servicos={servicos}
           insumos={insumos}
@@ -5331,6 +5412,7 @@ function ReproFaturaDetalhe({
             setNovoRegBase(null);
           }}
           onCancel={() => { setEditRegId(null); setNovoRegBase(null); }}
+          updateRegistroReproducao={updateRegistroReproducao}
         />
       )}
     </div>
