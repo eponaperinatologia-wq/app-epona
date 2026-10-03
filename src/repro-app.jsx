@@ -596,8 +596,10 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
   // abrir o modal do detalhe quando o usuário quis só remarcar.
   const recentlyDragged = useRef(false);
   // DEBUG: painel visual pra diagnosticar long-press em mobile.
-  // Habilitar com localStorage.setItem('plannerDbg', '1') + reload.
-  const dbgEnabled = typeof window !== 'undefined' && window.localStorage?.getItem('plannerDbg') === '1';
+  // Habilitar adicionando ?debug=1 na URL (ou ?debug=1 em qualquer lugar
+  // da query). Funciona em desktop e PWA.
+  const dbgEnabled = typeof window !== 'undefined'
+    && (window.location?.search?.includes('debug=1') || window.localStorage?.getItem('plannerDbg') === '1');
   const [dbgLog, setDbgLog] = useState([]);
   const dbg = (msg) => {
     if (!dbgEnabled) return;
