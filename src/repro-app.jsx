@@ -127,6 +127,7 @@ function ReproHome({
   currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
+  updateRegistroReproducao = null,
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -205,7 +206,7 @@ function ReproHome({
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} vetBundle={vetBundle} />
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} vetBundle={vetBundle} updateRegistroReproducao={updateRegistroReproducao} />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
           Click no card do topo abre a versão completa dentro do Painel. */}
@@ -279,6 +280,7 @@ function ReproSubHomeReproducao({
   currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, onSelectEvento, onBack,
+  updateRegistroReproducao = null,
 }) {
   const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
   return (
@@ -298,7 +300,7 @@ function ReproSubHomeReproducao({
       )}
 
       {/* Planner horizontal — só eventos reprodutivos (vetBundle=null) */}
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} />
+      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} updateRegistroReproducao={updateRegistroReproducao} />
 
       <button onClick={() => { setTab('vet'); setScreen('repro-caderno'); }} style={{
         width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
@@ -376,6 +378,64 @@ function MuralAvisos({ avisos, onResolver }) {
   );
 }
 
+// Diz se um evento da agenda pode ser remarcado via drag-and-drop.
+// Nem todo evento tem data editável simples — ex: vacina/vermifugação
+// derivadas de protocolo, exame histórico, procedimento já realizado.
+function ehRemarcavelEv(ev) {
+  if (!ev) return false;
+  if (ev.fonte === 'repro') {
+    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta' || ev.tipoEv === 'inducao';
+  }
+  if (ev.fonte === 'vet') {
+    return ['anotacao_clinica', 'opg', 'medicao', 'vacinacao'].includes(ev.tipoEv);
+  }
+  return false;
+}
+
+// Remarca um evento para uma nova data (YYYY-MM-DD). Roteia pro updater
+// certo dependendo do tipo. deps = { updateRegistroReproducao, vetBundle }.
+async function remarcarEvento(ev, novaData, deps) {
+  if (!ev || !novaData || !ehRemarcavelEv(ev)) return false;
+  const { updateRegistroReproducao, vetBundle } = deps;
+  if (ev.fonte === 'repro') {
+    const r = ev.registro;
+    if (!r || !updateRegistroReproducao) return false;
+    if (ev.tipoEv === 'retorno') {
+      updateRegistroReproducao(r.id, { dataRetorno: novaData });
+      return true;
+    }
+    if (ev.tipoEv === 'coleta') {
+      updateRegistroReproducao(r.id, { dados: { ...(r.dados || {}), dataColetaAgendada: novaData } });
+      return true;
+    }
+    if (ev.tipoEv === 'inducao') {
+      updateRegistroReproducao(r.id, { dados: { ...(r.dados || {}), dataInducaoOvulacao: novaData } });
+      return true;
+    }
+  }
+  if (ev.fonte === 'vet' && vetBundle) {
+    const item = ev.extra;
+    if (!item?.id) return false;
+    if (ev.tipoEv === 'anotacao_clinica' && vetBundle.updateAnotacaoClinica) {
+      vetBundle.updateAnotacaoClinica(item.id, { data: novaData });
+      return true;
+    }
+    if (ev.tipoEv === 'opg' && vetBundle.updateOpg) {
+      vetBundle.updateOpg(item.id, { data: novaData });
+      return true;
+    }
+    if (ev.tipoEv === 'medicao' && vetBundle.updateMedicao) {
+      vetBundle.updateMedicao(item.id, { dataRegistro: novaData });
+      return true;
+    }
+    if (ev.tipoEv === 'vacinacao' && vetBundle.upsertVacinacaoAnimal) {
+      vetBundle.upsertVacinacaoAnimal({ ...item, data: novaData });
+      return true;
+    }
+  }
+  return false;
+}
+
 // ─────────────────────────────────────────────────────────────
 // Planner — agenda horizontal (atrasados, hoje, amanhã, próximos)
 // Cada evento pintado com a cor do vet responsável.
@@ -384,8 +444,13 @@ function MuralAvisos({ avisos, onResolver }) {
 // concluído. Só é evento (pendente/atrasado) o que foi programado
 // via dataRetorno ou dados.dataColetaAgendada, e ainda não foi
 // "cumprido" por um registro subsequente da mesma égua.
+//
+// Drag-and-drop: long-press 400ms em um evento remarcável "pega"
+// a box; arrastar sobre outro bucket destaca; soltar remarca.
+// Perto da borda direita durante drag, auto-scroll + aparecem
+// mais dias (até ~60 dias à frente).
 // ─────────────────────────────────────────────────────────────
-function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundle = null }) {
+function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundle = null, updateRegistroReproducao = null }) {
   const hoje = new Date().toLocaleDateString('sv-SE');
 
   const eventosBase = eventosPendentes(registros, hoje);
@@ -424,10 +489,13 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
   }
 
   // Constrói lista ordenada: atrasado (só se houver eventos),
-  // hoje, próximos 7 dias. Quando não há atrasado, "Hoje" fica em
-  // primeiro pra dominar o centro visual.
+  // hoje, próximos N dias. Quando não há atrasado, "Hoje" fica em
+  // primeiro pra dominar o centro visual. extraDays cresce quando o
+  // usuário arrasta pra borda direita e scroll chega perto do fim.
+  const [extraDays, setExtraDays] = useState(0);
+  const diasAFrente = Math.min(60, 7 + extraDays);
   const proximos = [];
-  for (let i = 1; i <= 7; i++) proximos.push(addDias(hoje, i));
+  for (let i = 1; i <= diasAFrente; i++) proximos.push(addDias(hoje, i));
   const temAtrasado = (buckets.get('atrasado') || []).length > 0;
   const ordem = temAtrasado ? ['atrasado', 'hoje', ...proximos] : ['hoje', ...proximos];
 
@@ -440,6 +508,117 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
 
   const semNada = eventos.length === 0;
 
+  // ── Drag state ─────────────────────────────────────────────
+  // draggingEv: evento sendo arrastado (apenas remarcáveis)
+  // dropTarget: key do bucket destino (atrasado | hoje | ISO)
+  // ghostPos: { x, y } pra posicionar o ghost que segue o cursor
+  const [draggingEv, setDraggingEv] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [ghostPos, setGhostPos] = useState({ x: 0, y: 0 });
+  const scrollRef = useRef(null);
+  const autoScrollRef = useRef(0);
+  const longPressTimer = useRef(null);
+  const pointerStartRef = useRef({ x: 0, y: 0 });
+  const pointerStartedDrag = useRef(false);
+
+  // Loop de auto-scroll: enquanto autoScrollRef != 0, aplica ao scroll.
+  // Também estende o range de dias quando chega perto do fim.
+  useEffect(() => {
+    if (!draggingEv) return;
+    let raf;
+    const tick = () => {
+      const dir = autoScrollRef.current;
+      if (dir !== 0 && scrollRef.current) {
+        const el = scrollRef.current;
+        el.scrollLeft += dir * 10;
+        // Perto do fim scrollável? Pede mais dias (até o máx 60).
+        const perto = el.scrollWidth - (el.scrollLeft + el.clientWidth) < 100;
+        if (dir > 0 && perto && diasAFrente < 60) {
+          setExtraDays(d => Math.min(53, d + 1));
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [draggingEv, diasAFrente]);
+
+  const bucketKeyAt = (x, y) => {
+    // Descobre em qual bucket o pointer está. Procura pelo data-bucket-key
+    // mais próximo via elementFromPoint.
+    const el = document.elementFromPoint(x, y);
+    if (!el) return null;
+    const bucket = el.closest('[data-bucket-key]');
+    return bucket ? bucket.getAttribute('data-bucket-key') : null;
+  };
+
+  const onPointerDownEv = (ev, e) => {
+    if (!ehRemarcavelEv(ev)) return; // sem drag
+    pointerStartRef.current = { x: e.clientX, y: e.clientY };
+    pointerStartedDrag.current = false;
+    // Long-press 400ms pra ativar drag. Antes disso, movimento > 10px
+    // cancela (interpretamos como scroll).
+    longPressTimer.current = setTimeout(() => {
+      pointerStartedDrag.current = true;
+      setDraggingEv(ev);
+      setGhostPos({ x: e.clientX, y: e.clientY });
+      try { navigator.vibrate?.(10); } catch {}
+      // Captura o pointer pra receber todos os moves/ups mesmo fora do botão.
+      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
+    }, 400);
+  };
+
+  const onPointerMoveEv = (e) => {
+    if (!draggingEv) {
+      // Antes do long-press disparar: cancela se mover demais (scroll)
+      const dx = e.clientX - pointerStartRef.current.x;
+      const dy = e.clientY - pointerStartRef.current.y;
+      if (Math.hypot(dx, dy) > 10 && longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+      return;
+    }
+    // Em drag: atualiza ghost, detecta bucket, auto-scroll se perto da borda
+    setGhostPos({ x: e.clientX, y: e.clientY });
+    const alvo = bucketKeyAt(e.clientX, e.clientY);
+    setDropTarget(alvo);
+    if (scrollRef.current) {
+      const rect = scrollRef.current.getBoundingClientRect();
+      const EDGE = 60;
+      if (e.clientX > rect.right - EDGE) autoScrollRef.current = 1;
+      else if (e.clientX < rect.left + EDGE) autoScrollRef.current = -1;
+      else autoScrollRef.current = 0;
+    }
+    e.preventDefault?.();
+  };
+
+  const onPointerUpEv = async () => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+    autoScrollRef.current = 0;
+    if (!pointerStartedDrag.current) return; // foi click, não drag
+    pointerStartedDrag.current = false;
+    const ev = draggingEv;
+    const alvo = dropTarget;
+    setDraggingEv(null);
+    setDropTarget(null);
+    if (ev && alvo && alvo !== 'atrasado') {
+      const novaData = alvo === 'hoje' ? hoje : alvo;
+      // Não refaz se a data é a mesma
+      if (novaData !== ev.dataEv) {
+        await remarcarEvento(ev, novaData, { updateRegistroReproducao, vetBundle });
+      }
+    }
+  };
+
+  // Ghost: réplica visual pequena do evento que segue o cursor.
+  const ghostVet = draggingEv ? vetsExternos.find(v => v.id === draggingEv.vetId) : null;
+  const ghostEgua = draggingEv ? eguasRepro.find(e => e.id === draggingEv.eguaId) : null;
+  const ghostCor = draggingEv ? corEventoAmpliado(draggingEv, ghostVet) : null;
+
   return (
     <div style={{
       background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
@@ -451,6 +630,11 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
       }}>
         <Icon name="calendar" size={14} color="var(--ink-3)" />
         <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>Agenda</div>
+        {draggingEv && (
+          <div style={{ fontSize: 10, color: '#6b21a8', marginLeft: 'auto', fontWeight: 600 }}>
+            Arraste até o dia · solte pra remarcar
+          </div>
+        )}
       </div>
 
       {semNada ? (
@@ -458,20 +642,40 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
           Sem eventos agendados.
         </div>
       ) : (
-        <div style={{
-          display: 'flex', overflowX: 'auto', gap: 8, padding: '2px 12px 4px',
-          scrollSnapType: 'x mandatory',
-        }}>
+        <div
+          ref={scrollRef}
+          style={{
+            display: 'flex', overflowX: 'auto', gap: 8, padding: '2px 12px 4px',
+            // Scroll snap atrapalha quando a lista cresce dinamicamente no drag.
+            scrollSnapType: draggingEv ? 'none' : 'x mandatory',
+            touchAction: draggingEv ? 'none' : 'pan-x',
+          }}
+          onPointerMove={onPointerMoveEv}
+          onPointerUp={onPointerUpEv}
+          onPointerCancel={onPointerUpEv}
+        >
           {ordem.map(k => {
             const evs = buckets.get(k) || [];
             const destaque = (k === 'atrasado' && evs.length > 0) || k === 'hoje';
+            const isDropTarget = draggingEv && dropTarget === k && k !== 'atrasado';
             return (
-              <div key={k} style={{
-                flex: '0 0 200px', minWidth: 200, scrollSnapAlign: 'start',
-                background: destaque ? (k === 'atrasado' ? '#fee2e2' : '#f5e8ff') : 'var(--bg)',
-                border: `1px solid ${destaque ? (k === 'atrasado' ? '#fecaca' : '#e9d5ff') : 'var(--line)'}`,
-                borderRadius: 12, padding: '10px 10px',
-              }}>
+              <div
+                key={k}
+                data-bucket-key={k}
+                style={{
+                  flex: '0 0 200px', minWidth: 200, scrollSnapAlign: 'start',
+                  background: isDropTarget
+                    ? '#dcfce7'
+                    : (destaque ? (k === 'atrasado' ? '#fee2e2' : '#f5e8ff') : 'var(--bg)'),
+                  border: `${isDropTarget ? 2 : 1}px solid ${
+                    isDropTarget
+                      ? '#16a34a'
+                      : (destaque ? (k === 'atrasado' ? '#fecaca' : '#e9d5ff') : 'var(--line)')
+                  }`,
+                  borderRadius: 12, padding: '10px 10px',
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+              >
                 <div style={{
                   fontSize: 10, color: destaque ? (k === 'atrasado' ? '#991b1b' : '#6b21a8') : 'var(--ink-3)',
                   textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 700, marginBottom: 6,
@@ -487,15 +691,26 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                   const rotulo = rotuloEventoAmpliado(ev);
                   const cor = corEventoAmpliado(ev, vet);
                   const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
+                  const canDrag = ehRemarcavelEv(ev);
+                  const sendoArrastado = draggingEv && draggingEv.id === ev.id;
                   return (
                     <button
                       key={i}
-                      onClick={() => canOpen && onSelectEvento(ev)}
+                      onClick={() => {
+                        // Só abre se não acabou de ser drag (click sintético pós-drag).
+                        if (pointerStartedDrag.current) return;
+                        if (canOpen) onSelectEvento(ev);
+                      }}
+                      onPointerDown={canDrag ? (e => onPointerDownEv(ev, e)) : undefined}
                       style={{
-                        width: '100%', textAlign: 'left', cursor: canOpen ? 'pointer' : 'default',
+                        width: '100%', textAlign: 'left',
+                        cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
                         background: 'var(--card)', border: '1px solid var(--line)',
                         borderLeft: `3px solid ${cor}`,
                         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
+                        opacity: sendoArrastado ? 0.4 : 1,
+                        touchAction: canDrag ? 'none' : 'auto',
+                        userSelect: 'none',
                       }}
                     >
                       <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -515,6 +730,25 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Ghost visual que segue o cursor durante drag */}
+      {draggingEv && (
+        <div style={{
+          position: 'fixed', left: ghostPos.x + 12, top: ghostPos.y - 10,
+          pointerEvents: 'none', zIndex: 9999,
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderLeft: `3px solid ${ghostCor}`,
+          borderRadius: 8, padding: '6px 10px',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          fontFamily: 'var(--sans)', fontSize: 12, color: 'var(--ink)',
+          maxWidth: 220, transform: 'rotate(-2deg)',
+        }}>
+          <div style={{ fontSize: 10, color: ghostCor, fontWeight: 700, textTransform: 'uppercase' }}>
+            {rotuloEventoAmpliado(draggingEv)}
+          </div>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 13 }}>{ghostEgua?.nome || 'égua'}</div>
         </div>
       )}
     </div>
@@ -3054,11 +3288,11 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       {tipo === 'controle_folicular' && (
         <>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <FormField label="Ovário direito">
-              <input value={dados.ovarioDireito || ''} onChange={e => setDado('ovarioDireito', e.target.value)} style={inputStyle} placeholder="Ex: F35" />
-            </FormField>
             <FormField label="Ovário esquerdo">
               <input value={dados.ovarEsquerdo || ''} onChange={e => setDado('ovarEsquerdo', e.target.value)} style={inputStyle} placeholder="Ex: Vf12" />
+            </FormField>
+            <FormField label="Ovário direito">
+              <input value={dados.ovarioDireito || ''} onChange={e => setDado('ovarioDireito', e.target.value)} style={inputStyle} placeholder="Ex: F35" />
             </FormField>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -5507,6 +5741,7 @@ export function ReproApp({
       goCadastros={goCadastros}
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
+      updateRegistroReproducao={updateRegistroReproducao}
     />;
   } else if (screen === 'repro-cadastros') {
     if (historicoEguaId) {
@@ -5608,6 +5843,7 @@ export function ReproApp({
       setTab={setTab}
       onSelectEvento={abrirCadernoDoEvento}
       onBack={() => setScreen('repro-vet')}
+      updateRegistroReproducao={updateRegistroReproducao}
     />;
   } else if (screen === 'repro-vet' && vetSubScreen === 'eguaGestante') {
     // Sub-tela: detalhe da égua gestante (mesma tela do haras)
@@ -5765,6 +6001,7 @@ export function ReproApp({
       updateRegistroReproducao={updateRegistroReproducao}
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
+      updateRegistroReproducao={updateRegistroReproducao}
     />;
   } else if (screen === 'repro-cobrancas') {
     content = <ReproCobrancas

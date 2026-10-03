@@ -78,8 +78,8 @@ function InsumosSection({ insumos, value, onChange }) {
 function ControleFolicularForm({ dados, onChange, insumos }) {
   const set = (k, v) => onChange({ ...dados, [k]: v });
   const campos = [
-    { id: 'ovarioDireito', label: 'Ovário Direito', placeholder: 'Ex: folículo 35mm' },
     { id: 'ovarEsquerdo', label: 'Ovário Esquerdo', placeholder: 'Ex: folículo 38mm' },
+    { id: 'ovarioDireito', label: 'Ovário Direito', placeholder: 'Ex: folículo 35mm' },
     { id: 'edemaUterino', label: 'Edema Uterino', placeholder: 'Ex: Grau 2' },
     { id: 'tonusUterino', label: 'Tonus Uterino', placeholder: 'Ex: Normal' },
     { id: 'tonusCervical', label: 'Tônus Cervical', placeholder: 'Ex: Relaxado' },
@@ -558,7 +558,7 @@ function RegistroCard({ registro, cavalos, insumos, isAdmin, onDelete }) {
         <div style={{ padding: '0 14px 14px', borderTop: '1px solid var(--line)' }}>
           {registro.tipo === 'controle_folicular' && (
             <div style={{ paddingTop: 10 }}>
-              {[['Ovário Direito', d.ovarioDireito], ['Ovário Esquerdo', d.ovarEsquerdo], ['Edema Uterino', d.edemaUterino], ['Tonus Uterino', d.tonusUterino], ['Tônus Cervical', d.tonusCervical], ['Líquido Livre', d.liquidoLivre]].filter(([,v]) => v).map(([k, v]) => (
+              {[['Ovário Esquerdo', d.ovarEsquerdo], ['Ovário Direito', d.ovarioDireito], ['Edema Uterino', d.edemaUterino], ['Tonus Uterino', d.tonusUterino], ['Tônus Cervical', d.tonusCervical], ['Líquido Livre', d.liquidoLivre]].filter(([,v]) => v).map(([k, v]) => (
                 <div key={k} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '3px 0', borderBottom: '1px solid var(--soft)' }}>
                   <span style={{ color: 'var(--ink-3)' }}>{k}</span>
                   <span style={{ color: 'var(--ink)', fontWeight: 600 }}>{v}</span>
