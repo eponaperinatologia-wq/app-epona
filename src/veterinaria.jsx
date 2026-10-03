@@ -11,6 +11,7 @@ import { ReproHarasView } from './repro-app';
 import { addDescartaveis } from './data';
 import { CronogramaVetScreen } from './cronograma-vet';
 import { DesenvolvimentoScreen, CAMPOS_MEDICAO } from './desenvolvimento';
+import { AssessoriaHub, ContratoForm } from './assessoria';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -595,6 +596,19 @@ export function VeterinariaScreen({
   // Se fornecido, mostra botão "+" em Gestação e Partos pra abrir
   // cadastro de nova égua gestante (usado no repro team).
   onCadastrarGestante = null,
+  // Assessoria clínica (só repro team). Quando mostrarAssessoria=true,
+  // o hub tem o card "Assessoria" que abre a tela de contratos+visitas.
+  mostrarAssessoria = false,
+  contratosAssessoria = [],
+  visitasClinicas = [],
+  addContratoAssessoria,
+  updateContratoAssessoria,
+  deleteContratoAssessoria,
+  addVisitaClinica,
+  updateVisitaClinica,
+  deleteVisitaClinica,
+  vetsExternos = [],
+  locaisRepro = [],
 }) {
   const [secao, setSecao] = useState(initialSecao);
 
@@ -740,6 +754,25 @@ export function VeterinariaScreen({
       />
     );
   }
+  if (secao === 'assessoria' && mostrarAssessoria) {
+    return (
+      <AssessoriaFlow
+        contratosAssessoria={contratosAssessoria}
+        visitasClinicas={visitasClinicas}
+        proprietarios={proprietarios}
+        locais={locaisRepro}
+        vetsExternos={vetsExternos}
+        addContratoAssessoria={addContratoAssessoria}
+        updateContratoAssessoria={updateContratoAssessoria}
+        deleteContratoAssessoria={deleteContratoAssessoria}
+        addVisitaClinica={addVisitaClinica}
+        updateVisitaClinica={updateVisitaClinica}
+        deleteVisitaClinica={deleteVisitaClinica}
+        currentUser={currentUser}
+        onBack={() => setSecao(null)}
+      />
+    );
+  }
   if (secao === 'cronograma') {
     return (
       <CronogramaVetScreen
@@ -855,6 +888,16 @@ export function VeterinariaScreen({
       badge: tarefasHoje > 0 ? `${tarefasHoje} hoje` : 'Agenda central',
       badgeCor: tarefasHoje > 0 ? '#0f766e' : '#6b7280',
     },
+    // Só aparece no shell Repro Team (haras não vê).
+    ...(mostrarAssessoria ? [{
+      id: 'assessoria', label: 'Assessoria\nClínica', icon: 'briefcase', cor: '#7c2d8c', bg: '#f5e8ff',
+      badge: (() => {
+        const hoje = new Date().toISOString().slice(0, 10);
+        const ativos = contratosAssessoria.filter(c => !c.fim || c.fim >= hoje).length;
+        return ativos > 0 ? `${ativos} contrato${ativos > 1 ? 's' : ''}` : 'Visita mensal';
+      })(),
+      badgeCor: '#7c2d8c',
+    }] : []),
   ];
 
   // Filtra os cards se veio uma lista permitida (uso pelo shell do proprietário)

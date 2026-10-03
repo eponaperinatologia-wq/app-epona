@@ -6343,6 +6343,19 @@ export function ReproApp({
       encerrarProgesteronaPrograma={vetBundle.encerrarProgesteronaPrograma}
       deleteProgesteronaPrograma={vetBundle.deleteProgesteronaPrograma}
       updateProgesteronaAplicacao={vetBundle.updateProgesteronaAplicacao}
+      // Área de assessoria clínica (só aparece no shell do Repro Team).
+      mostrarAssessoria={true}
+      contratosAssessoria={contratosAssessoria.filter(c => c.workspaceId === 'repro')}
+      visitasClinicas={visitasClinicas.filter(v => v.workspaceId === 'repro')}
+      addContratoAssessoria={addContratoAssessoria}
+      updateContratoAssessoria={updateContratoAssessoria}
+      deleteContratoAssessoria={deleteContratoAssessoria}
+      addVisitaClinica={addVisitaClinica}
+      updateVisitaClinica={updateVisitaClinica}
+      deleteVisitaClinica={deleteVisitaClinica}
+      vetsExternos={vetsExternos}
+      locaisRepro={locaisRepro}
+      updateVetExterno={null /* não permitido daqui; passado via Cadastros */}
     />;
   } else if (screen === 'repro-painel') {
     content = <ReproPainel
