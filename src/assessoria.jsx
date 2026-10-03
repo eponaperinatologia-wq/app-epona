@@ -7,6 +7,7 @@ import React, { useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { TopBar } from './screens';
 import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
+import { gerarPdfVisitaClinica, nomePdfVisitaClinica } from './utils/pdfVisitaClinica';
 
 // Orquestra a navegação entre hub → form → detalhe do contrato.
 // Chamado pela VeterinariaScreen quando o card "Assessoria" é clicado.
@@ -1086,6 +1087,30 @@ export function VisitaDetalhe({
         title={haras}
         subtitle={`Visita de ${fmtData(visita.data)}${finalizada ? ' · finalizada' : ''}`}
         onBack={onBack}
+        action={
+          <button
+            onClick={() => {
+              const doc = gerarPdfVisitaClinica({
+                visita, contrato, nomeHaras: haras,
+                empresa: empresaInfo || {},
+                vetsExternos,
+                cavalos: animaisDoHaras,
+                anotacoesClinicas,
+                vacinacoesAnimais, protocolosVacinacao,
+                vermifugacoesAnimais, protocolosVermifugacao,
+                opgs, medicoes,
+              });
+              doc.save(nomePdfVisitaClinica(haras, visita.data));
+            }}
+            title="Baixar PDF da visita (estilo cupom)"
+            style={{
+              width: 36, height: 36, borderRadius: 12, background: '#7c2d8c',
+              display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+            }}
+          >
+            <Icon name="download" size={16} color="#fff" />
+          </button>
+        }
       />
 
       <div style={{ padding: '14px 20px 20px' }}>
