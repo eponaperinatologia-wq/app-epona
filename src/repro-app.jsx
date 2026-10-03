@@ -2714,14 +2714,15 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     ...(rascunho || {}),
   } : (rascunho || {
     data: novoBase?.data || hoje,
-    tipo: novoBase?.tipo || 'inseminacao_artificial',
+    // CF é o tipo mais comum na rotina, então vira o default.
+    tipo: novoBase?.tipo || 'controle_folicular',
     dados: novoBase?.dados || {},
     dataRetorno: '',
     eguaId: novoBase?.eguaId || '',
     localId: novoBase?.localId || '',
   });
 
-  const [tipo, setTipo] = useState(init.tipo || 'inseminacao_artificial');
+  const [tipo, setTipo] = useState(init.tipo || 'controle_folicular');
   const [data, setData] = useState(init.data || hoje);
   const [eguaId, setEguaId] = useState(init.eguaId || '');
   const [localId, setLocalId] = useState(init.localId || '');
@@ -2769,22 +2770,27 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
   );
 
   // Pré-popular obrigatórios no insumosUsados.
-  // - NOVO registro: ao mudar o tipo, adiciona os obrigatórios do novo
-  //   tipo (removendo os do tipo anterior se não estiverem presentes
-  //   nos obrigatórios novos).
-  // - EDIT: só adiciona obrigatórios ausentes (preserva qty editada do
-  //   que já está salvo).
+  // Guarda os obrigatórios da iteração anterior pra saber quais vieram
+  // "automático" e precisam sair ao trocar o tipo (ex: trocar IA → CF
+  // antes removia só os obrigatórios de IA que não eram de CF; os
+  // adicionados manualmente pelo usuário continuam intactos).
+  const obrigatoriosAnterioresRef = useRef(new Set());
   useEffect(() => {
+    const idsNovos = obrigatoriosIds;
+    const idsAntigos = obrigatoriosAnterioresRef.current;
     setInsumosUsados(prev => {
-      const base = [...prev];
+      // Remove itens que vieram de obrigatórios anteriores e não estão
+      // mais nos obrigatórios atuais (significam resíduo da troca de tipo).
+      let base = prev.filter(u => !(idsAntigos.has(u.insumoId) && !idsNovos.has(u.insumoId)));
       // Adiciona obrigatórios ausentes com a qty padrão do catálogo.
       for (const ob of obrigatoriosAtuais) {
         if (!base.some(u => u.insumoId === ob.insumoId)) {
-          base.push({ insumoId: ob.insumoId, qtd: ob.qtd });
+          base = [...base, { insumoId: ob.insumoId, qtd: ob.qtd }];
         }
       }
       return base;
     });
+    obrigatoriosAnterioresRef.current = idsNovos;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obrigatoriosAtuais]);
 
