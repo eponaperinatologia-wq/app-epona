@@ -11,7 +11,7 @@ import { ReproHarasView } from './repro-app';
 import { addDescartaveis } from './data';
 import { CronogramaVetScreen } from './cronograma-vet';
 import { DesenvolvimentoScreen, CAMPOS_MEDICAO } from './desenvolvimento';
-import { AssessoriaHub, ContratoForm } from './assessoria';
+import { AssessoriaFlow } from './assessoria';
 
 // ─── Utilitários de data ────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
