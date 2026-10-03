@@ -520,6 +520,10 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
   const longPressTimer = useRef(null);
   const pointerStartRef = useRef({ x: 0, y: 0 });
   const pointerStartedDrag = useRef(false);
+  // Flag que fica true por 350ms após drag terminar — pra bloquear o
+  // click sintético que iOS/mobile dispara depois do pointerup e evitar
+  // abrir o modal do detalhe quando o usuário quis só remarcar.
+  const recentlyDragged = useRef(false);
 
   // Loop de auto-scroll: enquanto autoScrollRef != 0, aplica ao scroll.
   // Também estende o range de dias quando chega perto do fim.
@@ -556,15 +560,21 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
     if (!ehRemarcavelEv(ev)) return; // sem drag
     pointerStartRef.current = { x: e.clientX, y: e.clientY };
     pointerStartedDrag.current = false;
+    // Guarda target e pointerId pra usar dentro do setTimeout (currentTarget
+    // vira null quando o evento sintético do React é liberado).
+    const target = e.currentTarget;
+    const pointerId = e.pointerId;
+    const startX = e.clientX;
+    const startY = e.clientY;
     // Long-press 400ms pra ativar drag. Antes disso, movimento > 10px
     // cancela (interpretamos como scroll).
     longPressTimer.current = setTimeout(() => {
       pointerStartedDrag.current = true;
       setDraggingEv(ev);
-      setGhostPos({ x: e.clientX, y: e.clientY });
+      setGhostPos({ x: startX, y: startY });
       try { navigator.vibrate?.(10); } catch {}
       // Captura o pointer pra receber todos os moves/ups mesmo fora do botão.
-      try { e.currentTarget.setPointerCapture?.(e.pointerId); } catch {}
+      try { target.setPointerCapture?.(pointerId); } catch {}
     }, 400);
   };
 
@@ -593,7 +603,7 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
     e.preventDefault?.();
   };
 
-  const onPointerUpEv = async () => {
+  const onPointerUpEv = async (e) => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
@@ -601,6 +611,11 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
     autoScrollRef.current = 0;
     if (!pointerStartedDrag.current) return; // foi click, não drag
     pointerStartedDrag.current = false;
+    // Bloqueia o click sintético que vem depois (iOS/Android disparam click
+    // após pointerup mesmo quando houve drag — abriria o detalhe sem querer).
+    recentlyDragged.current = true;
+    setTimeout(() => { recentlyDragged.current = false; }, 350);
+    e?.preventDefault?.();
     const ev = draggingEv;
     const alvo = dropTarget;
     setDraggingEv(null);
@@ -693,38 +708,55 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                   const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
                   const canDrag = ehRemarcavelEv(ev);
                   const sendoArrastado = draggingEv && draggingEv.id === ev.id;
+                  // div role="button" em vez de <button>: iOS Safari não aciona
+                  // menu de seleção de texto em long-press e os pointer events
+                  // ficam mais previsíveis dentro de scroll containers.
                   return (
-                    <button
+                    <div
                       key={i}
+                      role="button"
+                      tabIndex={0}
                       onClick={() => {
-                        // Só abre se não acabou de ser drag (click sintético pós-drag).
-                        if (pointerStartedDrag.current) return;
+                        // Bloqueia click sintético pós-drag (iOS dispara mesmo após
+                        // pointerup com movimento). Durante o drag ativo também.
+                        if (recentlyDragged.current || pointerStartedDrag.current) return;
                         if (canOpen) onSelectEvento(ev);
                       }}
-                      onPointerDown={canDrag ? (e => onPointerDownEv(ev, e)) : undefined}
+                      onPointerDown={canDrag ? (e => {
+                        // preventDefault aqui bloqueia o menu de callout do iOS
+                        // (copiar/compartilhar) sem perder o controle do touch.
+                        e.preventDefault?.();
+                        onPointerDownEv(ev, e);
+                      }) : undefined}
                       style={{
-                        width: '100%', textAlign: 'left',
+                        width: '100%', textAlign: 'left', boxSizing: 'border-box',
                         cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
                         background: 'var(--card)', border: '1px solid var(--line)',
                         borderLeft: `3px solid ${cor}`,
                         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
                         opacity: sendoArrastado ? 0.4 : 1,
-                        touchAction: canDrag ? 'none' : 'auto',
+                        // pan-x permite scroll horizontal; drag só ativa após
+                        // long-press, aí setPointerCapture + preventDefault no
+                        // move bloqueiam o scroll nativo até soltar.
+                        touchAction: canDrag ? 'pan-x' : 'auto',
                         userSelect: 'none',
+                        WebkitUserSelect: 'none',
+                        WebkitTouchCallout: 'none',
+                        WebkitTapHighlightColor: 'transparent',
                       }}
                     >
-                      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', pointerEvents: 'none' }}>
                         {rotulo}
                       </div>
-                      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25 }}>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, pointerEvents: 'none' }}>
                         {egua?.nome || 'égua'}
                       </div>
                       {vet && ev.fonte !== 'vet' && (
-                        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
+                        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1, pointerEvents: 'none' }}>
                           {vet.nome.split(' ')[0]}
                         </div>
                       )}
-                    </button>
+                    </div>
                   );
                 })}
               </div>
