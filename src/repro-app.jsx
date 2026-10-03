@@ -444,7 +444,7 @@ function DraggableEvento({
   ev, vet, egua, rotulo, cor,
   canOpen, canDrag, sendoArrastado,
   recentlyDragged, pointerStartedDrag,
-  onOpen, onDragStart, pointerStartRef, longPressTimer,
+  onOpen, onDragStart, pointerStartRef, longPressTimer, dbg,
 }) {
   const ref = useRef(null);
 
@@ -452,10 +452,7 @@ function DraggableEvento({
     const el = ref.current;
     if (!el || !canDrag) return;
     const handleDown = (e) => {
-      // preventDefault aqui — com {passive:false} funciona em iOS. Isso
-      // bloqueia o menu de callout nativo (copiar/compartilhar) e a
-      // seleção de texto, sem matar os pointermove/up subsequentes.
-      e.preventDefault?.();
+      dbg?.(`DOWN ${ev.tipoEv} ${egua?.nome || '?'}`);
       pointerStartRef.current = { x: e.clientX, y: e.clientY };
       pointerStartedDrag.current = false;
       const target = el;
@@ -463,13 +460,14 @@ function DraggableEvento({
       const startX = e.clientX;
       const startY = e.clientY;
       longPressTimer.current = setTimeout(() => {
+        dbg?.('LONGPRESS fired');
         pointerStartedDrag.current = true;
         onDragStart(startX, startY, target, pointerId);
       }, 400);
     };
     el.addEventListener('pointerdown', handleDown, { passive: false });
     return () => el.removeEventListener('pointerdown', handleDown);
-  }, [canDrag, onDragStart, pointerStartRef, pointerStartedDrag, longPressTimer]);
+  }, [canDrag, onDragStart, pointerStartRef, pointerStartedDrag, longPressTimer, ev, egua, dbg]);
 
   return (
     <div
@@ -487,8 +485,6 @@ function DraggableEvento({
         borderLeft: `3px solid ${cor}`,
         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
         opacity: sendoArrastado ? 0.4 : 1,
-        // 'none' é mais confiável que 'pan-x' aqui: ambíguo em iOS causa
-        // o browser decidir scroll antes do nosso long-press disparar.
         touchAction: canDrag ? 'none' : 'auto',
         userSelect: 'none',
         WebkitUserSelect: 'none',
@@ -496,14 +492,14 @@ function DraggableEvento({
         WebkitTapHighlightColor: 'transparent',
       }}
     >
-      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', pointerEvents: 'none' }}>
+      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
         {rotulo}
       </div>
-      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, pointerEvents: 'none' }}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25 }}>
         {egua?.nome || 'égua'}
       </div>
       {vet && ev.fonte !== 'vet' && (
-        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1, pointerEvents: 'none' }}>
+        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
           {vet.nome.split(' ')[0]}
         </div>
       )}
@@ -599,6 +595,14 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
   // click sintético que iOS/mobile dispara depois do pointerup e evitar
   // abrir o modal do detalhe quando o usuário quis só remarcar.
   const recentlyDragged = useRef(false);
+  // DEBUG: painel visual pra diagnosticar long-press em mobile.
+  // Habilitar com localStorage.setItem('plannerDbg', '1') + reload.
+  const dbgEnabled = typeof window !== 'undefined' && window.localStorage?.getItem('plannerDbg') === '1';
+  const [dbgLog, setDbgLog] = useState([]);
+  const dbg = (msg) => {
+    if (!dbgEnabled) return;
+    setDbgLog(prev => [`${new Date().toISOString().slice(11, 19)} ${msg}`, ...prev].slice(0, 10));
+  };
 
   // Loop de auto-scroll: enquanto autoScrollRef != 0, aplica ao scroll.
   // Também estende o range de dias quando chega perto do fim.
@@ -644,6 +648,7 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
         const dx = e.clientX - pointerStartRef.current.x;
         const dy = e.clientY - pointerStartRef.current.y;
         if (Math.hypot(dx, dy) > 10 && longPressTimer.current) {
+          dbg(`CANCEL (move ${Math.hypot(dx, dy).toFixed(0)}px antes do longpress)`);
           clearTimeout(longPressTimer.current);
           longPressTimer.current = null;
         }
@@ -781,13 +786,15 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                       pointerStartedDrag={pointerStartedDrag}
                       onOpen={onSelectEvento}
                       onDragStart={(startX, startY, target, pointerId) => {
+                        dbg(`DRAG start ${ev.tipoEv}`);
                         setDraggingEv(ev);
                         setGhostPos({ x: startX, y: startY });
                         try { navigator.vibrate?.(10); } catch {}
-                        try { target.setPointerCapture?.(pointerId); } catch {}
+                        try { target.setPointerCapture?.(pointerId); dbg('capture OK'); } catch (err) { dbg('capture FAIL'); }
                       }}
                       pointerStartRef={pointerStartRef}
                       longPressTimer={longPressTimer}
+                      dbg={dbg}
                     />
                   );
                 })}
@@ -813,6 +820,27 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
             {rotuloEventoAmpliado(draggingEv)}
           </div>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 13 }}>{ghostEgua?.nome || 'égua'}</div>
+        </div>
+      )}
+
+      {/* Painel debug — habilitar com localStorage.setItem('plannerDbg','1') + reload */}
+      {dbgEnabled && (
+        <div style={{
+          position: 'fixed', bottom: 10, right: 10, zIndex: 10000,
+          background: 'rgba(0,0,0,0.85)', color: '#0f0', padding: '8px 10px',
+          borderRadius: 8, fontFamily: 'monospace', fontSize: 10,
+          maxWidth: 280, maxHeight: 220, overflowY: 'auto',
+          pointerEvents: 'auto',
+        }}>
+          <div style={{ color: '#ff0', fontWeight: 700, marginBottom: 4 }}>
+            DBG · drag:{draggingEv ? 'ON' : 'off'} · drop:{dropTarget || '—'}
+          </div>
+          {dbgLog.length === 0 && <div style={{ opacity: 0.5 }}>(toque uma box…)</div>}
+          {dbgLog.map((l, i) => <div key={i}>{l}</div>)}
+          <button onClick={() => { setDbgLog([]); }} style={{
+            marginTop: 4, background: '#333', color: '#fff', border: 'none',
+            padding: '2px 6px', borderRadius: 4, fontSize: 10, cursor: 'pointer',
+          }}>limpar</button>
         </div>
       )}
     </div>
