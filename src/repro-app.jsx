@@ -1841,6 +1841,7 @@ function ReproCaderno({
             setShowForm(false);
           }}
           onCancel={() => setShowForm(false)}
+          updateRegistroReproducao={updateRegistroReproducao}
         />
       )}
 
@@ -2999,7 +3000,121 @@ function derivarManuaisLegado(registro, _insumos, _servicos) {
   return (registro.insumosUsados || []).map(u => ({ insumoId: u.insumoId, qtd: Number(u.qtd) || 0 }));
 }
 
-function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel }) {
+// Card compacto mostrando a última anotação da égua selecionada no form.
+// Mostra campos relevantes por tipo (CF, IA, TE, DG, tratamento, avulso),
+// pra guiar a decisão do próximo passo sem precisar sair do form.
+function UltimaAnotacaoEgua({ eguaId, registrosRepro = [], servicos = [], insumos = [], ignorarRegistroId = null }) {
+  const ultimo = useMemo(() => {
+    if (!eguaId) return null;
+    return [...(registrosRepro || [])]
+      .filter(r => r.eguaId === eguaId && r.id !== ignorarRegistroId)
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
+  }, [eguaId, registrosRepro, ignorarRegistroId]);
+  if (!ultimo) return null;
+
+  const d = ultimo.dados || {};
+  const meta = TIPO_META[ultimo.tipo] || { label: ultimo.tipo, cor: 'var(--ink-3)', bg: 'var(--soft)' };
+  const linhas = [];
+
+  if (ultimo.tipo === 'controle_folicular') {
+    if (d.ovarEsquerdo) linhas.push(['OE', d.ovarEsquerdo]);
+    if (d.ovarioDireito) linhas.push(['OD', d.ovarioDireito]);
+    if (d.edemaUterino) linhas.push(['Edema', d.edemaUterino]);
+    if (d.tonusUterino) linhas.push(['Tônus uterino', d.tonusUterino]);
+    if (d.tonusCervical) linhas.push(['Tônus cervical', d.tonusCervical]);
+    if (d.presencaLiquido) linhas.push(['Líquido', d.presencaLiquido]);
+    if (d.liquidoLivre) linhas.push(['Líquido livre', d.liquidoLivre]);
+    if (d.induzirOvulacao) linhas.push(['Indução', `${d.horarioOvulacao || '—'}`]);
+    const med = d.medRapidos || {};
+    const medResumo = [];
+    for (const [slug, v] of Object.entries(med)) {
+      if (!v) continue;
+      if (v.ml) medResumo.push(`${slug} ${v.ml}ml`);
+      else if (v.doses) medResumo.push(`${slug} ${v.doses}d`);
+    }
+    if (medResumo.length) linhas.push(['Medicação', medResumo.join(', ')]);
+  } else if (ultimo.tipo === 'inseminacao_artificial') {
+    if (d.garanhao) linhas.push(['Garanhão', d.garanhao]);
+    if (d.qtdPalhetas) linhas.push(['Palhetas', String(d.qtdPalhetas)]);
+    if (d.ovulacoes != null && d.ovulacoes !== '') linhas.push(['Ovulações', String(d.ovulacoes)]);
+    if (d.momento) linhas.push(['Momento', d.momento === 'pre_ovulacao' ? 'Pré-ovulação' : 'Pós-ovulação']);
+    if (d.destino) linhas.push(['Destino', d.destino === 'prenhez' ? 'Prenhez' : 'Transferência']);
+    if (d.dataColetaAgendada) linhas.push(['Coleta agendada', fmtDataBr(d.dataColetaAgendada)]);
+  } else if (ultimo.tipo === 'transferencia_embriao') {
+    if (d.resultado) linhas.push(['Resultado', d.resultado]);
+    if (d.qtdEmbrioes) linhas.push(['Embriões', String(d.qtdEmbrioes)]);
+    if (d.receptora) linhas.push(['Receptora', d.receptora]);
+  } else if (ultimo.tipo === 'diagnostico_gestacao') {
+    if (d.dgTipo) linhas.push(['Fase', d.dgTipo]);
+    if (d.resultado) linhas.push(['Resultado', d.resultado]);
+    if (d.qtdEmbrioes) linhas.push(['Embriões', String(d.qtdEmbrioes)]);
+  } else if (ultimo.tipo === 'tratamento_uterino') {
+    const tu = d.tu || {};
+    const tags = [];
+    if (tu.lavagem?.ringer) tags.push(`Ringer ${tu.lavagem.ringer}L`);
+    if (tu.lavagem?.ozonio) tags.push('Ozônio');
+    if (tu.infusao?.botukiller) tags.push(`Botukiller ${tu.infusao.botukiller}`);
+    if (tu.infusao?.prp) tags.push('PRP');
+    if (tu.misoprostol?.cornoDireito || tu.misoprostol?.cornoEsquerdo) {
+      const n = (tu.misoprostol.cornoDireito ? 1 : 0) + (tu.misoprostol.cornoEsquerdo ? 1 : 0);
+      tags.push(`Misoprostol ${n} corno(s)`);
+    }
+    if (tags.length) linhas.push(['Tratamento', tags.join(' · ')]);
+  } else if (ultimo.tipo === 'servico_avulso') {
+    const sv = servicos.find(s => s.id === d.servicoId);
+    if (sv) linhas.push(['Serviço', sv.nome]);
+    if (d.valorCobrado) linhas.push(['Valor', `R$ ${Number(d.valorCobrado).toFixed(2).replace('.', ',')}`]);
+  } else if (ultimo.tipo === 'diagnostico_avulso') {
+    const dx = d.dx || {};
+    if (dx.biopsia) linhas.push(['Dx', 'Biópsia endometrial']);
+    if (dx.cultura) linhas.push(['Dx', 'Cultura + antibiograma']);
+  }
+
+  // Insumos usados: lista compacta
+  const insumosLinhas = (ultimo.insumosUsados || [])
+    .map(u => {
+      const ins = insumos.find(i => i.id === u.insumoId);
+      if (!ins) return null;
+      return `${ins.nome} ×${u.qtd}${ins.unidade && ins.unidade !== 'un' ? ' ' + ins.unidade : ''}`;
+    })
+    .filter(Boolean);
+
+  if (d.observacoes) linhas.push(['Obs', d.observacoes.length > 60 ? d.observacoes.slice(0, 57) + '…' : d.observacoes]);
+
+  return (
+    <div style={{
+      background: meta.bg || '#f5e8ff', border: `1px solid ${meta.cor}30`,
+      borderLeft: `3px solid ${meta.cor}`,
+      borderRadius: 10, padding: '10px 12px', marginBottom: 12,
+      fontFamily: 'var(--sans)',
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{
+          fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em',
+          color: meta.cor,
+        }}>Última anotação · {meta.label}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>{fmtDataBr(ultimo.data)}</span>
+      </div>
+      {linhas.length === 0 && insumosLinhas.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Sem detalhes registrados.</div>
+      )}
+      {linhas.map(([k, v]) => (
+        <div key={k} style={{ display: 'flex', fontSize: 12, color: 'var(--ink-2)', padding: '2px 0' }}>
+          <span style={{ color: 'var(--ink-3)', minWidth: 95 }}>{k}</span>
+          <span style={{ color: 'var(--ink)', flex: 1 }}>{v}</span>
+        </div>
+      ))}
+      {insumosLinhas.length > 0 && (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 6, paddingTop: 6, borderTop: `1px solid ${meta.cor}20` }}>
+          <span style={{ color: 'var(--ink-3)' }}>Insumos: </span>
+          <span style={{ color: 'var(--ink-2)' }}>{insumosLinhas.join(', ')}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel, updateRegistroReproducao = null }) {
   // Data local (toISOString é UTC: depois das 21h caía no dia seguinte e
   // o registro do último dia do mês ia para a fatura do mês seguinte).
   const hoje = new Date().toLocaleDateString('sv-SE');
@@ -3202,6 +3317,21 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           })}
         </select>
       </FormField>
+
+      {/* Card com a última anotação da égua selecionada — serve de guia
+          pra decidir o próximo passo (ex: viu ovário dir 35mm no último
+          CF, agora pode decidir induzir ou IA). Oculto se égua não
+          selecionada ou se não há registros anteriores. */}
+      {eguaId && (
+        <UltimaAnotacaoEgua
+          eguaId={eguaId}
+          registrosRepro={registrosRepro}
+          servicos={servicos}
+          insumos={insumos}
+          // Evita mostrar o próprio registro editado como "última"
+          ignorarRegistroId={registro?.id}
+        />
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
         <FormField label="Data *">
           <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputStyle} />
@@ -3522,6 +3652,44 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           {registro ? 'Salvar' : 'Registrar'}
         </button>
       </div>
+
+      {/* Cancelar retorno/coleta/indução agendado — só aparece quando o
+          form foi aberto a partir de uma box da agenda (preFill da home
+          repro) e há um registro-origem com data agendada. */}
+      {novoBase?.cancelarEventoDe && updateRegistroReproducao && (() => {
+        const { tipoEv, registroId } = novoBase.cancelarEventoDe;
+        if (!registroId) return null;
+        const label = tipoEv === 'coleta' ? 'Cancelar coleta agendada'
+          : tipoEv === 'inducao' ? 'Cancelar indução agendada'
+          : 'Cancelar retorno agendado';
+        const confirmarEhCancelar = () => {
+          if (!window.confirm(`${label}? Esse evento vai sumir da agenda, sem apagar o registro original.`)) return;
+          const reg = registrosRepro.find(r => r.id === registroId);
+          if (!reg) { onCancel(); return; }
+          if (tipoEv === 'retorno') {
+            updateRegistroReproducao(registroId, { dataRetorno: null });
+          } else if (tipoEv === 'coleta') {
+            const d = { ...(reg.dados || {}) };
+            delete d.dataColetaAgendada;
+            updateRegistroReproducao(registroId, { dados: d });
+          } else if (tipoEv === 'inducao') {
+            const d = { ...(reg.dados || {}) };
+            delete d.dataInducaoOvulacao;
+            delete d.horaInducaoOvulacao;
+            updateRegistroReproducao(registroId, { dados: d });
+          }
+          onCancel();
+        };
+        return (
+          <button onClick={confirmarEhCancelar} style={{
+            width: '100%', marginTop: 10, padding: '10px', borderRadius: 10,
+            border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>
+            {label}
+          </button>
+        );
+      })()}
     </Modal>
   );
 }
@@ -5756,19 +5924,26 @@ export function ReproApp({
   const [vetSubScreen, setVetSubScreen] = useState(null); // 'eguaGestante' | 'parto' | null
 
   // Traduz um evento (retorno/coleta/procedimento) no rascunho de um NOVO
-  // registro do caderno pra continuar aquele fluxo.
+  // registro do caderno pra continuar aquele fluxo. Quando vem de um
+  // retorno/coleta/indução agendado, guarda o id do registro-origem pra
+  // habilitar o botão "Cancelar retorno/coleta/indução" no form.
   const abrirCadernoDoEvento = (ev) => {
     if (!ev) return;
     const hojeIso = new Date().toLocaleDateString('sv-SE');
     let tipoSugerido = 'controle_folicular';
     let dadosSugeridos = {};
+    let cancelarEventoDe = null;
     if (ev.tipoEv === 'coleta') {
       // coleta agendada → próximo passo é registrar a TE (coleta) do embrião
       tipoSugerido = 'transferencia_embriao';
       dadosSugeridos = { iaOrigemId: ev.registro?.id };
-    } else if (ev.tipoEv === 'retorno' || ev.tipoEv === 'inducao') {
-      // retorno/indução → controle folicular pra ver a égua no dia
+      cancelarEventoDe = { tipoEv: 'coleta', registroId: ev.registro?.id };
+    } else if (ev.tipoEv === 'retorno') {
       tipoSugerido = 'controle_folicular';
+      cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
+    } else if (ev.tipoEv === 'inducao') {
+      tipoSugerido = 'controle_folicular';
+      cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
     } else if (ev.tipoEv === 'procedimento') {
       tipoSugerido = ev.tipo || 'controle_folicular';
     }
@@ -5778,6 +5953,7 @@ export function ReproApp({
       data: hojeIso,
       tipo: tipoSugerido,
       dados: dadosSugeridos,
+      cancelarEventoDe,
     });
     setTab('caderno');
     setScreen('repro-caderno');
@@ -6317,11 +6493,17 @@ export function ReproHarasView({
     const hojeIso = new Date().toLocaleDateString('sv-SE');
     let tipoSugerido = 'controle_folicular';
     let dadosSugeridos = {};
+    let cancelarEventoDe = null;
     if (ev.tipoEv === 'coleta') {
       tipoSugerido = 'transferencia_embriao';
       dadosSugeridos = { iaOrigemId: ev.registro?.id };
-    } else if (ev.tipoEv === 'retorno' || ev.tipoEv === 'inducao') {
+      cancelarEventoDe = { tipoEv: 'coleta', registroId: ev.registro?.id };
+    } else if (ev.tipoEv === 'retorno') {
       tipoSugerido = 'controle_folicular';
+      cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
+    } else if (ev.tipoEv === 'inducao') {
+      tipoSugerido = 'controle_folicular';
+      cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
     } else if (ev.tipoEv === 'procedimento') {
       tipoSugerido = ev.tipo || 'controle_folicular';
     }
@@ -6331,6 +6513,7 @@ export function ReproHarasView({
       data: hojeIso,
       tipo: tipoSugerido,
       dados: dadosSugeridos,
+      cancelarEventoDe,
     });
     setTab('caderno');
     setScreen('rh-caderno');
