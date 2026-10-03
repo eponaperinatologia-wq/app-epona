@@ -992,16 +992,16 @@ function eventosPendentes(registros, hoje) {
     // data do próprio registro é futura. Como o vet cria o registro
     // no dia que faz o procedimento, isso normalmente é 'hoje'.
     if (r.data && r.data >= hoje) {
-      out.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data });
+      out.push({ ...eventoBase(r), tipoEv: 'procedimento', dataEv: r.data, fonte: 'repro' });
     }
     if (r.dataRetorno && !retornoCumprido(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno });
+      out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro' });
     }
     if (dados.dataColetaAgendada && !coletaCumprida(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada });
+      out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro' });
     }
     if (dados.dataInducaoOvulacao && !inducaoCumprida(r, registros)) {
-      out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '' });
+      out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', fonte: 'repro' });
     }
   }
   return out;
