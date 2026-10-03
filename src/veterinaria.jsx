@@ -770,6 +770,17 @@ export function VeterinariaScreen({
         deleteVisitaClinica={deleteVisitaClinica}
         currentUser={currentUser}
         onBack={() => setSecao(null)}
+        // Dados para o painel de preparação da visita (C4):
+        cavalos={cavalos}
+        protocolosVacinacao={protocolosVacinacao}
+        vacinacoesAnimais={vacinacoesAnimais}
+        protocolosVermifugacao={protocolosVermifugacao}
+        vermifugacoesAnimais={vermifugacoesAnimais}
+        opgs={opgs}
+        medicoes={medicoes}
+        anotacoesClinicas={anotacoesClinicas}
+        registrosReproducao={registrosReproducao}
+        partos={partos}
       />
     );
   }

@@ -6,6 +6,7 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { TopBar } from './screens';
+import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
 
 // Orquestra a navegação entre hub → form → detalhe do contrato.
 // Chamado pela VeterinariaScreen quando o card "Assessoria" é clicado.
@@ -15,6 +16,10 @@ export function AssessoriaFlow({
   addContratoAssessoria, updateContratoAssessoria, deleteContratoAssessoria,
   addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   currentUser, onBack,
+  // Dados pra pendências do painel (C4)
+  cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
+  protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
+  medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
 }) {
   const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato' | 'visitaDetalhe'
   const [contratoSelId, setContratoSelId] = useState(null);
@@ -99,6 +104,16 @@ export function AssessoriaFlow({
         updateVisitaClinica={updateVisitaClinica}
         deleteVisitaClinica={deleteVisitaClinica}
         currentUser={currentUser}
+        cavalos={cavalos}
+        protocolosVacinacao={protocolosVacinacao}
+        vacinacoesAnimais={vacinacoesAnimais}
+        protocolosVermifugacao={protocolosVermifugacao}
+        vermifugacoesAnimais={vermifugacoesAnimais}
+        opgs={opgs}
+        medicoes={medicoes}
+        anotacoesClinicas={anotacoesClinicas}
+        registrosReproducao={registrosReproducao}
+        partos={partos}
       />
     );
   }
@@ -461,6 +476,59 @@ const SecaoLista = ({ titulo, cor, bg, children }) => (
   </div>
 );
 
+const rowStyle = {
+  background: 'var(--card)', border: '1px solid var(--line)',
+  borderRadius: 8, padding: '8px 12px', marginBottom: 4,
+  display: 'flex', alignItems: 'center', gap: 10,
+};
+
+// Bloco de pendências pra vacinação OU vermifugação, com 3 sub-grupos
+// (atrasadas, do mês, a vencer no próximo mês). Colapsa automaticamente
+// os sub-grupos vazios.
+const PendenciasBloco = ({ titulo, cor, bg, atrasadas = [], doMes = [], aVencer = [], rotuloItem }) => {
+  const total = atrasadas.length + doMes.length + aVencer.length;
+  if (total === 0) return null;
+  const SubGrupo = ({ label, items, destaque }) => {
+    if (items.length === 0) return null;
+    return (
+      <div style={{ marginBottom: 4 }}>
+        <div style={{
+          fontSize: 10, color: destaque || cor, textTransform: 'uppercase',
+          letterSpacing: '0.05em', fontWeight: 700, padding: '4px 8px',
+        }}>{label} · {items.length}</div>
+        {items.slice(0, 8).map((it, i) => (
+          <div key={i} style={rowStyle}>
+            <span style={{ fontSize: 13, color: 'var(--ink)' }}>{rotuloItem(it)}</span>
+            {it.dataPrevista && (
+              <span style={{ fontSize: 10, color: 'var(--ink-3)', marginLeft: 'auto' }}>
+                {fmtData(it.dataPrevista)}
+              </span>
+            )}
+          </div>
+        ))}
+        {items.length > 8 && (
+          <div style={{ fontSize: 11, color: 'var(--ink-3)', padding: '4px 10px' }}>+{items.length - 8} item(ns)</div>
+        )}
+      </div>
+    );
+  };
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        fontSize: 11, color: cor, textTransform: 'uppercase',
+        letterSpacing: '0.06em', fontWeight: 700, marginBottom: 6, padding: '2px 4px',
+      }}>
+        {titulo} · {total} pendência{total !== 1 ? 's' : ''}
+      </div>
+      <div style={{ background: bg + '15', borderRadius: 10, padding: 6 }}>
+        <SubGrupo label="Atrasadas" items={atrasadas} destaque="#dc2626" />
+        <SubGrupo label="Do mês" items={doMes} />
+        <SubGrupo label="A vencer (próx. 30d)" items={aVencer} />
+      </div>
+    </div>
+  );
+};
+
 const VisitaRow = ({ visita, vetsExternos, finalizada, onClick }) => {
   const vets = (visita.vetsParticipantes || [])
     .map(id => vetsExternos.find(v => v.id === id))
@@ -522,6 +590,9 @@ const AgendarButton = ({ onPick }) => {
 export function VisitaDetalhe({
   visita, contrato, proprietarios = [], locais = [], vetsExternos = [],
   onBack, updateVisitaClinica, deleteVisitaClinica, currentUser,
+  cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
+  protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
+  medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
 }) {
   const [editMode, setEditMode] = useState(false);
   const [data, setData] = useState(visita.data);
@@ -534,6 +605,128 @@ export function VisitaDetalhe({
     .map(id => vetsExternos.find(v => v.id === id))
     .filter(Boolean);
   const vetsAtivos = vetsExternos.filter(v => v.ativo !== false);
+
+  // ── Animais do haras cobertos por este contrato ────────────────
+  const animaisDoHaras = useMemo(() => {
+    if (!contrato) return [];
+    if (contrato.localId) {
+      // Contrato por local: todos os cavalos nesse local
+      return cavalos.filter(c => c.localId === contrato.localId && c.presente !== false);
+    }
+    // Contrato por proprietário: todos os cavalos do proprietário
+    return cavalos.filter(c => {
+      if (c.presente === false) return false;
+      return c.proprietarioId === contrato.proprietarioId
+        || (c.proprietarioIds || []).includes(contrato.proprietarioId);
+    });
+  }, [contrato, cavalos]);
+  const idsHaras = useMemo(() => new Set(animaisDoHaras.map(c => c.id)), [animaisDoHaras]);
+
+  // ── Pendências automáticas ─────────────────────────────────────
+  // Mês de referência = mês da data da visita.
+  const [refAno, refMes] = (data || new Date().toISOString().slice(0, 10)).split('-');
+  const iniMes = `${refAno}-${refMes}-01`;
+  const fimMes = `${refAno}-${refMes}-31`;
+  const hoje = new Date().toISOString().slice(0, 10);
+
+  const agendaVac = useMemo(
+    () => calcAgendaVac(protocolosVacinacao, animaisDoHaras, vacinacoesAnimais).filter(i => idsHaras.has(i.cavaloId)),
+    [protocolosVacinacao, animaisDoHaras, vacinacoesAnimais, idsHaras],
+  );
+  const agendaVerm = useMemo(
+    () => calcAgendaVerm(protocolosVermifugacao, animaisDoHaras, vermifugacoesAnimais).filter(i => idsHaras.has(i.cavaloId)),
+    [protocolosVermifugacao, animaisDoHaras, vermifugacoesAnimais, idsHaras],
+  );
+
+  // Categorização das pendências de vacina/vermifuga:
+  //   atrasadas: dataPrevista < iniMes
+  //   doMes:     iniMes <= dataPrevista <= fimMes
+  //   aVencer:   dataPrevista > fimMes (próximos 30 dias)
+  const classifica = (lista) => {
+    const atrasadas = []; const doMes = []; const aVencer = [];
+    const limiteFuturo = addDiasStr(fimMes, 30);
+    for (const it of lista) {
+      if (it.feito || it.cancelado) continue;
+      const dp = it.dataPrevista || it.proximaData;
+      if (!dp) continue;
+      if (dp < iniMes) atrasadas.push(it);
+      else if (dp <= fimMes) doMes.push(it);
+      else if (dp <= limiteFuturo) aVencer.push(it);
+    }
+    return { atrasadas, doMes, aVencer };
+  };
+  const vac = useMemo(() => classifica(agendaVac), [agendaVac, iniMes, fimMes]);
+  const verm = useMemo(() => classifica(agendaVerm), [agendaVerm, iniMes, fimMes]);
+
+  // OPGs: cavalos SEM OPG nos últimos 90 dias
+  const opgsPendentes = useMemo(() => {
+    const limite = addDiasStr(hoje, -90);
+    return animaisDoHaras.filter(c => {
+      const meus = opgs.filter(o => o.cavaloId === c.id && o.dataColeta >= limite);
+      return meus.length === 0;
+    });
+  }, [animaisDoHaras, opgs, hoje]);
+
+  // Éguas gestantes do haras
+  const gestantes = useMemo(() => animaisDoHaras.filter(c =>
+    c.categoria === 'Gestante' || (c.categorias || []).includes('Gestante') || c.gestacao?.dataCobricao,
+  ), [animaisDoHaras]);
+
+  // DGs pendentes: éguas com cobrição/IA onde esperamos DG15/30/45 nessa data
+  const dgsPendentes = useMemo(() => {
+    const out = [];
+    for (const egua of gestantes) {
+      const dataCob = egua.gestacao?.dataCobricao;
+      if (!dataCob) continue;
+      // Para cada marco DG, verifica se já foi feito via registros de reprodução
+      for (const marcoDias of [15, 30, 45]) {
+        const dataEsperada = addDiasStr(dataCob, marcoDias);
+        if (dataEsperada > hoje) continue; // ainda não é o momento
+        // Checa se existe algum registro DG dessa égua >= dataEsperada
+        const temDg = registrosReproducao.some(r =>
+          r.eguaId === egua.id && r.tipo === 'diagnostico_gestacao' && r.data >= dataEsperada,
+        );
+        if (!temDg) {
+          out.push({ egua, marco: `DG${marcoDias}`, dataEsperada });
+          break; // só o primeiro DG pendente por égua
+        }
+      }
+    }
+    return out;
+  }, [gestantes, registrosReproducao, hoje]);
+
+  // Acompanhamento gestacional: pra toda gestante, mostra se tem anotação clínica no mês
+  const acompanhamentoGestantes = useMemo(() => {
+    return gestantes.map(egua => {
+      const anotMes = anotacoesClinicas.filter(a => a.cavaloId === egua.id && a.data >= iniMes && a.data <= fimMes);
+      const semanasGestacao = egua.gestacao?.dataCobricao
+        ? Math.floor((new Date(hoje + 'T00:00:00') - new Date(egua.gestacao.dataCobricao + 'T00:00:00')) / (7 * 86400000))
+        : null;
+      return { egua, anotacoesNoMes: anotMes.length, semanasGestacao };
+    });
+  }, [gestantes, anotacoesClinicas, iniMes, fimMes, hoje]);
+
+  // Potros (ao pé) sem medição nos últimos 30 dias
+  const potrosSemMedicao = useMemo(() => {
+    const limite = addDiasStr(hoje, -30);
+    const potros = animaisDoHaras.filter(c =>
+      c.categoria === 'Potro ao pé' || (c.categorias || []).includes('Potro ao pé'),
+    );
+    return potros.filter(c => {
+      const minhas = medicoes.filter(m => m.cavaloId === c.id && m.dataRegistro >= limite);
+      return minhas.length === 0;
+    });
+  }, [animaisDoHaras, medicoes, hoje]);
+
+  // Resumo da visita anterior (última finalizada)
+  const visitaAnterior = useMemo(() => {
+    // Fazemos a busca "fora" via dependência do contrato (chamador poderia
+    // passar), mas por simplicidade computamos aqui com base nas finalizadas
+    // deste contrato que já estão na prop visita (indireto). Fallback: null.
+    return null;
+  }, []);
+  // void visitaAnterior pra evitar unused — deixa comentado
+
 
   const toggleVet = (id) => setVetsIds(prev =>
     prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
@@ -640,14 +833,110 @@ export function VisitaDetalhe({
         {/* Painel de preparação (rascunho) ou edição (finalizada em editMode) */}
         {(!finalizada || editMode) && (
           <>
+            {/* Resumo do haras */}
             <div style={{
-              background: '#f5e8ff30', border: '1px dashed #d8b4fe',
-              borderRadius: 10, padding: '10px 12px', marginBottom: 12,
-              fontSize: 12, color: '#6b21a8',
+              background: 'var(--soft)', borderRadius: 10, padding: '10px 12px',
+              marginBottom: 12, fontSize: 12, color: 'var(--ink-2)',
             }}>
-              <strong>Painel de preparação</strong> — pendências automáticas (vacinas,
-              OPGs, DGs, gestantes, potros) e atalhos pra registrar virão no próximo
-              commit (C4). Por enquanto, use os cards da Veterinária.
+              <strong>{animaisDoHaras.length}</strong> animal{animaisDoHaras.length !== 1 ? 'is' : ''} no haras
+              {gestantes.length > 0 && <> · <strong>{gestantes.length}</strong> gestante{gestantes.length !== 1 ? 's' : ''}</>}
+              {animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length > 0 && (
+                <> · <strong>{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length}</strong> potro{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length !== 1 ? 's' : ''}</>
+              )}
+            </div>
+
+            {/* Bloco 1: Vacinação */}
+            <PendenciasBloco titulo="Vacinação" cor="#1e40af" bg="#dbeafe"
+              atrasadas={vac.atrasadas} doMes={vac.doMes} aVencer={vac.aVencer}
+              protocolos={protocolosVacinacao} cavalos={cavalos}
+              rotuloItem={(it) => {
+                const p = protocolosVacinacao.find(pr => pr.id === it.protocoloId);
+                const cav = cavalos.find(c => c.id === it.cavaloId);
+                return `${cav?.nome || '—'} · ${p?.nome || 'vacina'}${it.doseIdx != null ? ` (dose ${it.doseIdx + 1})` : ''}`;
+              }}
+            />
+
+            {/* Bloco 2: Vermifugação */}
+            <PendenciasBloco titulo="Vermifugação" cor="#15803d" bg="#dcfce7"
+              atrasadas={verm.atrasadas} doMes={verm.doMes} aVencer={verm.aVencer}
+              protocolos={protocolosVermifugacao} cavalos={cavalos}
+              rotuloItem={(it) => {
+                const p = protocolosVermifugacao.find(pr => pr.id === it.protocoloId);
+                const cav = cavalos.find(c => c.id === it.cavaloId);
+                return `${cav?.nome || '—'} · ${p?.nome || 'vermífugo'}`;
+              }}
+            />
+
+            {/* Bloco 3: OPGs pendentes */}
+            {opgsPendentes.length > 0 && (
+              <SecaoLista titulo={`OPGs pendentes (sem coleta nos últimos 90 dias) · ${opgsPendentes.length}`} cor="#92400e" bg="#fef3c7">
+                {opgsPendentes.slice(0, 8).map(c => (
+                  <div key={c.id} style={rowStyle}>
+                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{c.nome}</span>
+                  </div>
+                ))}
+                {opgsPendentes.length > 8 && (
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', padding: '6px 10px' }}>+{opgsPendentes.length - 8} animal(is)</div>
+                )}
+              </SecaoLista>
+            )}
+
+            {/* Bloco 4: DGs pendentes */}
+            {dgsPendentes.length > 0 && (
+              <SecaoLista titulo={`DGs pendentes · ${dgsPendentes.length}`} cor="#6b21a8" bg="#f5e8ff">
+                {dgsPendentes.map(({ egua, marco, dataEsperada }) => (
+                  <div key={egua.id + marco} style={rowStyle}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 13, color: 'var(--ink)' }}>{egua.nome}</span>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>{marco} esperado em {fmtData(dataEsperada)}</div>
+                    </div>
+                  </div>
+                ))}
+              </SecaoLista>
+            )}
+
+            {/* Bloco 5: Acompanhamento gestacional */}
+            {acompanhamentoGestantes.length > 0 && (
+              <SecaoLista titulo={`Acompanhamento gestacional · ${acompanhamentoGestantes.length} égua${acompanhamentoGestantes.length !== 1 ? 's' : ''}`} cor="#be185d" bg="#fce7f3">
+                {acompanhamentoGestantes.map(({ egua, anotacoesNoMes, semanasGestacao }) => (
+                  <div key={egua.id} style={rowStyle}>
+                    <div style={{ flex: 1 }}>
+                      <span style={{ fontSize: 13, color: 'var(--ink)' }}>{egua.nome}</span>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+                        {semanasGestacao != null ? `${semanasGestacao} semana${semanasGestacao !== 1 ? 's' : ''}` : 'sem data cobrição'}
+                        {' · '}{anotacoesNoMes === 0 ? 'sem anotação no mês' : `${anotacoesNoMes} anotação(ões) no mês`}
+                      </div>
+                    </div>
+                    {anotacoesNoMes === 0 && (
+                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
+                        PENDENTE
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </SecaoLista>
+            )}
+
+            {/* Bloco 6: Potros sem medição */}
+            {potrosSemMedicao.length > 0 && (
+              <SecaoLista titulo={`Potros sem medição (>30 dias) · ${potrosSemMedicao.length}`} cor="#b45309" bg="#fef3c7">
+                {potrosSemMedicao.map(c => (
+                  <div key={c.id} style={rowStyle}>
+                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{c.nome}</span>
+                  </div>
+                ))}
+              </SecaoLista>
+            )}
+
+            {/* Dica — pra registrar, usa as abas da Veterinária */}
+            <div style={{
+              background: '#dbeafe30', border: '1px solid #93c5fd',
+              borderRadius: 10, padding: '10px 12px', marginBottom: 14,
+              fontSize: 11, color: '#1e3a8a',
+            }}>
+              💡 Pra registrar vacina, vermífugo, OPG, medição ou anotação clínica,
+              use a aba Veterinária. Os registros feitos durante a visita aparecem
+              automaticamente no histórico.
             </div>
 
             <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
@@ -772,6 +1061,12 @@ function diasEntre(d1, d2) {
   const a = new Date(d1 + 'T00:00:00');
   const b = new Date(d2 + 'T00:00:00');
   return Math.round((b - a) / 86400000);
+}
+function addDiasStr(iso, dias) {
+  if (!iso) return '';
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
 }
 function fmtData(iso) {
   if (!iso) return '';
