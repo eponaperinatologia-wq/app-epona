@@ -436,6 +436,81 @@ async function remarcarEvento(ev, novaData, deps) {
   return false;
 }
 
+// Componente de uma box de evento na agenda. Usa addEventListener
+// nativo (via useEffect + ref) porque React sintetiza pointer events
+// com { passive: true } em certos navegadores, o que impede preventDefault
+// de bloquear a UI nativa de iOS (menu de callout / seleção).
+function DraggableEvento({
+  ev, vet, egua, rotulo, cor,
+  canOpen, canDrag, sendoArrastado,
+  recentlyDragged, pointerStartedDrag,
+  onOpen, onDragStart, pointerStartRef, longPressTimer,
+}) {
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !canDrag) return;
+    const handleDown = (e) => {
+      // preventDefault aqui — com {passive:false} funciona em iOS. Isso
+      // bloqueia o menu de callout nativo (copiar/compartilhar) e a
+      // seleção de texto, sem matar os pointermove/up subsequentes.
+      e.preventDefault?.();
+      pointerStartRef.current = { x: e.clientX, y: e.clientY };
+      pointerStartedDrag.current = false;
+      const target = el;
+      const pointerId = e.pointerId;
+      const startX = e.clientX;
+      const startY = e.clientY;
+      longPressTimer.current = setTimeout(() => {
+        pointerStartedDrag.current = true;
+        onDragStart(startX, startY, target, pointerId);
+      }, 400);
+    };
+    el.addEventListener('pointerdown', handleDown, { passive: false });
+    return () => el.removeEventListener('pointerdown', handleDown);
+  }, [canDrag, onDragStart, pointerStartRef, pointerStartedDrag, longPressTimer]);
+
+  return (
+    <div
+      ref={ref}
+      role="button"
+      tabIndex={0}
+      onClick={() => {
+        if (recentlyDragged.current || pointerStartedDrag.current) return;
+        if (canOpen) onOpen(ev);
+      }}
+      style={{
+        width: '100%', textAlign: 'left', boxSizing: 'border-box',
+        cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
+        background: 'var(--card)', border: '1px solid var(--line)',
+        borderLeft: `3px solid ${cor}`,
+        borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
+        opacity: sendoArrastado ? 0.4 : 1,
+        // 'none' é mais confiável que 'pan-x' aqui: ambíguo em iOS causa
+        // o browser decidir scroll antes do nosso long-press disparar.
+        touchAction: canDrag ? 'none' : 'auto',
+        userSelect: 'none',
+        WebkitUserSelect: 'none',
+        WebkitTouchCallout: 'none',
+        WebkitTapHighlightColor: 'transparent',
+      }}
+    >
+      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', pointerEvents: 'none' }}>
+        {rotulo}
+      </div>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, pointerEvents: 'none' }}>
+        {egua?.nome || 'égua'}
+      </div>
+      {vet && ev.fonte !== 'vet' && (
+        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1, pointerEvents: 'none' }}>
+          {vet.nome.split(' ')[0]}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Planner — agenda horizontal (atrasados, hoje, amanhã, próximos)
 // Cada evento pintado com a cor do vet responsável.
@@ -556,78 +631,69 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
     return bucket ? bucket.getAttribute('data-bucket-key') : null;
   };
 
-  const onPointerDownEv = (ev, e) => {
-    if (!ehRemarcavelEv(ev)) return; // sem drag
-    pointerStartRef.current = { x: e.clientX, y: e.clientY };
-    pointerStartedDrag.current = false;
-    // Guarda target e pointerId pra usar dentro do setTimeout (currentTarget
-    // vira null quando o evento sintético do React é liberado).
-    const target = e.currentTarget;
-    const pointerId = e.pointerId;
-    const startX = e.clientX;
-    const startY = e.clientY;
-    // Long-press 400ms pra ativar drag. Antes disso, movimento > 10px
-    // cancela (interpretamos como scroll).
-    longPressTimer.current = setTimeout(() => {
-      pointerStartedDrag.current = true;
-      setDraggingEv(ev);
-      setGhostPos({ x: startX, y: startY });
-      try { navigator.vibrate?.(10); } catch {}
-      // Captura o pointer pra receber todos os moves/ups mesmo fora do botão.
-      try { target.setPointerCapture?.(pointerId); } catch {}
-    }, 400);
-  };
-
-  const onPointerMoveEv = (e) => {
-    if (!draggingEv) {
-      // Antes do long-press disparar: cancela se mover demais (scroll)
-      const dx = e.clientX - pointerStartRef.current.x;
-      const dy = e.clientY - pointerStartRef.current.y;
-      if (Math.hypot(dx, dy) > 10 && longPressTimer.current) {
+  // Listeners nativos no container (via useEffect + addEventListener)
+  // com {passive: false}. React sintetiza pointer events com passive:true
+  // em alguns browsers, aí preventDefault() não funciona pra bloquear o
+  // scroll ou menu nativo. Nativo resolve.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onMove = (e) => {
+      if (!pointerStartedDrag.current && !draggingEv) {
+        // Antes do long-press disparar: cancela se mover demais (scroll)
+        const dx = e.clientX - pointerStartRef.current.x;
+        const dy = e.clientY - pointerStartRef.current.y;
+        if (Math.hypot(dx, dy) > 10 && longPressTimer.current) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+        return;
+      }
+      // Em drag: atualiza ghost, detecta bucket, auto-scroll perto da borda
+      e.preventDefault();
+      setGhostPos({ x: e.clientX, y: e.clientY });
+      const alvo = bucketKeyAt(e.clientX, e.clientY);
+      setDropTarget(alvo);
+      if (scrollRef.current) {
+        const rect = scrollRef.current.getBoundingClientRect();
+        const EDGE = 60;
+        if (e.clientX > rect.right - EDGE) autoScrollRef.current = 1;
+        else if (e.clientX < rect.left + EDGE) autoScrollRef.current = -1;
+        else autoScrollRef.current = 0;
+      }
+    };
+    const onUp = (e) => {
+      if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
       }
-      return;
-    }
-    // Em drag: atualiza ghost, detecta bucket, auto-scroll se perto da borda
-    setGhostPos({ x: e.clientX, y: e.clientY });
-    const alvo = bucketKeyAt(e.clientX, e.clientY);
-    setDropTarget(alvo);
-    if (scrollRef.current) {
-      const rect = scrollRef.current.getBoundingClientRect();
-      const EDGE = 60;
-      if (e.clientX > rect.right - EDGE) autoScrollRef.current = 1;
-      else if (e.clientX < rect.left + EDGE) autoScrollRef.current = -1;
-      else autoScrollRef.current = 0;
-    }
-    e.preventDefault?.();
-  };
-
-  const onPointerUpEv = async (e) => {
-    if (longPressTimer.current) {
-      clearTimeout(longPressTimer.current);
-      longPressTimer.current = null;
-    }
-    autoScrollRef.current = 0;
-    if (!pointerStartedDrag.current) return; // foi click, não drag
-    pointerStartedDrag.current = false;
-    // Bloqueia o click sintético que vem depois (iOS/Android disparam click
-    // após pointerup mesmo quando houve drag — abriria o detalhe sem querer).
-    recentlyDragged.current = true;
-    setTimeout(() => { recentlyDragged.current = false; }, 350);
-    e?.preventDefault?.();
-    const ev = draggingEv;
-    const alvo = dropTarget;
-    setDraggingEv(null);
-    setDropTarget(null);
-    if (ev && alvo && alvo !== 'atrasado') {
-      const novaData = alvo === 'hoje' ? hoje : alvo;
-      // Não refaz se a data é a mesma
-      if (novaData !== ev.dataEv) {
-        await remarcarEvento(ev, novaData, { updateRegistroReproducao, vetBundle });
+      autoScrollRef.current = 0;
+      if (!pointerStartedDrag.current) return;
+      pointerStartedDrag.current = false;
+      // Bloqueia o click sintético pós-drag
+      recentlyDragged.current = true;
+      setTimeout(() => { recentlyDragged.current = false; }, 350);
+      e?.preventDefault?.();
+      const evCap = draggingEv;
+      const alvo = dropTarget;
+      setDraggingEv(null);
+      setDropTarget(null);
+      if (evCap && alvo && alvo !== 'atrasado') {
+        const novaData = alvo === 'hoje' ? hoje : alvo;
+        if (novaData !== evCap.dataEv) {
+          remarcarEvento(evCap, novaData, { updateRegistroReproducao, vetBundle });
+        }
       }
-    }
-  };
+    };
+    el.addEventListener('pointermove', onMove, { passive: false });
+    el.addEventListener('pointerup', onUp, { passive: false });
+    el.addEventListener('pointercancel', onUp, { passive: false });
+    return () => {
+      el.removeEventListener('pointermove', onMove);
+      el.removeEventListener('pointerup', onUp);
+      el.removeEventListener('pointercancel', onUp);
+    };
+  }, [draggingEv, dropTarget, hoje, updateRegistroReproducao, vetBundle]);
 
   // Ghost: réplica visual pequena do evento que segue o cursor.
   const ghostVet = draggingEv ? vetsExternos.find(v => v.id === draggingEv.vetId) : null;
@@ -665,9 +731,6 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
             scrollSnapType: draggingEv ? 'none' : 'x mandatory',
             touchAction: draggingEv ? 'none' : 'pan-x',
           }}
-          onPointerMove={onPointerMoveEv}
-          onPointerUp={onPointerUpEv}
-          onPointerCancel={onPointerUpEv}
         >
           {ordem.map(k => {
             const evs = buckets.get(k) || [];
@@ -708,55 +771,24 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                   const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
                   const canDrag = ehRemarcavelEv(ev);
                   const sendoArrastado = draggingEv && draggingEv.id === ev.id;
-                  // div role="button" em vez de <button>: iOS Safari não aciona
-                  // menu de seleção de texto em long-press e os pointer events
-                  // ficam mais previsíveis dentro de scroll containers.
                   return (
-                    <div
-                      key={i}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => {
-                        // Bloqueia click sintético pós-drag (iOS dispara mesmo após
-                        // pointerup com movimento). Durante o drag ativo também.
-                        if (recentlyDragged.current || pointerStartedDrag.current) return;
-                        if (canOpen) onSelectEvento(ev);
+                    <DraggableEvento
+                      key={ev.id || i}
+                      ev={ev} vet={vet} egua={egua} rotulo={rotulo} cor={cor}
+                      canOpen={canOpen} canDrag={canDrag}
+                      sendoArrastado={sendoArrastado}
+                      recentlyDragged={recentlyDragged}
+                      pointerStartedDrag={pointerStartedDrag}
+                      onOpen={onSelectEvento}
+                      onDragStart={(startX, startY, target, pointerId) => {
+                        setDraggingEv(ev);
+                        setGhostPos({ x: startX, y: startY });
+                        try { navigator.vibrate?.(10); } catch {}
+                        try { target.setPointerCapture?.(pointerId); } catch {}
                       }}
-                      onPointerDown={canDrag ? (e => {
-                        // preventDefault aqui bloqueia o menu de callout do iOS
-                        // (copiar/compartilhar) sem perder o controle do touch.
-                        e.preventDefault?.();
-                        onPointerDownEv(ev, e);
-                      }) : undefined}
-                      style={{
-                        width: '100%', textAlign: 'left', boxSizing: 'border-box',
-                        cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
-                        background: 'var(--card)', border: '1px solid var(--line)',
-                        borderLeft: `3px solid ${cor}`,
-                        borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
-                        opacity: sendoArrastado ? 0.4 : 1,
-                        // pan-x permite scroll horizontal; drag só ativa após
-                        // long-press, aí setPointerCapture + preventDefault no
-                        // move bloqueiam o scroll nativo até soltar.
-                        touchAction: canDrag ? 'pan-x' : 'auto',
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
-                        WebkitTouchCallout: 'none',
-                        WebkitTapHighlightColor: 'transparent',
-                      }}
-                    >
-                      <div style={{ fontSize: 10, color: cor, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em', pointerEvents: 'none' }}>
-                        {rotulo}
-                      </div>
-                      <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, pointerEvents: 'none' }}>
-                        {egua?.nome || 'égua'}
-                      </div>
-                      {vet && ev.fonte !== 'vet' && (
-                        <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1, pointerEvents: 'none' }}>
-                          {vet.nome.split(' ')[0]}
-                        </div>
-                      )}
-                    </div>
+                      pointerStartRef={pointerStartRef}
+                      longPressTimer={longPressTimer}
+                    />
                   );
                 })}
               </div>
