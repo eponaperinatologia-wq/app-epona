@@ -16,13 +16,16 @@ export function AssessoriaFlow({
   addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   currentUser, onBack,
 }) {
-  const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato'
+  const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato' | 'visitaDetalhe'
   const [contratoSelId, setContratoSelId] = useState(null);
+  const [visitaSelId, setVisitaSelId] = useState(null);
 
   const abrirContrato = (id) => { setContratoSelId(id); setTela('detalheContrato'); };
   const abrirNovoContrato = () => { setContratoSelId(null); setTela('novoContrato'); };
   const abrirEditarContrato = (id) => { setContratoSelId(id); setTela('editarContrato'); };
-  const voltarHub = () => { setContratoSelId(null); setTela('hub'); };
+  const abrirVisita = (id) => { setVisitaSelId(id); setTela('visitaDetalhe'); };
+  const voltarHub = () => { setContratoSelId(null); setVisitaSelId(null); setTela('hub'); };
+  const voltarContrato = () => { setVisitaSelId(null); setTela('detalheContrato'); };
 
   if (tela === 'novoContrato') {
     return (
@@ -63,6 +66,7 @@ export function AssessoriaFlow({
         proprietarios={proprietarios} locais={locais} vetsExternos={vetsExternos}
         onBack={voltarHub}
         onEditarContrato={() => abrirEditarContrato(c.id)}
+        onAbrirVisita={abrirVisita}
         onNovaVisita={async (dataIso) => {
           const id = await addVisitaClinica({
             contratoId: c.id,
@@ -73,8 +77,25 @@ export function AssessoriaFlow({
             observacoes: '',
             status: 'rascunho',
           });
+          if (id) abrirVisita(id);
           return id;
         }}
+        updateVisitaClinica={updateVisitaClinica}
+        deleteVisitaClinica={deleteVisitaClinica}
+        currentUser={currentUser}
+      />
+    );
+  }
+  if (tela === 'visitaDetalhe') {
+    const v = visitasClinicas.find(x => x.id === visitaSelId);
+    if (!v) { voltarHub(); return null; }
+    const c = contratosAssessoria.find(x => x.id === v.contratoId);
+    return (
+      <VisitaDetalhe
+        visita={v}
+        contrato={c}
+        proprietarios={proprietarios} locais={locais} vetsExternos={vetsExternos}
+        onBack={voltarContrato}
         updateVisitaClinica={updateVisitaClinica}
         deleteVisitaClinica={deleteVisitaClinica}
         currentUser={currentUser}
@@ -353,7 +374,7 @@ export function ContratoForm({
 // ─────────────────────────────────────────────────────────────
 export function ContratoDetalhe({
   contrato, visitasClinicas = [], proprietarios = [], locais = [], vetsExternos = [],
-  onBack, onEditarContrato, onNovaVisita,
+  onBack, onEditarContrato, onNovaVisita, onAbrirVisita,
   updateVisitaClinica, deleteVisitaClinica, currentUser,
 }) {
   const hoje = new Date().toISOString().slice(0, 10);
@@ -383,23 +404,14 @@ export function ContratoDetalhe({
           }}>
             + Nova visita hoje
           </button>
-          <button onClick={() => {
-            const data = window.prompt('Agendar visita para (AAAA-MM-DD):', hoje);
-            if (data && /^\d{4}-\d{2}-\d{2}$/.test(data)) onNovaVisita(data);
-          }} style={{
-            padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)',
-            background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
-            cursor: 'pointer', fontFamily: 'var(--sans)',
-          }}>
-            Agendar
-          </button>
+          <AgendarButton onPick={onNovaVisita} />
         </div>
 
         {/* Rascunhos pendentes de finalizar */}
         {rascunhos.length > 0 && (
           <SecaoLista titulo="Visitas em andamento" cor="#92400e" bg="#fef3c7">
             {rascunhos.map(v => (
-              <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} />
+              <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} onClick={() => onAbrirVisita?.(v.id)} />
             ))}
           </SecaoLista>
         )}
@@ -407,7 +419,7 @@ export function ContratoDetalhe({
         {agendadas.length > 0 && (
           <SecaoLista titulo="Agendadas">
             {agendadas.map(v => (
-              <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} />
+              <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} onClick={() => onAbrirVisita?.(v.id)} />
             ))}
           </SecaoLista>
         )}
@@ -419,7 +431,7 @@ export function ContratoDetalhe({
             </div>
           )}
           {finalizadas.map(v => (
-            <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} finalizada />
+            <VisitaRow key={v.id} visita={v} vetsExternos={vetsExternos} finalizada onClick={() => onAbrirVisita?.(v.id)} />
           ))}
         </SecaoLista>
 
@@ -449,15 +461,16 @@ const SecaoLista = ({ titulo, cor, bg, children }) => (
   </div>
 );
 
-const VisitaRow = ({ visita, vetsExternos, finalizada }) => {
+const VisitaRow = ({ visita, vetsExternos, finalizada, onClick }) => {
   const vets = (visita.vetsParticipantes || [])
     .map(id => vetsExternos.find(v => v.id === id))
     .filter(Boolean);
   return (
-    <div style={{
+    <button onClick={onClick} style={{
+      width: '100%', textAlign: 'left', cursor: onClick ? 'pointer' : 'default',
       background: 'var(--card)', border: '1px solid var(--line)',
       borderRadius: 8, padding: '8px 12px', marginBottom: 4,
-      display: 'flex', alignItems: 'center', gap: 10,
+      display: 'flex', alignItems: 'center', gap: 10, color: 'var(--ink)',
     }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, color: 'var(--ink)' }}>
@@ -469,9 +482,279 @@ const VisitaRow = ({ visita, vetsExternos, finalizada }) => {
         </div>
       </div>
       {finalizada && <Icon name="check" size={14} color={CORES.verde} />}
+      {onClick && <Icon name="chevron-right" size={14} color="var(--ink-3)" />}
+    </button>
+  );
+};
+
+// Botão "Agendar" com date picker nativo. Antes era prompt() horrível.
+const AgendarButton = ({ onPick }) => {
+  const inputRef = React.useRef(null);
+  const [valor, setValor] = useState('');
+  const abrirPicker = () => inputRef.current?.showPicker?.() || inputRef.current?.focus();
+  return (
+    <div style={{ position: 'relative' }}>
+      <button onClick={abrirPicker} style={{
+        padding: '12px 14px', borderRadius: 10, border: '1px solid var(--line)',
+        background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+        cursor: 'pointer', fontFamily: 'var(--sans)',
+      }}>Agendar</button>
+      <input
+        ref={inputRef}
+        type="date"
+        value={valor}
+        onChange={e => { if (e.target.value) { setValor(''); onPick(e.target.value); } }}
+        min={new Date().toISOString().slice(0, 10)}
+        style={{
+          position: 'absolute', left: 0, bottom: 0, width: 1, height: 1,
+          opacity: 0, pointerEvents: 'none',
+        }}
+      />
     </div>
   );
 };
+
+// ─────────────────────────────────────────────────────────────
+// Detalhe/painel de uma visita (rascunho em andamento OU finalizada).
+// Em C4 recebe os blocos de pendências automáticas e atalhos pra
+// registrar. Por enquanto: resumo + finalizar/cancelar.
+// ─────────────────────────────────────────────────────────────
+export function VisitaDetalhe({
+  visita, contrato, proprietarios = [], locais = [], vetsExternos = [],
+  onBack, updateVisitaClinica, deleteVisitaClinica, currentUser,
+}) {
+  const [editMode, setEditMode] = useState(false);
+  const [data, setData] = useState(visita.data);
+  const [vetsIds, setVetsIds] = useState(visita.vetsParticipantes || []);
+  const [valor, setValor] = useState(String(visita.valorCobrado || contrato?.valorMensal || 0));
+  const [obs, setObs] = useState(visita.observacoes || '');
+
+  const finalizada = visita.status === 'finalizada';
+  const vets = (visita.vetsParticipantes || [])
+    .map(id => vetsExternos.find(v => v.id === id))
+    .filter(Boolean);
+  const vetsAtivos = vetsExternos.filter(v => v.ativo !== false);
+
+  const toggleVet = (id) => setVetsIds(prev =>
+    prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id],
+  );
+
+  const finalizar = () => {
+    if (vetsIds.length === 0) {
+      if (!window.confirm('Nenhum vet selecionado. Finalizar mesmo assim? A divisão vai pra 100% Epona.')) return;
+    }
+    updateVisitaClinica(visita.id, {
+      data,
+      vetsParticipantes: vetsIds,
+      valorCobrado: Number(valor) || 0,
+      observacoes: obs.trim(),
+      status: 'finalizada',
+      finalizadaEm: new Date().toISOString(),
+      finalizadaPor: currentUser?.nome || '',
+    });
+    onBack();
+  };
+
+  const reabrirFinalizada = () => {
+    if (!window.confirm('Reabrir esta visita? Volta pra rascunho (sai da fatura até finalizar de novo).')) return;
+    updateVisitaClinica(visita.id, { status: 'rascunho', finalizadaEm: null, finalizadaPor: '' });
+  };
+
+  const cancelarVisita = () => {
+    if (!window.confirm('Cancelar/apagar esta visita? Esta ação não pode ser desfeita.')) return;
+    deleteVisitaClinica(visita.id);
+    onBack();
+  };
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px',
+    borderRadius: 10, border: '1px solid var(--line)',
+    background: 'var(--card)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+  const label = (t) => (
+    <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 4, fontWeight: 700 }}>{t}</div>
+  );
+
+  const haras = nomeContrato(contrato, proprietarios, locais);
+
+  return (
+    <div style={{ paddingBottom: 90 }}>
+      <TopBar
+        title={haras}
+        subtitle={`Visita de ${fmtData(visita.data)}${finalizada ? ' · finalizada' : ''}`}
+        onBack={onBack}
+      />
+
+      <div style={{ padding: '14px 20px 20px' }}>
+        {/* Status chip */}
+        <div style={{
+          display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 14,
+          padding: '4px 10px', borderRadius: 10,
+          background: finalizada ? '#dcfce7' : '#fef3c7',
+          color: finalizada ? '#166534' : '#92400e',
+          fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+        }}>
+          {finalizada ? '✓ Finalizada' : '● Em andamento'}
+        </div>
+
+        {/* Resumo quando finalizada (snapshot) */}
+        {finalizada && !editMode && (
+          <div style={{
+            background: 'var(--card)', border: '1px solid var(--line)',
+            borderRadius: 12, padding: 14, marginBottom: 14,
+          }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Data</div>
+                <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 2 }}>{fmtData(visita.data)}</div>
+              </div>
+              <div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>Valor cobrado</div>
+                <div style={{ fontSize: 14, color: 'var(--ink)', marginTop: 2, fontFamily: 'var(--serif)' }}>{formatBRL(visita.valorCobrado)}</div>
+              </div>
+            </div>
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>Vets participantes</div>
+              {vets.length === 0 && <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>(nenhum selecionado)</div>}
+              {vets.map(v => (
+                <span key={v.id} style={{
+                  display: 'inline-block', margin: '2px 4px 2px 0',
+                  padding: '2px 8px', borderRadius: 8,
+                  background: v.cor || '#7c2d8c', color: '#fff',
+                  fontSize: 11, fontWeight: 600,
+                }}>
+                  {v.nome}{v.internoEpona ? ' · Epona' : ''}
+                </span>
+              ))}
+            </div>
+            {visita.observacoes && (
+              <div style={{ marginTop: 10 }}>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700, marginBottom: 4 }}>Observações</div>
+                <div style={{ fontSize: 13, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{visita.observacoes}</div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Painel de preparação (rascunho) ou edição (finalizada em editMode) */}
+        {(!finalizada || editMode) && (
+          <>
+            <div style={{
+              background: '#f5e8ff30', border: '1px dashed #d8b4fe',
+              borderRadius: 10, padding: '10px 12px', marginBottom: 12,
+              fontSize: 12, color: '#6b21a8',
+            }}>
+              <strong>Painel de preparação</strong> — pendências automáticas (vacinas,
+              OPGs, DGs, gestantes, potros) e atalhos pra registrar virão no próximo
+              commit (C4). Por enquanto, use os cards da Veterinária.
+            </div>
+
+            <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 14, marginBottom: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700, marginBottom: 10 }}>
+                Finalizar visita
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                {label('Data')}
+                <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputStyle} />
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                {label(`Vets participantes (${vetsIds.length} selecionado${vetsIds.length !== 1 ? 's' : ''})`)}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {vetsAtivos.map(v => {
+                    const sel = vetsIds.includes(v.id);
+                    return (
+                      <button key={v.id} onClick={() => toggleVet(v.id)} style={{
+                        display: 'flex', alignItems: 'center', gap: 10,
+                        padding: '8px 10px', borderRadius: 8,
+                        border: `1px solid ${sel ? (v.cor || '#7c2d8c') : 'var(--line)'}`,
+                        background: sel ? (v.cor || '#7c2d8c') + '15' : 'var(--card)',
+                        cursor: 'pointer', textAlign: 'left', fontFamily: 'var(--sans)',
+                      }}>
+                        <div style={{
+                          width: 18, height: 18, borderRadius: 4,
+                          background: sel ? (v.cor || '#7c2d8c') : 'transparent',
+                          border: `2px solid ${v.cor || '#7c2d8c'}`,
+                          display: 'grid', placeItems: 'center',
+                          color: '#fff', fontSize: 12, fontWeight: 700,
+                        }}>{sel ? '✓' : ''}</div>
+                        <span style={{ flex: 1, fontSize: 13, color: 'var(--ink)' }}>{v.nome}</span>
+                        {v.internoEpona && (
+                          <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: '#f5e8ff', color: '#6b21a8', fontWeight: 700 }}>EPONA</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 6 }}>
+                  Divisão: só Epona interno → 100% Epona. Vet externo participando → Epona 50% + externos dividem 50%.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 10 }}>
+                {label('Valor cobrado (R$)')}
+                <input type="number" min="0" step="50" value={valor} onChange={e => setValor(e.target.value)} style={inputStyle} />
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+                  Pré-preenchido do contrato ({formatBRL(contrato?.valorMensal)}). Editável se visita extraordinária.
+                </div>
+              </div>
+
+              <div style={{ marginBottom: 14 }}>
+                {label('Observações gerais')}
+                <textarea value={obs} onChange={e => setObs(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                {finalizada && editMode && (
+                  <button onClick={() => setEditMode(false)} style={{
+                    flex: 1, padding: '12px', borderRadius: 10, border: '1px solid var(--line)',
+                    background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>Cancelar edição</button>
+                )}
+                <button onClick={finalizar} style={{
+                  flex: 2, padding: '12px', borderRadius: 10, border: 'none',
+                  background: '#166534', color: '#fff', fontSize: 14, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>
+                  {finalizada ? 'Salvar alterações' : 'Finalizar visita'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Ações pra visitas finalizadas */}
+        {finalizada && !editMode && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+            <button onClick={() => setEditMode(true)} style={{
+              flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)',
+              background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>Editar</button>
+            <button onClick={reabrirFinalizada} style={{
+              flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)',
+              background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>Reabrir</button>
+          </div>
+        )}
+
+        {!finalizada && (
+          <button onClick={cancelarVisita} style={{
+            width: '100%', marginTop: 10, padding: '10px', borderRadius: 10,
+            border: '1px solid #fecaca', background: '#fef2f2', color: '#991b1b',
+            fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>
+            Cancelar visita (apaga rascunho)
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
