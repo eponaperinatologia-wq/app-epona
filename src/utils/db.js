@@ -79,10 +79,15 @@ export const fromDbVetExterno = r => ({
   temAcesso: !!r.login && !!r.senha_hash,
   senhaProvisoria: !!r.senha_provisoria,
   ativo: r.ativo !== false,
+  // Flag pra regra de divisão de assessoria clínica: só internos (Alexandre,
+  // Carolina) na visita → Epona 100%; externos participam → Epona 50% +
+  // externos dividem 50%.
+  internoEpona: !!r.interno_epona,
 });
 export const toDbVetExterno = v => ({
   id: v.id, nome: v.nome, cor: v.cor || '#7c2d8c',
   ativo: v.ativo !== false,
+  interno_epona: !!v.internoEpona,
 });
 
 // ── Local do Repro (haras de terceiros que a equipe atende) ─
@@ -107,6 +112,61 @@ export const fromDbVetKmLocal = r => ({
 export const toDbVetKmLocal = k => ({
   id: k.id, vet_id: k.vetId, local_id: k.localId,
   valor: Number(k.valor) || 0,
+});
+
+// ── Assessoria clínica: contrato + visitas ──────────────────
+export const fromDbContratoAssessoria = r => ({
+  id: r.id,
+  proprietarioId: r.proprietario_id,
+  localId: r.local_id || null,
+  nomeApelido: r.nome_apelido || '',
+  valorMensal: Number(r.valor_mensal) || 0,
+  diaCobranca: Number(r.dia_cobranca) || 1,
+  inicio: r.inicio || null,
+  fim: r.fim || null,
+  observacoes: r.observacoes || '',
+  workspaceId: r.workspace_id || 'repro',
+  criadoEm: r.created_at || null,
+});
+export const toDbContratoAssessoria = c => ({
+  id: c.id,
+  proprietario_id: c.proprietarioId,
+  local_id: c.localId || null,
+  nome_apelido: c.nomeApelido || '',
+  valor_mensal: Number(c.valorMensal) || 0,
+  dia_cobranca: Number(c.diaCobranca) || 1,
+  inicio: c.inicio,
+  fim: c.fim || null,
+  observacoes: c.observacoes || '',
+  workspace_id: c.workspaceId || 'repro',
+});
+
+export const fromDbVisitaClinica = r => ({
+  id: r.id,
+  contratoId: r.contrato_id,
+  data: r.data,
+  localId: r.local_id || null,
+  vetsParticipantes: Array.isArray(r.vets_participantes) ? r.vets_participantes : (r.vets_participantes || []),
+  valorCobrado: Number(r.valor_cobrado) || 0,
+  observacoes: r.observacoes || '',
+  status: r.status || 'rascunho',
+  finalizadaEm: r.finalizada_em || null,
+  finalizadaPor: r.finalizada_por || '',
+  workspaceId: r.workspace_id || 'repro',
+  criadoEm: r.created_at || null,
+});
+export const toDbVisitaClinica = v => ({
+  id: v.id,
+  contrato_id: v.contratoId,
+  data: v.data,
+  local_id: v.localId || null,
+  vets_participantes: v.vetsParticipantes || [],
+  valor_cobrado: Number(v.valorCobrado) || 0,
+  observacoes: v.observacoes || '',
+  status: v.status || 'rascunho',
+  finalizada_em: v.finalizadaEm || null,
+  finalizada_por: v.finalizadaPor || '',
+  workspace_id: v.workspaceId || 'repro',
 });
 
 export const fromDbAvisoRepro = r => ({
@@ -541,6 +601,7 @@ export const fromDbVacinacaoAnimal = r => ({
   feito: !!r.feito, feitoPor: r.feito_por || '', feitoEm: r.feito_em || null,
   cancelado: !!r.cancelado, canceladoPor: r.cancelado_por || '', canceladoEm: r.cancelado_em || null,
   reagendadoPara: r.reagendado_para || null,
+  visitaClinicaId: r.visita_clinica_id || null,
 });
 export const toDbVacinacaoAnimal = v => ({
   id: v.id, protocolo_id: v.protocoloId, dose_idx: v.doseIdx ?? null,
@@ -548,6 +609,7 @@ export const toDbVacinacaoAnimal = v => ({
   feito: !!v.feito, feito_por: v.feitoPor || '', feito_em: v.feitoEm || null,
   cancelado: !!v.cancelado, cancelado_por: v.canceladoPor || '', cancelado_em: v.canceladoEm || null,
   reagendado_para: v.reagendadoPara || null,
+  visita_clinica_id: v.visitaClinicaId || null,
 });
 
 const _safeParseArray = (v) => {
@@ -573,6 +635,7 @@ export const fromDbOpg = r => ({
   observacoes: r.observacoes || '',
   proximaData: r.proxima_data || null,
   etapaIdx: r.etapa_idx ?? null,
+  visitaClinicaId: r.visita_clinica_id || null,
 });
 export const toDbOpg = o => ({
   id: o.id,
@@ -590,6 +653,7 @@ export const toDbOpg = o => ({
   observacoes: o.observacoes || '',
   proxima_data: o.proximaData || null,
   etapa_idx: o.etapaIdx ?? null,
+  visita_clinica_id: o.visitaClinicaId || null,
 });
 
 export const fromDbProtocoloVermifugacao = r => ({
@@ -635,6 +699,7 @@ export const fromDbVermifugacaoAnimal = r => ({
   etapaIdx: r.etapa_idx ?? null,
   cancelado: !!r.cancelado, canceladoPor: r.cancelado_por || '', canceladoEm: r.cancelado_em || null,
   reagendadoPara: r.reagendado_para || null,
+  visitaClinicaId: r.visita_clinica_id || null,
 });
 export const toDbVermifugacaoAnimal = v => ({
   id: v.id,
@@ -646,6 +711,7 @@ export const toDbVermifugacaoAnimal = v => ({
   etapa_idx: v.etapaIdx ?? null,
   cancelado: !!v.cancelado, cancelado_por: v.canceladoPor || '', cancelado_em: v.canceladoEm || null,
   reagendado_para: v.reagendadoPara || null,
+  visita_clinica_id: v.visitaClinicaId || null,
 });
 
 // ── Emergências veterinárias ──────────────────────────────────

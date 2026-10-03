@@ -48,6 +48,8 @@ import {
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbFaturaRepro, toDbFaturaRepro,
+  fromDbContratoAssessoria, toDbContratoAssessoria,
+  fromDbVisitaClinica, toDbVisitaClinica,
   fromDbLancamento, toDbLancamento,
   fromDbRecorrencia, toDbRecorrencia,
   fromDbEstoqueCompra, toDbEstoqueCompra,
@@ -119,6 +121,8 @@ function AppEpona() {
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
   const [faturasRepro, setFaturasRepro] = useState([]);
+  const [contratosAssessoria, setContratosAssessoria] = useState([]);
+  const [visitasClinicas, setVisitasClinicas] = useState([]);
   const [lancamentos, setLancamentos] = useState([]);
   const [recorrencias, setRecorrencias] = useState([]);
   const [estoqueCompras, setEstoqueCompras] = useState([]);
@@ -195,6 +199,7 @@ const loadAllData = async () => {
       progProgramasData, progAplicacoesData,
       vetsExternosData, locaisReproData, vetKmLocaisData,
       avisosReproData, faturasReproData,
+      contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
@@ -239,6 +244,8 @@ const loadAllData = async () => {
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
       fetchAll('faturas_repro', fromDbFaturaRepro),
+      fetchAll('contratos_assessoria', fromDbContratoAssessoria),
+      fetchAll('visitas_clinicas', fromDbVisitaClinica),
     ]);
     setCavalos(cavalosData || []);
     setProprietarios(propsData || []);
@@ -280,6 +287,8 @@ const loadAllData = async () => {
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
     setFaturasRepro(faturasReproData || []);
+    setContratosAssessoria(contratosAssessoriaData || []);
+    setVisitasClinicas(visitasClinicasData || []);
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
@@ -445,6 +454,16 @@ const loadAllData = async () => {
         if (et === 'INSERT') setFaturasRepro(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaRepro(n)]);
         if (et === 'UPDATE') setFaturasRepro(prev => prev.map(f => f.id === n.id ? fromDbFaturaRepro(n) : f));
         if (et === 'DELETE') setFaturasRepro(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'contratos_assessoria' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setContratosAssessoria(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbContratoAssessoria(n)]);
+        if (et === 'UPDATE') setContratosAssessoria(prev => prev.map(c => c.id === n.id ? fromDbContratoAssessoria(n) : c));
+        if (et === 'DELETE') setContratosAssessoria(prev => o?.id ? prev.filter(c => c.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'visitas_clinicas' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setVisitasClinicas(prev => prev.some(v => v.id === n.id) ? prev : [...prev, fromDbVisitaClinica(n)]);
+        if (et === 'UPDATE') setVisitasClinicas(prev => prev.map(v => v.id === n.id ? fromDbVisitaClinica(n) : v));
+        if (et === 'DELETE') setVisitasClinicas(prev => o?.id ? prev.filter(v => v.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'financeiro_lancamentos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setLancamentos(prev => prev.some(l => l.id === n.id) ? prev : [...prev, fromDbLancamento(n)]);
@@ -1685,6 +1704,52 @@ const loadAllData = async () => {
     dbDelete('faturas_repro', id);
   };
 
+  // ── Contratos de assessoria ──────────────────────────────────
+  const addContratoAssessoria = async (c) => {
+    const id = c.id || 'ca_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { ...c, id, workspaceId: c.workspaceId || 'repro' };
+    setContratosAssessoria(prev => [...prev, novo]);
+    const ok = await dbInsert('contratos_assessoria', toDbContratoAssessoria(novo));
+    if (!ok) setContratosAssessoria(prev => prev.filter(x => x.id !== id));
+    return ok ? id : null;
+  };
+  const updateContratoAssessoria = (id, patch) => {
+    setContratosAssessoria(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
+    const atual = contratosAssessoria.find(c => c.id === id);
+    if (!atual) return;
+    const merged = { ...atual, ...patch };
+    const dbRow = toDbContratoAssessoria(merged);
+    delete dbRow.id;
+    dbUpdate('contratos_assessoria', id, dbRow);
+  };
+  const deleteContratoAssessoria = (id) => {
+    setContratosAssessoria(prev => prev.filter(c => c.id !== id));
+    dbDelete('contratos_assessoria', id);
+  };
+
+  // ── Visitas clínicas ─────────────────────────────────────────
+  const addVisitaClinica = async (v) => {
+    const id = v.id || 'vc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const nova = { ...v, id, workspaceId: v.workspaceId || 'repro' };
+    setVisitasClinicas(prev => [...prev, nova]);
+    const ok = await dbInsert('visitas_clinicas', toDbVisitaClinica(nova));
+    if (!ok) setVisitasClinicas(prev => prev.filter(x => x.id !== id));
+    return ok ? id : null;
+  };
+  const updateVisitaClinica = (id, patch) => {
+    setVisitasClinicas(prev => prev.map(v => v.id === id ? { ...v, ...patch } : v));
+    const atual = visitasClinicas.find(v => v.id === id);
+    if (!atual) return;
+    const merged = { ...atual, ...patch };
+    const dbRow = toDbVisitaClinica(merged);
+    delete dbRow.id;
+    dbUpdate('visitas_clinicas', id, dbRow);
+  };
+  const deleteVisitaClinica = (id) => {
+    setVisitasClinicas(prev => prev.filter(v => v.id !== id));
+    dbDelete('visitas_clinicas', id);
+  };
+
   // ── Minha conta ───────────────────────────────────────────────
   const updateMinhaConta = (data) => {
     if (!currentUser) return;
@@ -2014,6 +2079,14 @@ const loadAllData = async () => {
       addFaturaRepro={addFaturaRepro}
       updateFaturaRepro={updateFaturaRepro}
       removeFaturaRepro={removeFaturaRepro}
+      contratosAssessoria={contratosAssessoria}
+      addContratoAssessoria={addContratoAssessoria}
+      updateContratoAssessoria={updateContratoAssessoria}
+      deleteContratoAssessoria={deleteContratoAssessoria}
+      visitasClinicas={visitasClinicas}
+      addVisitaClinica={addVisitaClinica}
+      updateVisitaClinica={updateVisitaClinica}
+      deleteVisitaClinica={deleteVisitaClinica}
       empresaInfo={empresaInfo}
       proprietarios={proprietarios /* completo — ReproApp filtra internamente */}
       cavalos={cavalos /* completo — ReproApp filtra internamente */}

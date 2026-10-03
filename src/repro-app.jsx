@@ -5976,6 +5976,8 @@ export function ReproApp({
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  contratosAssessoria = [], addContratoAssessoria, updateContratoAssessoria, deleteContratoAssessoria,
+  visitasClinicas = [], addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   empresaInfo = null,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
