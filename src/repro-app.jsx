@@ -128,6 +128,8 @@ function ReproHome({
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
   updateRegistroReproducao = null,
+  visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
+  updateVisitaClinica = null, onSelectVisitaClinica = null,
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -206,7 +208,15 @@ function ReproHome({
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
-      <Planner registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos} onSelectEvento={onSelectEvento} vetBundle={vetBundle} updateRegistroReproducao={updateRegistroReproducao} />
+      <Planner
+        registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos}
+        onSelectEvento={onSelectEvento} vetBundle={vetBundle}
+        updateRegistroReproducao={updateRegistroReproducao}
+        visitasClinicas={visitasClinicas} contratosAssessoria={contratosAssessoria}
+        proprietarios={proprietarios} locaisRepro={locaisRepro}
+        updateVisitaClinica={updateVisitaClinica}
+        onSelectVisitaClinica={onSelectVisitaClinica}
+      />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
           Click no card do topo abre a versão completa dentro do Painel. */}
@@ -389,14 +399,22 @@ function ehRemarcavelEv(ev) {
   if (ev.fonte === 'vet') {
     return ['anotacao_clinica', 'opg', 'medicao', 'vacinacao'].includes(ev.tipoEv);
   }
+  if (ev.fonte === 'assessoria') {
+    return ev.tipoEv === 'visita_clinica';
+  }
   return false;
 }
 
 // Remarca um evento para uma nova data (YYYY-MM-DD). Roteia pro updater
-// certo dependendo do tipo. deps = { updateRegistroReproducao, vetBundle }.
+// certo dependendo do tipo. deps = { updateRegistroReproducao, vetBundle,
+// updateVisitaClinica }.
 async function remarcarEvento(ev, novaData, deps) {
   if (!ev || !novaData || !ehRemarcavelEv(ev)) return false;
-  const { updateRegistroReproducao, vetBundle } = deps;
+  const { updateRegistroReproducao, vetBundle, updateVisitaClinica } = deps;
+  if (ev.fonte === 'assessoria' && ev.tipoEv === 'visita_clinica' && updateVisitaClinica) {
+    updateVisitaClinica(ev.visita.id, { data: novaData });
+    return true;
+  }
   if (ev.fonte === 'repro') {
     const r = ev.registro;
     if (!r || !updateRegistroReproducao) return false;
@@ -508,9 +526,9 @@ function DraggableEvento({
         {rotulo}
       </div>
       <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, textDecoration: ev.cumprido ? 'line-through' : 'none' }}>
-        {egua?.nome || 'égua'}
+        {ev.fonte === 'assessoria' ? (ev.rotuloHaras || 'haras') : (egua?.nome || 'égua')}
       </div>
-      {vet && ev.fonte !== 'vet' && (
+      {vet && ev.fonte !== 'vet' && ev.fonte !== 'assessoria' && (
         <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
           {vet.nome.split(' ')[0]}
         </div>
@@ -533,7 +551,13 @@ function DraggableEvento({
 // Perto da borda direita durante drag, auto-scroll + aparecem
 // mais dias (até ~60 dias à frente).
 // ─────────────────────────────────────────────────────────────
-function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundle = null, updateRegistroReproducao = null }) {
+function Planner({
+  registros, eguasRepro, vetsExternos, onSelectEvento,
+  vetBundle = null, updateRegistroReproducao = null,
+  // Visitas de assessoria clínica (opcional — se não vier, não mostra)
+  visitasClinicas = [], contratosAssessoria = [], proprietarios = [], locaisRepro = [],
+  updateVisitaClinica = null, onSelectVisitaClinica = null,
+}) {
   const hoje = new Date().toLocaleDateString('sv-SE');
 
   const eventosBase = eventosPendentes(registros, hoje);
@@ -556,6 +580,29 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
       opgs: (vetBundle.opgs || []).filter(o => eguasIds.has(o.cavaloId)),
     }).filter(ev => ev.dataEv >= janelaIni && ev.dataEv <= janelaFim);
     eventos = eventos.concat(evsVet);
+  }
+
+  // Visitas clínicas agendadas/em andamento (rascunho) + as finalizadas
+  // de hoje (viram cumprido=true no bucket Hoje).
+  for (const v of visitasClinicas) {
+    const ehHoje = v.data === hoje;
+    const estaRascunho = v.status === 'rascunho';
+    const incluir = estaRascunho || (v.status === 'finalizada' && ehHoje);
+    if (!incluir) continue;
+    const contrato = contratosAssessoria.find(c => c.id === v.contratoId);
+    eventos.push({
+      id: 'vc_' + v.id,
+      dataEv: v.data,
+      eguaId: null,
+      vetId: (v.vetsParticipantes || [])[0] || null,
+      tipoEv: 'visita_clinica',
+      tipo: 'visita_clinica',
+      fonte: 'assessoria',
+      visita: v,
+      contrato,
+      cumprido: v.status === 'finalizada',
+      rotuloHaras: nomeContratoCurto(contrato, proprietarios, locaisRepro),
+    });
   }
 
   // Agrupa por chave (atrasado | hoje | dataISO)
@@ -700,7 +747,7 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
       if (evCap && alvo && alvo !== 'atrasado') {
         const novaData = alvo === 'hoje' ? hoje : alvo;
         if (novaData !== evCap.dataEv) {
-          remarcarEvento(evCap, novaData, { updateRegistroReproducao, vetBundle });
+          remarcarEvento(evCap, novaData, { updateRegistroReproducao, vetBundle, updateVisitaClinica });
         }
       }
     };
@@ -790,7 +837,9 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                   const egua = eguasRepro.find(e => e.id === ev.eguaId);
                   const rotulo = rotuloEventoAmpliado(ev);
                   const cor = corEventoAmpliado(ev, vet);
-                  const canOpen = ev.fonte !== 'vet' && !!onSelectEvento;
+                  // Clique: assessoria abre via callback próprio; outros usam onSelectEvento
+                  const abrir = ev.fonte === 'assessoria' ? onSelectVisitaClinica : onSelectEvento;
+                  const canOpen = ev.fonte !== 'vet' && !!abrir;
                   // Cumprido não precisa remarcar (já foi feito)
                   const canDrag = ehRemarcavelEv(ev) && !ev.cumprido;
                   const sendoArrastado = draggingEv && draggingEv.id === ev.id;
@@ -802,7 +851,7 @@ function Planner({ registros, eguasRepro, vetsExternos, onSelectEvento, vetBundl
                       sendoArrastado={sendoArrastado}
                       recentlyDragged={recentlyDragged}
                       pointerStartedDrag={pointerStartedDrag}
-                      onOpen={onSelectEvento}
+                      onOpen={abrir}
                       onDragStart={(startX, startY, target, pointerId) => {
                         dbg(`DRAG start ${ev.tipoEv}`);
                         setDraggingEv(ev);
@@ -988,11 +1037,23 @@ function eventosVetTodos({
 
 function rotuloEventoAmpliado(ev) {
   if (ev.fonte === 'vet') return (VET_TIPO_META[ev.tipoEv]?.short) || '—';
+  if (ev.fonte === 'assessoria') return 'Visita';
   return rotuloEvento(ev);
 }
 function corEventoAmpliado(ev, vet) {
   if (ev.fonte === 'vet') return VET_TIPO_META[ev.tipoEv]?.cor || 'var(--ink-3)';
+  if (ev.fonte === 'assessoria') return '#7c2d8c';
   return vet?.cor || CORES_TAB_ATIVA;
+}
+
+// Nome curto do contrato pra mostrar no card da agenda.
+function nomeContratoCurto(c, proprietarios = [], locais = []) {
+  if (!c) return 'Visita';
+  if (c.nomeApelido) return c.nomeApelido;
+  const local = locais.find(l => l.id === c.localId);
+  if (local) return local.nome;
+  const prop = proprietarios.find(p => p.id === c.proprietarioId);
+  return prop?.nome || 'Visita';
 }
 
 // Retorna a lista de eventos que ainda estão pendentes (agendados
@@ -6113,6 +6174,17 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
       updateRegistroReproducao={updateRegistroReproducao}
+      visitasClinicas={visitasClinicas.filter(v => v.workspaceId === 'repro')}
+      contratosAssessoria={contratosAssessoria.filter(c => c.workspaceId === 'repro')}
+      proprietarios={proprietarios}
+      updateVisitaClinica={updateVisitaClinica}
+      onSelectVisitaClinica={(ev) => {
+        // Clicou numa visita agendada no planner: leva pro módulo Assessoria.
+        // Como a tela Assessoria é sub-seção da aba Veterinária, navego pra
+        // lá e seto o estado via localStorage pra ela abrir já no detalhe
+        // da visita. (Simples: vai pra Veterinária e usuário clica no card.)
+        setTab('vet'); setScreen('repro-vet');
+      }}
     />;
   } else if (screen === 'repro-cadastros') {
     if (historicoEguaId) {
