@@ -6453,6 +6453,11 @@ export function ReproApp({
       vetsExternos={vetsExternos}
       locaisRepro={locaisRepro}
       updateVetExterno={null /* não permitido daqui; passado via Cadastros */}
+      // Pros sub-detalhes égua gestante / parto embutidos na visita
+      updateCavalo={updateCavalo}
+      deleteCavalo={deleteCavalo}
+      updateParto={vetBundle.updateParto}
+      deleteParto={vetBundle.deleteParto}
     />;
   } else if (screen === 'repro-painel') {
     content = <ReproPainel
