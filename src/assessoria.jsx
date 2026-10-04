@@ -11,7 +11,8 @@ import {
   VacinacaoScreen, VermifugacaoScreen, AnotacoesClinicasScreen, ExamesComplementaresScreen,
 } from './veterinaria';
 import { DesenvolvimentoScreen } from './desenvolvimento';
-import { GestacaoPartosScreen } from './gestacao';
+import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
+import { PartoDetalheScreen } from './partos';
 import { gerarPdfVisitaClinica, nomePdfVisitaClinica } from './utils/pdfVisitaClinica';
 
 // Orquestra a navegação entre hub → form → detalhe do contrato.
@@ -1258,6 +1259,10 @@ export function VisitaDetalhe({
   const [aba, setAba] = useState('caderno');
   // Sub-tela de controle (vacinação/vermifugação/etc) aberta inline
   const [subTelaVisita, setSubTelaVisita] = useState(null);
+  // Sub-sub-tela: quando dentro da Gestação (ou outra) o user clica numa
+  // égua pra ver detalhe/parto. Mantém a navegação dentro da visita.
+  const [vetSubSub, setVetSubSub] = useState(null); // 'eguaGestante' | 'parto' | null
+  const [vetSelectedId, setVetSelectedId] = useState(null);
   // Autosave do textarea de observações pra não perder enquanto digita
   React.useEffect(() => {
     const t = setTimeout(() => {
@@ -1456,12 +1461,62 @@ export function VisitaDetalhe({
   // 3. onBack volta pra visita (não pra hub da Veterinária).
   if (subTelaVisita) {
     const vb = visitaBundle || {};
-    const voltar = () => setSubTelaVisita(null);
+    const voltar = () => { setVetSubSub(null); setVetSelectedId(null); setSubTelaVisita(null); };
     const withVisita = (fn) => fn ? (payload) => fn({ ...payload, visitaClinicaId: visita.id }) : undefined;
     const idsHaras = new Set(animaisDoHaras.map(c => c.id));
     // Agendas filtradas pros animais do haras
     const agendaVacHaras = (vb.agendaVac || []).filter(i => idsHaras.has(i.cavaloId));
     const agendaVermHaras = (vb.agendaVerm || []).filter(i => idsHaras.has(i.cavaloId));
+
+    // Sub-sub-telas de detalhe: égua gestante / parto. Abertas quando o
+    // GestacaoPartosScreen dispara setScreen+setSelected. Voltar daqui
+    // retorna pra lista de gestantes dentro da visita.
+    if (vetSubSub === 'eguaGestante') {
+      return (
+        <EguaGestanteDetalheScreen
+          id={vetSelectedId}
+          setScreen={(s) => {
+            if (s === 'partoDetalhe') setVetSubSub('parto');
+            else setVetSubSub(null);
+          }}
+          setSelected={setVetSelectedId}
+          cavalos={animaisDoHaras}
+          updateCavalo={vb.updateCavalo}
+          proprietarios={vb.proprietarios || proprietarios}
+          insumos={vb.insumos || []}
+          addAviso={vb.addAviso}
+          addAtividade={vb.addAtividade}
+          currentUser={currentUser}
+          partos={(vb.partos || []).filter(p => idsHaras.has(p.eguaId) || idsHaras.has(p.potroId))}
+          protocolosVacinacao={vb.protocolosVacinacao || []}
+          vacinacoesAnimais={(vb.vacinacoesAnimais || []).filter(v => idsHaras.has(v.cavaloId))}
+          upsertVacinacaoAnimal={withVisita(vb.upsertVacinacaoAnimal)}
+          protocolosVermifugacao={vb.protocolosVermifugacao || []}
+          vermifugacoesAnimais={(vb.vermifugacoesAnimais || []).filter(v => idsHaras.has(v.cavaloId))}
+          addVermifugacaoAnimal={withVisita(vb.addVermifugacaoAnimal)}
+          addRegistro={vb.addRegistro}
+          servicos={vb.servicos || []}
+          addProcedimento={vb.addProcedimento}
+        />
+      );
+    }
+    if (vetSubSub === 'parto') {
+      return (
+        <PartoDetalheScreen
+          id={vetSelectedId}
+          setScreen={() => setVetSubSub('eguaGestante')}
+          partos={(vb.partos || []).filter(p => idsHaras.has(p.eguaId) || idsHaras.has(p.potroId))}
+          updateParto={vb.updateParto}
+          deleteParto={vb.deleteParto}
+          cavalos={animaisDoHaras}
+          updateCavalo={vb.updateCavalo}
+          deleteCavalo={vb.deleteCavalo}
+          proprietarios={vb.proprietarios || proprietarios}
+          insumos={vb.insumos || []}
+          addProcedimento={vb.addProcedimento}
+        />
+      );
+    }
 
     if (subTelaVisita === 'vacinacao') {
       return (
@@ -1504,7 +1559,14 @@ export function VisitaDetalhe({
     if (subTelaVisita === 'gestacao') {
       return (
         <GestacaoPartosScreen
-          setScreen={() => {}} setSelected={() => {}}
+          setScreen={(s) => {
+            // GestacaoPartosScreen chama setScreen('eguaGestanteDetalhe')
+            // ou 'partoDetalhe' ao clicar numa égua/parto. Aqui a gente
+            // intercepta e abre a sub-sub-tela DENTRO da visita.
+            if (s === 'eguaGestanteDetalhe') setVetSubSub('eguaGestante');
+            else if (s === 'partoDetalhe') setVetSubSub('parto');
+          }}
+          setSelected={setVetSelectedId}
           partos={(vb.partos || []).filter(p => idsHaras.has(p.eguaId) || idsHaras.has(p.potroId))}
           cavalos={animaisDoHaras}
           proprietarios={vb.proprietarios || proprietarios}

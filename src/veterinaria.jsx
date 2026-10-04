@@ -609,6 +609,8 @@ export function VeterinariaScreen({
   deleteVisitaClinica,
   vetsExternos = [],
   locaisRepro = [],
+  // Pros sub-detalhes da gestação/parto embutidos na visita (C11)
+  updateCavalo, deleteCavalo, updateParto, deleteParto,
 }) {
   const [secao, setSecao] = useState(initialSecao);
 
@@ -781,6 +783,9 @@ export function VeterinariaScreen({
       progProgramas, progAplicacoes,
       addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
       updateProgesteronaAplicacao,
+      // Pros detalhes égua gestante / parto
+      updateCavalo, deleteCavalo, updateParto, deleteParto,
+      addAviso,
     };
     return (
       <AssessoriaFlow
