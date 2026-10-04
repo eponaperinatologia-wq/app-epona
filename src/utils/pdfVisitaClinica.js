@@ -165,7 +165,7 @@ export function gerarPdfVisitaClinica({
   drawPageHeader(false);
 
   // Bloco de identificação
-  setColor(doc, doc.setFillColor, 251, 248, 240);
+  setColor(doc, doc.setFillColor, [251, 248, 240]);
   doc.roundedRect(L, y, contentW, 22, 2, 2, 'F');
   setColor(doc, doc.setTextColor, INK3);
   doc.setFont('helvetica', 'normal');
