@@ -835,13 +835,30 @@ const iconBtnStyle = {
 // ─────────────────────────────────────────────────────────────
 // Lista de animais do haras — info-chave rápida
 // ─────────────────────────────────────────────────────────────
-function AnimaisDoHaras({ animais = [], proprietarios = [], medicoes = [], vacinacoesAnimais = [], vermifugacoesAnimais = [], anotacoesClinicas = [] }) {
+function AnimaisDoHaras({ animais = [], proprietarios = [], medicoes = [], vacinacoesAnimais = [], vermifugacoesAnimais = [], anotacoesClinicas = [], contrato = null, locais = [] }) {
   const hoje = new Date().toISOString().slice(0, 10);
+  const propContrato = proprietarios.find(p => p.id === contrato?.proprietarioId);
+  const localContrato = locais.find(l => l.id === contrato?.localId);
   return (
     <div style={{ marginBottom: 14 }}>
       {animais.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', padding: '12px', textAlign: 'center' }}>
-          Nenhum animal cadastrado neste haras.
+        <div style={{
+          background: '#fef3c7', border: '1px solid #fde68a', borderRadius: 10,
+          padding: '12px 14px', fontSize: 12, color: '#92400e',
+        }}>
+          <div style={{ fontWeight: 700, marginBottom: 6 }}>Nenhum animal encontrado.</div>
+          <div style={{ marginBottom: 8 }}>
+            A visita busca animais que correspondem a:
+            {propContrato && <> <br/>• Proprietário: <strong>{propContrato.nome}</strong></>}
+            {localContrato && <> <br/>• Local: <strong>{localContrato.nome}</strong></>}
+          </div>
+          <div style={{ fontSize: 11, color: '#78350f' }}>
+            <strong>Onde cadastrar?</strong> Vá na aba <strong>Cadastros → Éguas</strong>.
+            Em cada égua, selecione o proprietário e/ou o local correspondente
+            ao contrato. Se o Haras Stark é um local físico, cadastre-o em
+            <strong> Cadastros → Locais</strong> primeiro, depois edite as
+            éguas apontando pra ele.
+          </div>
         </div>
       )}
       {[...animais]
@@ -917,17 +934,25 @@ export function VisitaDetalhe({
   const vetsAtivos = vetsExternos.filter(v => v.ativo !== false);
 
   // ── Animais do haras cobertos por este contrato ────────────────
+  // Regra permissiva: inclui o animal se bater com o proprietário DO
+  // contrato OU com o local DO contrato (quando ele tem local). Assim,
+  // uma égua cadastrada só com proprietário aparece se o contrato é
+  // desse proprietário; uma égua cadastrada só com local aparece se o
+  // contrato aponta pra esse local; e cadastrada com os dois aparece
+  // em qualquer um dos dois cenários.
   const animaisDoHaras = useMemo(() => {
     if (!contrato) return [];
-    if (contrato.localId) {
-      // Contrato por local: todos os cavalos nesse local
-      return cavalos.filter(c => c.localId === contrato.localId && c.presente !== false);
-    }
-    // Contrato por proprietário: todos os cavalos do proprietário
     return cavalos.filter(c => {
       if (c.presente === false) return false;
-      return c.proprietarioId === contrato.proprietarioId
-        || (c.proprietarioIds || []).includes(contrato.proprietarioId);
+      const bateProp = contrato.proprietarioId && (
+        c.proprietarioId === contrato.proprietarioId
+        || (c.proprietarioIds || []).includes(contrato.proprietarioId)
+      );
+      const bateLocal = contrato.localId && c.localId === contrato.localId;
+      // Se contrato só tem proprietário: filtra por proprietário.
+      // Se contrato tem proprietário E local: aceita qualquer um dos dois.
+      if (contrato.localId) return bateProp || bateLocal;
+      return bateProp;
     });
   }, [contrato, cavalos]);
   const idsHaras = useMemo(() => new Set(animaisDoHaras.map(c => c.id)), [animaisDoHaras]);
@@ -1225,6 +1250,7 @@ export function VisitaDetalhe({
         {aba === 'animais' && (
           <AnimaisDoHaras
             animais={animaisDoHaras} proprietarios={proprietarios}
+            locais={locais} contrato={contrato}
             medicoes={medicoes} vacinacoesAnimais={vacinacoesAnimais}
             vermifugacoesAnimais={vermifugacoesAnimais}
             anotacoesClinicas={anotacoesClinicas}
@@ -1234,17 +1260,24 @@ export function VisitaDetalhe({
         {/* Aba Pendências — mesmo conteúdo do painel original */}
         {aba === 'pendencias' && (!finalizada || editMode) && (
           <>
-            {/* Resumo do haras */}
-            <div style={{
-              background: 'var(--soft)', borderRadius: 10, padding: '10px 12px',
-              marginBottom: 12, fontSize: 12, color: 'var(--ink-2)',
-            }}>
-              <strong>{animaisDoHaras.length}</strong> animal{animaisDoHaras.length !== 1 ? 'is' : ''} no haras
-              {gestantes.length > 0 && <> · <strong>{gestantes.length}</strong> gestante{gestantes.length !== 1 ? 's' : ''}</>}
-              {animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length > 0 && (
-                <> · <strong>{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length}</strong> potro{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length !== 1 ? 's' : ''}</>
-              )}
-            </div>
+            {animaisDoHaras.length === 0 ? (
+              <AnimaisDoHaras
+                animais={[]} proprietarios={proprietarios}
+                locais={locais} contrato={contrato}
+              />
+            ) : (
+              /* Resumo do haras */
+              <div style={{
+                background: 'var(--soft)', borderRadius: 10, padding: '10px 12px',
+                marginBottom: 12, fontSize: 12, color: 'var(--ink-2)',
+              }}>
+                <strong>{animaisDoHaras.length}</strong> animal{animaisDoHaras.length !== 1 ? 'is' : ''} no haras
+                {gestantes.length > 0 && <> · <strong>{gestantes.length}</strong> gestante{gestantes.length !== 1 ? 's' : ''}</>}
+                {animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length > 0 && (
+                  <> · <strong>{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length}</strong> potro{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length !== 1 ? 's' : ''}</>
+                )}
+              </div>
+            )}
 
             {/* Bloco 1: Vacinação */}
             <PendenciasBloco titulo="Vacinação" cor="#1e40af" bg="#dbeafe"
