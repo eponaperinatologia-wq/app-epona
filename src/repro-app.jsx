@@ -124,7 +124,7 @@ function TabBar({ tab, setTab, setScreen }) {
 // Home
 // ─────────────────────────────────────────────────────────────
 function ReproHome({
-  currentUser, locaisRepro, propRepro, eguasRepro, vetsExternos = [],
+  currentUser, locaisRepro, propRepro, eguasRepro, eguasReproLookup = null, vetsExternos = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
   updateRegistroReproducao = null,
@@ -209,7 +209,9 @@ function ReproHome({
       </button>
 
       <Planner
-        registros={registrosRepro} eguasRepro={eguasRepro} vetsExternos={vetsExternos}
+        registros={registrosRepro} eguasRepro={eguasRepro}
+        eguasReproLookup={eguasReproLookup || eguasRepro}
+        vetsExternos={vetsExternos}
         onSelectEvento={onSelectEvento} vetBundle={vetBundle}
         updateRegistroReproducao={updateRegistroReproducao}
         visitasClinicas={visitasClinicas} contratosAssessoria={contratosAssessoria}
@@ -552,12 +554,15 @@ function DraggableEvento({
 // mais dias (até ~60 dias à frente).
 // ─────────────────────────────────────────────────────────────
 function Planner({
-  registros, eguasRepro, vetsExternos, onSelectEvento,
+  registros, eguasRepro, eguasReproLookup = null, vetsExternos, onSelectEvento,
   vetBundle = null, updateRegistroReproducao = null,
   // Visitas de assessoria clínica (opcional — se não vier, não mostra)
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [], locaisRepro = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
 }) {
+  // Pra achar nome da égua, usa lookup completo (não filtrado por local)
+  // senão quando filtra haras os eventos de outras éguas ficam sem nome.
+  const eguasLookup = eguasReproLookup || eguasRepro;
   const hoje = new Date().toLocaleDateString('sv-SE');
 
   const eventosBase = eventosPendentes(registros, hoje);
@@ -763,7 +768,7 @@ function Planner({
 
   // Ghost: réplica visual pequena do evento que segue o cursor.
   const ghostVet = draggingEv ? vetsExternos.find(v => v.id === draggingEv.vetId) : null;
-  const ghostEgua = draggingEv ? eguasRepro.find(e => e.id === draggingEv.eguaId) : null;
+  const ghostEgua = draggingEv ? eguasLookup.find(e => e.id === draggingEv.eguaId) : null;
   const ghostCor = draggingEv ? corEventoAmpliado(draggingEv, ghostVet) : null;
 
   return (
@@ -834,7 +839,7 @@ function Planner({
                     ordem natural que já vinha. */}
                 {[...evs].sort((a, b) => Number(!!a.cumprido) - Number(!!b.cumprido)).map((ev, i) => {
                   const vet = vetsExternos.find(v => v.id === ev.vetId);
-                  const egua = eguasRepro.find(e => e.id === ev.eguaId);
+                  const egua = eguasLookup.find(e => e.id === ev.eguaId);
                   const rotulo = rotuloEventoAmpliado(ev);
                   const cor = corEventoAmpliado(ev, vet);
                   // Clique: assessoria abre via callback próprio; outros usam onSelectEvento
@@ -6164,6 +6169,9 @@ export function ReproApp({
       locaisRepro={locaisRepro}
       propRepro={propRepro}
       eguasRepro={eguasRepro}
+      // Lookup completo (sem filtro de local) pros planners/agenda
+      // conseguirem resolver nome de égua mesmo quando filtro ativo.
+      eguasReproLookup={eguasReproTodas}
       vetsExternos={vetsExternos}
       registrosRepro={registrosRepro}
       avisosRepro={avisosRepro}

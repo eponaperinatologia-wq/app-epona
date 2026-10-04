@@ -28,7 +28,8 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
   const INK = [42, 40, 32];
   const INK3 = [141, 134, 117];
   const LINE = [220, 210, 195];
-  const ACCENT = [61, 96, 67];
+  // Roxo da Repro Team (combina com a identidade visual)
+  const ACCENT = [124, 45, 140];
 
   const setColor = (doc, fn, rgb) => fn.call(doc, rgb[0], rgb[1], rgb[2]);
   const safeStr = (s) => String(s ?? '');

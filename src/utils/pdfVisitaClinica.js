@@ -1,11 +1,15 @@
-// pdfVisitaClinica.js — Relatório A4 "Histórico Veterinário" da visita
-// clínica de assessoria. Pensado pra entregar ao proprietário do haras
-// com tudo que foi feito/visto naquele dia + evolução do desenvolvimento
-// dos potros medidos (gráficos altura e peso × padrão Oldenburgo nos
-// últimos meses). NÃO é fatura — não mostra valores, não cobra nada.
+// pdfVisitaClinica.js — Histórico Veterinário da visita de assessoria.
+// Formato cupom estreito (W=105mm) que cresce com o conteúdo, mesmo
+// estilo visual da fatura do haras (pdfFatura.js): cream + ink escuro,
+// header colorido com cantos arredondados, divisores em linha fina,
+// serif só nos valores grandes, sans no resto.
+//
+// Não é fatura — não mostra valores cobrados. Entrega ao proprietário
+// o relato do que foi feito/visto na visita e o desenvolvimento dos
+// potros medidos (gráficos altura/peso × padrão Oldenburgo).
 
 import { jsPDF } from 'jspdf';
-import { OLDENBURGO, oldenburgoAt, idadeMeses } from '../desenvolvimento';
+import { OLDENBURGO, idadeMeses } from '../desenvolvimento';
 
 const fmtData = (iso) => {
   if (!iso) return '';
@@ -26,21 +30,18 @@ export function gerarPdfVisitaClinica({
   medicoes = [],
   registrosReproducao = [],
 }) {
-  // A4 em mm: 210 × 297
-  const W = 210, H = 297;
-  const L = 15, R = W - 15;         // margens laterais
-  const T = 15, B = H - 15;         // margens topo/base
+  // ── Formato cupom (igual pdfFatura) ───────────────────────────
+  const W = 105;
+  const L = 7;
+  const R = W - 7;
   const contentW = R - L;
 
-  // Paleta
+  // Paleta cream + ink, com roxo da repro como accent
   const INK = [42, 40, 32];
-  const INK2 = [85, 75, 50];
-  const INK3 = [120, 110, 90];
+  const INK2 = [93, 85, 74];
+  const INK3 = [141, 134, 117];
   const LINE = [220, 210, 195];
-  const ROXO = [124, 45, 140];
-  const AZUL = [30, 64, 175];
-  const VERDE = [21, 128, 61];
-  const BG_SOFT = [245, 232, 255];
+  const ACCENT = [124, 45, 140]; // roxo repro
 
   const setColor = (doc, fn, rgb) => fn.call(doc, rgb[0], rgb[1], rgb[2]);
   const safe = (s) => String(s ?? '');
@@ -55,28 +56,23 @@ export function gerarPdfVisitaClinica({
   const protoVacNome = (id) => (protocolosVacinacao.find(p => p.id === id)?.nome) || '—';
   const protoVermNome = (id) => (protocolosVermifugacao.find(p => p.id === id)?.nome) || '—';
 
-  // Anotações da visita
   const anotacoes = anotacoesClinicas
     .filter(a => a.visitaClinicaId === visita.id)
     .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
 
-  // Vacinas feitas na visita (ou mesmo dia)
   const matchVisita = (reg, campoData) => reg.visitaClinicaId === visita.id
     || ((reg[campoData] || '').slice(0, 10) >= janelaIni && (reg[campoData] || '').slice(0, 10) <= janelaFim);
+
   const vacFeitas = vacinacoesAnimais.filter(v => v.feito && idsHaras.has(v.cavaloId)
     && (v.visitaClinicaId === visita.id || matchVisita(v, 'feitoEm')));
   const vermFeitos = vermifugacoesAnimais.filter(v => idsHaras.has(v.cavaloId)
     && (v.visitaClinicaId === visita.id || matchVisita(v, 'dataRealizacao')));
   const opgsPeriodo = opgs.filter(o => idsHaras.has(o.cavaloId)
     && (o.visitaClinicaId === visita.id || matchVisita(o, 'dataColeta')));
-
-  // Potros medidos NESSA visita (gatilho pra incluir gráfico)
   const medicoesVisita = medicoes.filter(m => idsHaras.has(m.cavaloId)
     && (m.visitaClinicaId === visita.id || matchVisita(m, 'dataRegistro')));
   const idsPotrosMedidos = [...new Set(medicoesVisita.map(m => m.cavaloId))];
 
-  // Gestantes acompanhadas: éguas gestantes com anotação OU registro
-  // reprodutivo na visita (indica que foram vistas hoje).
   const idsAnotacoesVisita = new Set(anotacoes.map(a => a.cavaloId));
   const idsRegsRepro = new Set(
     (registrosReproducao || [])
@@ -87,262 +83,253 @@ export function gerarPdfVisitaClinica({
     c.categoria === 'Gestante' || (c.categorias || []).includes('Gestante') || c.gestacao?.dataCobricao
   ) && (idsAnotacoesVisita.has(c.id) || idsRegsRepro.has(c.id)));
 
-  // ── Layout com paginação automática ──────────────────────────
-  const doc = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-  let y = T;
-  let pageNum = 1;
+  // ── Layout: medir e depois desenhar ──────────────────────────
+  function layout(doc) {
+    let y = 7;
 
-  function newPage() {
-    doc.addPage();
-    pageNum += 1;
-    y = T;
-    drawPageHeader(true);
-  }
-  function needSpace(h) {
-    if (y + h > B - 5) newPage();
-  }
-  function drawPageHeader(short = false) {
-    if (!short) {
-      // Primeira página: cabeçalho grande
-      setColor(doc, doc.setFillColor, ROXO);
-      doc.roundedRect(L, y, contentW, 20, 2, 2, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(16);
-      doc.text(safe(empresa.nome || 'Epona Repro Team'), L + 5, y + 9);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10);
-      doc.text('Histórico Veterinário · Visita de Assessoria', L + 5, y + 15);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.text(fmtData(dataVisita), R - 5, y + 9, { align: 'right' });
-      y += 24;
-    } else {
-      // Páginas seguintes: cabeçalho discreto
-      setColor(doc, doc.setTextColor, INK3);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      doc.text(`${safe(nomeHaras)} · Visita ${fmtData(dataVisita)}`, L, y + 4);
-      doc.text(`${empresa.nome || 'Epona Repro Team'} · pág. ${pageNum}`, R, y + 4, { align: 'right' });
-      setColor(doc, doc.setDrawColor, LINE);
-      doc.setLineWidth(0.2);
-      doc.line(L, y + 6, R, y + 6);
-      y += 10;
-    }
-  }
-
-  function sectionTitle(title, cor = ROXO) {
-    needSpace(10);
-    setColor(doc, doc.setDrawColor, cor);
-    doc.setLineWidth(1);
-    doc.line(L, y, L + 8, y);
-    y += 5;
-    setColor(doc, doc.setTextColor, cor);
+    // Header roxo
+    setColor(doc, doc.setFillColor, ACCENT);
+    doc.roundedRect(L, y, contentW, 16, 2, 2, 'F');
+    doc.setTextColor(255, 255, 255);
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(11);
-    doc.text(safe(title), L, y);
-    y += 6;
-  }
+    doc.setFontSize(13);
+    doc.text(safe(empresa.nome || 'Epona Repro Team'), L + 4, y + 7);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.text(`Histórico Veterinário · ${fmtData(dataVisita)}`, L + 4, y + 12.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8);
+    doc.text('VISITA', R - 2, y + 7, { align: 'right' });
+    y += 20;
 
-  function text(str, opts = {}) {
-    const {
-      size = 10, bold = false, color = INK, x = L,
-      maxWidth = contentW, lineGap = 1.2, align = 'left',
-    } = opts;
-    setColor(doc, doc.setTextColor, color);
-    doc.setFont('helvetica', bold ? 'bold' : 'normal');
-    doc.setFontSize(size);
-    const lines = doc.splitTextToSize(safe(str), maxWidth);
-    const lh = size * 0.4 + lineGap;
-    lines.forEach(l => {
-      needSpace(lh);
-      doc.text(l, align === 'right' ? R : x, y, { align });
-      y += lh;
-    });
-  }
-
-  // ── Cabeçalho principal + info da visita ─────────────────────
-  drawPageHeader(false);
-
-  // Bloco de identificação
-  setColor(doc, doc.setFillColor, [251, 248, 240]);
-  doc.roundedRect(L, y, contentW, 22, 2, 2, 'F');
-  setColor(doc, doc.setTextColor, INK3);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.text('HARAS', L + 4, y + 5);
-  doc.text('PROPRIETÁRIO', L + contentW / 2, y + 5);
-  setColor(doc, doc.setTextColor, INK);
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(11);
-  doc.text(safe(nomeHaras || '—'), L + 4, y + 11);
-  doc.text(safe(proprietario?.nome || '—'), L + contentW / 2, y + 11);
-  setColor(doc, doc.setTextColor, INK3);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.text('VETERINÁRIOS NA VISITA', L + 4, y + 16);
-  const vetsPart = (visita.vetsParticipantes || []).map(vetNome).join(', ') || '—';
-  setColor(doc, doc.setTextColor, INK);
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(10);
-  const vLines = doc.splitTextToSize(vetsPart, contentW - 8);
-  doc.text(vLines[0] || '—', L + 4, y + 20);
-  y += 26;
-
-  // ── Observações gerais ───────────────────────────────────────
-  if (visita.observacoes) {
-    sectionTitle('Observações da visita');
-    text(visita.observacoes, { size: 10, color: INK });
-    y += 2;
-  }
-
-  // ── Anotações clínicas por animal ────────────────────────────
-  if (anotacoes.length > 0) {
-    sectionTitle(`Anotações clínicas · ${anotacoes.length}`);
-    for (const a of anotacoes) {
-      needSpace(14);
-      setColor(doc, doc.setFillColor, BG_SOFT);
-      doc.rect(L, y - 3, contentW, 1, 'F');
-      text(`${cavNome(a.cavaloId)} · ${a.tipo || ''}`, { size: 9, bold: true, color: ROXO });
-      text(a.titulo, { size: 10, bold: true, color: INK });
-      if (a.descricao) text(a.descricao, { size: 9.5, color: INK2 });
-      if (a.autor || a.hora) {
-        text(`${a.autor || ''}${a.hora ? ' · ' + a.hora : ''}`, { size: 8, color: INK3 });
-      }
-      y += 2;
-    }
-  }
-
-  // ── Vacinas aplicadas na visita ──────────────────────────────
-  if (vacFeitas.length > 0) {
-    sectionTitle(`Vacinas aplicadas nesta visita · ${vacFeitas.length}`, AZUL);
-    for (const v of vacFeitas) {
-      needSpace(5);
-      setColor(doc, doc.setTextColor, INK);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.text(`• ${cavNome(v.cavaloId)}`, L + 2, y);
-      doc.text(protoVacNome(v.protocoloId) + (v.doseIdx != null ? ` (dose ${v.doseIdx + 1})` : ''), L + 55, y);
-      setColor(doc, doc.setTextColor, INK3);
-      doc.text(fmtData((v.feitoEm || '').slice(0, 10) || v.dataPrevista), R, y, { align: 'right' });
-      y += 4.5;
-    }
-    y += 2;
-  }
-
-  // ── Vermífugos aplicados ─────────────────────────────────────
-  if (vermFeitos.length > 0) {
-    sectionTitle(`Vermífugos aplicados · ${vermFeitos.length}`, VERDE);
-    for (const v of vermFeitos) {
-      needSpace(5);
-      setColor(doc, doc.setTextColor, INK);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.text(`• ${cavNome(v.cavaloId)}`, L + 2, y);
-      doc.text(v.produto || protoVermNome(v.protocoloId), L + 55, y);
-      setColor(doc, doc.setTextColor, INK3);
-      doc.text(fmtData(v.dataRealizacao), R, y, { align: 'right' });
-      y += 4.5;
-    }
-    y += 2;
-  }
-
-  // ── OPGs coletados ───────────────────────────────────────────
-  if (opgsPeriodo.length > 0) {
-    sectionTitle(`OPG · ${opgsPeriodo.length}`, [146, 64, 14]);
-    for (const o of opgsPeriodo) {
-      needSpace(5);
-      setColor(doc, doc.setTextColor, INK);
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.text(`• ${cavNome(o.cavaloId)}`, L + 2, y);
-      const result = Array.isArray(o.resultado) && o.resultado.length > 0
-        ? o.resultado.map(r => `${r.nome || r.parasita || ''} ${r.contagem || ''}`).filter(Boolean).join('; ')
-        : (o.dataResultado ? '(resultado pendente)' : '(coletado — aguardando lab)');
-      doc.text(result, L + 55, y);
-      setColor(doc, doc.setTextColor, INK3);
-      doc.text(fmtData(o.dataColeta), R, y, { align: 'right' });
-      y += 4.5;
-    }
-    y += 2;
-  }
-
-  // ── Gestantes acompanhadas na visita ─────────────────────────
-  if (gestantes.length > 0) {
-    sectionTitle(`Acompanhamento gestacional · ${gestantes.length} égua${gestantes.length !== 1 ? 's' : ''}`, [190, 24, 93]);
-    for (const g of gestantes) {
-      needSpace(16);
-      // Linha com nome + semanas + pai
-      let infoLinha1 = g.nome;
-      let infoLinha2 = '';
-      if (g.gestacao?.dataCobricao) {
-        const semanas = Math.floor(
-          (new Date(dataVisita + 'T00:00:00') - new Date(g.gestacao.dataCobricao + 'T00:00:00')) / (7 * 86400000),
-        );
-        infoLinha2 = `${semanas} semanas de gestação · cobrição ${fmtData(g.gestacao.dataCobricao)}`;
-        if (g.gestacao.pai) infoLinha2 += ` · pai: ${g.gestacao.pai}`;
-      }
-      setColor(doc, doc.setTextColor, INK);
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(10);
-      doc.text(`• ${infoLinha1}`, L + 2, y);
-      y += 4;
-      if (infoLinha2) {
-        setColor(doc, doc.setTextColor, INK3);
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(8.5);
-        doc.text(infoLinha2, L + 5, y);
-        y += 4;
-      }
-      // Anotações obstétricas específicas da égua nesta visita
-      const minhasAnot = anotacoes.filter(a => a.cavaloId === g.id);
-      if (minhasAnot.length > 0) {
-        for (const a of minhasAnot) {
-          needSpace(4);
-          setColor(doc, doc.setTextColor, INK2);
-          doc.setFont('helvetica', 'italic');
-          doc.setFontSize(9);
-          const txt = `   ${a.titulo}${a.descricao ? ': ' + a.descricao : ''}`;
-          const lines = doc.splitTextToSize(txt, contentW - 10);
-          lines.forEach(l => { needSpace(4); doc.text(l, L + 5, y); y += 3.5; });
-        }
-      }
-      y += 2;
-    }
-  }
-
-  // ── Desenvolvimento dos potros (gráficos oldenburgo) ─────────
-  if (idsPotrosMedidos.length > 0) {
-    for (const potroId of idsPotrosMedidos) {
-      const potro = cavaloPorId(potroId);
-      if (!potro) continue;
-      needSpace(90); // Cada gráfico ocupa ~80mm
-      sectionTitle(`Desenvolvimento · ${potro.nome}`, [180, 83, 9]);
-      desenharGraficosPotro(doc, potro, medicoes, dataVisita, L, R, y, (dy) => { y += dy; needSpace(0); });
-      y += 2;
-    }
-  }
-
-  // ── Rodapé em cada página ────────────────────────────────────
-  const totalPages = doc.getNumberOfPages();
-  for (let p = 1; p <= totalPages; p++) {
-    doc.setPage(p);
+    // Empresa info (CNPJ/endereço/contato)
     setColor(doc, doc.setTextColor, INK3);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7);
-    const foot = [empresa.nome || 'Epona Repro Team', empresa.cidade, empresa.email].filter(Boolean).join(' · ');
-    doc.text(foot, W / 2, H - 8, { align: 'center' });
-    doc.text(`${p} de ${totalPages}`, R, H - 8, { align: 'right' });
-    doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, L, H - 8);
+    doc.setFontSize(6.5);
+    const empLines = [
+      empresa.cnpj && `CNPJ ${empresa.cnpj}`,
+      empresa.endereco,
+      empresa.cidade,
+      [empresa.telefone, empresa.email].filter(Boolean).join(' · '),
+    ].filter(Boolean);
+    empLines.forEach(line => {
+      const wrap = doc.splitTextToSize(line, contentW);
+      wrap.forEach(l => { doc.text(l, L, y); y += 3; });
+    });
+    y += 3;
+
+    // Haras + Proprietário
+    setColor(doc, doc.setDrawColor, LINE);
+    doc.setLineWidth(0.3);
+    doc.line(L, y, R, y);
+    y += 5;
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.8);
+    setColor(doc, doc.setTextColor, INK3);
+    doc.text('HARAS', L, y);
+    y += 4.5;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(11);
+    setColor(doc, doc.setTextColor, INK);
+    const harasWrap = doc.splitTextToSize(safe(nomeHaras || '—'), contentW);
+    harasWrap.forEach(l => { doc.text(l, L, y); y += 5; });
+
+    if (proprietario?.nome) {
+      doc.setFontSize(6.5);
+      setColor(doc, doc.setTextColor, INK3);
+      doc.text(`Proprietário: ${safe(proprietario.nome)}`, L, y);
+      y += 3.5;
+    }
+
+    // Vets participantes
+    const vetsPart = (visita.vetsParticipantes || []).map(vetNome).filter(n => n !== '—').join(', ');
+    if (vetsPart) {
+      doc.setFontSize(6.5);
+      setColor(doc, doc.setTextColor, INK3);
+      const wrap = doc.splitTextToSize(`Veterinários: ${vetsPart}`, contentW);
+      wrap.forEach(l => { doc.text(l, L, y); y += 3.2; });
+    }
+    y += 4;
+
+    // Helpers
+    const section = (title) => {
+      setColor(doc, doc.setDrawColor, LINE);
+      doc.setLineWidth(0.2);
+      doc.line(L, y, R, y);
+      y += 3.5;
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.8);
+      setColor(doc, doc.setTextColor, INK3);
+      doc.text(safe(title).toUpperCase(), L, y);
+      y += 5.5;
+    };
+
+    const row = (left, sub, right) => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      setColor(doc, doc.setTextColor, INK);
+      const maxLeftW = contentW - (right ? 26 : 0);
+      const leftLines = doc.splitTextToSize(safe(left), maxLeftW);
+      doc.text(leftLines[0] || '', L, y);
+      if (right) {
+        doc.setFont('helvetica', 'bold');
+        doc.text(safe(right), R, y, { align: 'right' });
+        doc.setFont('helvetica', 'normal');
+      }
+      for (let i = 1; i < leftLines.length; i++) { y += 3.8; doc.text(leftLines[i], L, y); }
+      if (sub) {
+        y += 3.2;
+        doc.setFontSize(6.5);
+        setColor(doc, doc.setTextColor, INK3);
+        const subWrap = doc.splitTextToSize(safe(sub), contentW);
+        subWrap.forEach((l, i) => {
+          doc.text(l, L, y);
+          if (i < subWrap.length - 1) y += 3;
+        });
+        y += 4;
+      } else {
+        y += 5;
+      }
+    };
+
+    const paragrafo = (txt) => {
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8.5);
+      setColor(doc, doc.setTextColor, INK);
+      const wrap = doc.splitTextToSize(safe(txt), contentW);
+      wrap.forEach(l => { doc.text(l, L, y); y += 3.6; });
+      y += 2;
+    };
+
+    // ── Observações da visita ─────────────────────────────────
+    if (visita.observacoes) {
+      section('Observações da visita');
+      paragrafo(visita.observacoes);
+    }
+
+    // ── Anotações clínicas por animal ────────────────────────
+    if (anotacoes.length > 0) {
+      section(`Anotações clínicas · ${anotacoes.length}`);
+      anotacoes.forEach(a => {
+        row(a.titulo || '—', [cavNome(a.cavaloId), a.tipo, a.autor]
+          .filter(Boolean).join(' · '), null);
+        if (a.descricao) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          setColor(doc, doc.setTextColor, INK2);
+          const wrap = doc.splitTextToSize(safe(a.descricao), contentW);
+          wrap.forEach(l => { doc.text(l, L, y); y += 3.2; });
+          y += 2;
+        }
+      });
+      y += 1;
+    }
+
+    // ── Vacinas aplicadas ─────────────────────────────────────
+    if (vacFeitas.length > 0) {
+      section(`Vacinas aplicadas · ${vacFeitas.length}`);
+      vacFeitas.forEach(v => {
+        const nome = `${protoVacNome(v.protocoloId)}${v.doseIdx != null ? ` (dose ${v.doseIdx + 1})` : ''}`;
+        row(nome, `${cavNome(v.cavaloId)} · ${fmtData((v.feitoEm || '').slice(0, 10) || v.dataPrevista)}`, null);
+      });
+      y += 1;
+    }
+
+    // ── Vermífugos aplicados ──────────────────────────────────
+    if (vermFeitos.length > 0) {
+      section(`Vermífugos · ${vermFeitos.length}`);
+      vermFeitos.forEach(v => {
+        row(v.produto || protoVermNome(v.protocoloId),
+          `${cavNome(v.cavaloId)} · ${fmtData(v.dataRealizacao)}`, null);
+      });
+      y += 1;
+    }
+
+    // ── OPG ──────────────────────────────────────────────────
+    if (opgsPeriodo.length > 0) {
+      section(`OPG · ${opgsPeriodo.length}`);
+      opgsPeriodo.forEach(o => {
+        const result = Array.isArray(o.resultado) && o.resultado.length > 0
+          ? o.resultado.map(r => `${r.nome || r.parasita || ''} ${r.contagem || ''}`).filter(Boolean).join('; ')
+          : (o.dataResultado ? '(resultado pendente)' : '(aguardando laboratório)');
+        row(cavNome(o.cavaloId), `${fmtData(o.dataColeta)} · ${result}`, null);
+      });
+      y += 1;
+    }
+
+    // ── Acompanhamento gestacional ───────────────────────────
+    if (gestantes.length > 0) {
+      section(`Acompanhamento gestacional · ${gestantes.length}`);
+      gestantes.forEach(g => {
+        let sub = '';
+        if (g.gestacao?.dataCobricao) {
+          const semanas = Math.floor(
+            (new Date(dataVisita + 'T00:00:00') - new Date(g.gestacao.dataCobricao + 'T00:00:00')) / (7 * 86400000),
+          );
+          sub = `${semanas} semanas · cobrição ${fmtData(g.gestacao.dataCobricao)}`;
+          if (g.gestacao.pai) sub += ` · pai ${g.gestacao.pai}`;
+        }
+        row(g.nome, sub, null);
+        // Anotações obstétricas específicas desta égua (indentadas)
+        const minhasAnot = anotacoes.filter(a => a.cavaloId === g.id);
+        minhasAnot.forEach(a => {
+          doc.setFont('helvetica', 'italic');
+          doc.setFontSize(7.5);
+          setColor(doc, doc.setTextColor, INK2);
+          const txt = `  → ${a.titulo}${a.descricao ? ': ' + a.descricao : ''}`;
+          const wrap = doc.splitTextToSize(safe(txt), contentW - 4);
+          wrap.forEach(l => { doc.text(l, L + 2, y); y += 3.2; });
+          y += 1;
+        });
+      });
+      y += 1;
+    }
+
+    // ── Desenvolvimento (gráficos por potro medido) ───────────
+    if (idsPotrosMedidos.length > 0) {
+      section(`Desenvolvimento · ${idsPotrosMedidos.length} potro${idsPotrosMedidos.length !== 1 ? 's' : ''}`);
+      idsPotrosMedidos.forEach(potroId => {
+        const potro = cavaloPorId(potroId);
+        if (!potro) return;
+        y = desenharGraficosPotro(doc, potro, medicoes, dataVisita, L, R, contentW, y);
+        y += 3;
+      });
+    }
+
+    // ── Rodapé ───────────────────────────────────────────────
+    y += 3;
+    setColor(doc, doc.setDrawColor, LINE);
+    doc.setLineWidth(0.3);
+    // Linha tracejada
+    try { doc.setLineDashPattern([1, 1], 0); } catch {}
+    doc.line(L, y, R, y);
+    try { doc.setLineDashPattern([], 0); } catch {}
+    y += 4;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6);
+    setColor(doc, doc.setTextColor, INK3);
+    doc.text(safe(empresa.nome || 'Epona Repro Team'), W / 2, y, { align: 'center' });
+    y += 3;
+    doc.text(`Gerado em ${new Date().toLocaleDateString('pt-BR')}`, W / 2, y, { align: 'center' });
+    y += 5;
+
+    return y;
   }
 
+  // 1ª passada: medir altura necessária
+  const measure = new jsPDF({ unit: 'mm', format: [W, 2500] });
+  const finalY = layout(measure);
+  const height = Math.max(80, Math.ceil(finalY));
+
+  // 2ª passada: desenhar com altura certa
+  const doc = new jsPDF({ unit: 'mm', format: [W, height], orientation: 'portrait' });
+  layout(doc);
   return doc;
 }
 
-// Desenha dois gráficos (altura e peso) do potro × padrão Oldenburgo.
-// `drawCb(dy)` avança o cursor Y chamando o callback do pai (pra o
-// sistema de paginação se manter em sincronia).
-function desenharGraficosPotro(doc, potro, medicoes, dataVisita, L, R, yStart, advance) {
+// Desenha mini-info do potro + 2 gráficos empilhados (altura em cima,
+// peso embaixo), cada um ocupando a largura total do cupom.
+function desenharGraficosPotro(doc, potro, medicoes, dataVisita, L, R, contentW, yStart) {
   const minhas = medicoes
     .filter(m => m.cavaloId === potro.id && (m.peso || m.alturaCernelha))
     .map(m => ({
@@ -354,137 +341,132 @@ function desenharGraficosPotro(doc, potro, medicoes, dataVisita, L, R, yStart, a
     .filter(p => p.idade != null && p.idade >= 0 && p.idade <= 24)
     .sort((a, b) => a.idade - b.idade);
 
-  if (minhas.length === 0) return;
+  if (minhas.length === 0) return yStart;
 
-  const contentW = R - L;
-  const gw = (contentW - 8) / 2;      // largura de cada gráfico
-  const gh = 55;                       // altura de cada gráfico
-  const x1 = L;
-  const x2 = L + gw + 8;
   let y = yStart;
+  const INK = [42, 40, 32];
+  const INK3 = [141, 134, 117];
 
-  // Mini-info do animal (idade atual, nascimento, última medição)
+  // Nome do potro + info resumo
   const idadeAtual = idadeMeses(potro.nascimento, dataVisita);
   const ultima = minhas[minhas.length - 1];
-  doc.setTextColor(85, 75, 50);
+  doc.setTextColor(INK[0], INK[1], INK[2]);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9.5);
+  doc.text(potro.nome, L, y);
+  y += 3.8;
+
+  doc.setTextColor(INK3[0], INK3[1], INK3[2]);
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  const infoLine = [
+  doc.setFontSize(6.5);
+  const info = [
     potro.nascimento ? `nasc. ${fmtDataLocal(potro.nascimento)}` : null,
     idadeAtual != null ? `idade ${idadeAtual.toFixed(1)} m` : null,
-    ultima?.peso ? `peso ${ultima.peso}kg` : null,
-    ultima?.altura ? `alt ${ultima.altura}cm` : null,
+    ultima?.peso ? `${ultima.peso} kg` : null,
+    ultima?.altura ? `${ultima.altura} cm` : null,
   ].filter(Boolean).join(' · ');
-  doc.text(infoLine, L + 2, y);
+  doc.text(info, L, y);
   y += 4;
 
-  // Gráfico altura
-  desenharGrafico(doc, x1, y, gw, gh, {
+  const gh = 40; // altura de cada gráfico
+
+  // Altura
+  desenharGrafico(doc, L, y, contentW, gh, {
     titulo: 'Altura de cernelha (cm)',
     cor: [16, 85, 170],
     pontos: minhas.filter(p => p.altura != null).map(p => ({ x: p.idade, y: p.altura })),
     referencia: OLDENBURGO.map(o => ({ x: o.m, y: o.altura })),
-    xMin: 0, xMax: 24, xLabel: 'idade (meses)',
   });
-  // Gráfico peso
-  desenharGrafico(doc, x2, y, gw, gh, {
+  y += gh + 2;
+
+  // Peso
+  desenharGrafico(doc, L, y, contentW, gh, {
     titulo: 'Peso (kg)',
     cor: [21, 128, 61],
     pontos: minhas.filter(p => p.peso != null).map(p => ({ x: p.idade, y: p.peso })),
     referencia: OLDENBURGO.map(o => ({ x: o.m, y: o.peso })),
-    xMin: 0, xMax: 24, xLabel: 'idade (meses)',
   });
+  y += gh + 2;
 
-  advance(gh + 6);
+  return y;
 }
 
-// Desenha um mini-gráfico com eixo, linha de referência (Oldenburgo)
-// e pontos do animal conectados.
 function desenharGrafico(doc, x, y, w, h, opts) {
-  const { titulo, cor, pontos, referencia, xMin, xMax, xLabel } = opts;
-  const padX = 10, padY = 14;
-  const chartX = x + padX;
-  const chartY = y + padY;
-  const chartW = w - padX - 4;
-  const chartH = h - padY - 8;
+  const { titulo, cor, pontos, referencia } = opts;
+  const padLeft = 11, padTop = 7, padRight = 2, padBottom = 7;
+  const chartX = x + padLeft;
+  const chartY = y + padTop;
+  const chartW = w - padLeft - padRight;
+  const chartH = h - padTop - padBottom;
+  const xMin = 0, xMax = 24;
 
-  // Título
-  doc.setTextColor(85, 75, 50);
+  // Título em cima
+  doc.setTextColor(93, 85, 74);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8);
-  doc.text(titulo, x + 2, y + 4);
+  doc.setFontSize(6.8);
+  doc.text(titulo, x, y + 4);
 
   // Range Y: baseado em referência + pontos
   const allY = [...referencia.map(r => r.y), ...pontos.map(p => p.y)];
   let yMin = Math.min(...allY);
   let yMax = Math.max(...allY);
-  // Padding de 5% + arredonda
   const span = yMax - yMin || 1;
-  yMin = yMin - span * 0.05;
-  yMax = yMax + span * 0.05;
+  yMin -= span * 0.05;
+  yMax += span * 0.05;
 
   const toX = (vx) => chartX + ((vx - xMin) / (xMax - xMin)) * chartW;
   const toY = (vy) => chartY + chartH - ((vy - yMin) / (yMax - yMin)) * chartH;
 
-  // Eixos
-  doc.setDrawColor(200, 190, 175);
-  doc.setLineWidth(0.2);
-  doc.line(chartX, chartY, chartX, chartY + chartH);
-  doc.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH);
-
-  // Grid horizontal (3 linhas)
+  // Grid horizontal (4 linhas)
+  doc.setDrawColor(230, 222, 207);
+  doc.setLineWidth(0.15);
   for (let i = 1; i <= 3; i++) {
     const gy = chartY + (chartH * i) / 4;
-    doc.setDrawColor(235, 228, 215);
     doc.line(chartX, gy, chartX + chartW, gy);
   }
 
-  // Labels eixo Y (min e max)
-  doc.setFontSize(6.5);
-  doc.setTextColor(140, 130, 110);
-  doc.text(String(Math.round(yMax)), x + 2, chartY + 1);
-  doc.text(String(Math.round(yMin)), x + 2, chartY + chartH);
+  // Eixos
+  doc.setDrawColor(190, 180, 160);
+  doc.setLineWidth(0.25);
+  doc.line(chartX, chartY, chartX, chartY + chartH);
+  doc.line(chartX, chartY + chartH, chartX + chartW, chartY + chartH);
+
+  // Labels eixo Y
+  doc.setTextColor(141, 134, 117);
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(5.5);
+  doc.text(String(Math.round(yMax)), x + padLeft - 2, chartY + 1, { align: 'right' });
+  doc.text(String(Math.round((yMax + yMin) / 2)), x + padLeft - 2, chartY + chartH / 2 + 1, { align: 'right' });
+  doc.text(String(Math.round(yMin)), x + padLeft - 2, chartY + chartH, { align: 'right' });
 
   // Labels eixo X (0, 6, 12, 18, 24)
   [0, 6, 12, 18, 24].forEach(m => {
     const gx = toX(m);
-    doc.text(String(m), gx, chartY + chartH + 4, { align: 'center' });
+    doc.text(String(m), gx, chartY + chartH + 3.5, { align: 'center' });
   });
-  doc.text(xLabel, x + w / 2, chartY + chartH + 8, { align: 'center' });
+  doc.text('meses', x + w - 2, chartY + chartH + 3.5, { align: 'right' });
 
-  // Linha de referência Oldenburgo (cinza tracejado)
-  doc.setDrawColor(160, 150, 130);
+  // Linha de referência Oldenburgo (tracejada cinza)
+  doc.setDrawColor(170, 160, 140);
   doc.setLineWidth(0.3);
-  doc.setLineDashPattern([1, 1], 0);
+  try { doc.setLineDashPattern([0.8, 0.8], 0); } catch {}
   for (let i = 1; i < referencia.length; i++) {
-    const p0 = referencia[i - 1];
-    const p1 = referencia[i];
-    doc.line(toX(p0.x), toY(p0.y), toX(p1.x), toY(p1.y));
+    doc.line(toX(referencia[i - 1].x), toY(referencia[i - 1].y),
+             toX(referencia[i].x), toY(referencia[i].y));
   }
-  doc.setLineDashPattern([], 0);
+  try { doc.setLineDashPattern([], 0); } catch {}
 
   // Linha do animal
   if (pontos.length > 0) {
     doc.setDrawColor(cor[0], cor[1], cor[2]);
     doc.setLineWidth(0.6);
     for (let i = 1; i < pontos.length; i++) {
-      const p0 = pontos[i - 1];
-      const p1 = pontos[i];
-      doc.line(toX(p0.x), toY(p0.y), toX(p1.x), toY(p1.y));
+      doc.line(toX(pontos[i - 1].x), toY(pontos[i - 1].y),
+               toX(pontos[i].x), toY(pontos[i].y));
     }
-    // Pontos (círculos)
     doc.setFillColor(cor[0], cor[1], cor[2]);
-    pontos.forEach(p => {
-      doc.circle(toX(p.x), toY(p.y), 0.9, 'F');
-    });
+    pontos.forEach(p => { doc.circle(toX(p.x), toY(p.y), 0.8, 'F'); });
   }
-
-  // Legenda
-  doc.setFontSize(6);
-  doc.setTextColor(120, 110, 90);
-  doc.text('— — padrão Oldenburgo', chartX, chartY - 2);
-  doc.setTextColor(cor[0], cor[1], cor[2]);
-  doc.text('● animal', chartX + chartW - 15, chartY - 2);
 }
 
 export function nomePdfVisitaClinica(nomeHaras, dataVisita) {
