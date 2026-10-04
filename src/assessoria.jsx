@@ -857,33 +857,38 @@ function InsumosCobrados({ visita, insumos = [], readonly = false, onChange }) {
         <div style={{
           background: 'var(--soft)', border: '1px dashed var(--line)',
           borderRadius: 8, padding: 8, marginTop: 6,
-          display: 'grid', gridTemplateColumns: '1fr 60px 90px 60px', gap: 6, alignItems: 'center',
+          display: 'flex', flexDirection: 'column', gap: 6,
         }}>
+          {/* Linha 1: select de insumo em largura total */}
           <select value={novo.insumoId} onChange={e => selecionarInsumo(e.target.value)} style={inputStyle}>
             <option value="">— Insumo do catálogo (opcional) —</option>
             {sugestoesInsumo.map(i => (
               <option key={i.id} value={i.id}>{i.nome}{i.workspaceId === 'haras' ? ' (haras)' : ''}</option>
             ))}
           </select>
-          <input type="number" min="0" step="0.5" value={novo.qtd}
-            onChange={e => setNovo(n => ({ ...n, qtd: e.target.value }))}
-            style={{ ...inputStyle, textAlign: 'right' }} placeholder="qtd" />
-          <input type="number" min="0" step="0.01" value={novo.valorUnit}
-            onChange={e => setNovo(n => ({ ...n, valorUnit: e.target.value }))}
-            style={{ ...inputStyle, textAlign: 'right' }} placeholder="valor unit" />
-          <button onClick={adicionar} disabled={!canAdd} style={{
-            padding: '8px', borderRadius: 8, border: 'none',
-            background: canAdd ? '#7c2d8c' : 'var(--soft)',
-            color: canAdd ? '#fff' : 'var(--ink-3)',
-            fontSize: 12, fontWeight: 700, cursor: canAdd ? 'pointer' : 'default',
-            fontFamily: 'var(--sans)',
-          }}>+ Add</button>
+          {/* Linha 2: descrição livre quando sem insumo */}
           {!novo.insumoId && (
             <input value={novo.descricao}
               onChange={e => setNovo(n => ({ ...n, descricao: e.target.value }))}
               placeholder="Ou descrição livre (ex: ivermectina 1 fr)"
-              style={{ ...inputStyle, gridColumn: '1 / -1' }} />
+              style={inputStyle} />
           )}
+          {/* Linha 3: qtd + valor + add — layout horizontal com flex pra caber em qualquer largura */}
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input type="number" min="0" step="0.5" value={novo.qtd}
+              onChange={e => setNovo(n => ({ ...n, qtd: e.target.value }))}
+              style={{ ...inputStyle, flex: '0 0 70px', textAlign: 'right' }} placeholder="qtd" />
+            <input type="number" min="0" step="0.01" value={novo.valorUnit}
+              onChange={e => setNovo(n => ({ ...n, valorUnit: e.target.value }))}
+              style={{ ...inputStyle, flex: '1 1 auto', minWidth: 80, textAlign: 'right' }} placeholder="valor unit" />
+            <button onClick={adicionar} disabled={!canAdd} style={{
+              flex: '0 0 auto', padding: '8px 14px', borderRadius: 8, border: 'none',
+              background: canAdd ? '#7c2d8c' : 'var(--soft)',
+              color: canAdd ? '#fff' : 'var(--ink-3)',
+              fontSize: 12, fontWeight: 700, cursor: canAdd ? 'pointer' : 'default',
+              fontFamily: 'var(--sans)', whiteSpace: 'nowrap',
+            }}>+ Add</button>
+          </div>
         </div>
       )}
     </div>
