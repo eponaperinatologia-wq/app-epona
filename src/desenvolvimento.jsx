@@ -56,7 +56,7 @@ export const OLDENBURGO = [
 const OLD_ALTURA_ADULTA = 171;
 const IDADE_ADULTA_ANOS = 7;
 
-const oldenburgoAt = (m, campo) => {
+export const oldenburgoAt = (m, campo) => {
   if (m == null) return null;
   if (m <= 0) return OLDENBURGO[0][campo];
   if (m >= 24) return OLDENBURGO[24][campo];
@@ -67,7 +67,7 @@ const oldenburgoAt = (m, campo) => {
 };
 
 // Idade em meses fracionários entre nascimento e data
-const idadeMeses = (nascimento, data) => {
+export const idadeMeses = (nascimento, data) => {
   if (!nascimento || !data) return null;
   const n = new Date(nascimento + 'T12:00:00');
   const d = new Date(data + 'T12:00:00');

@@ -1641,6 +1641,7 @@ export function VisitaDetalhe({
             onClick={() => {
               const doc = gerarPdfVisitaClinica({
                 visita, contrato, nomeHaras: haras,
+                proprietario: proprietarios.find(p => p.id === contrato?.proprietarioId),
                 empresa: empresaInfo || {},
                 vetsExternos,
                 cavalos: animaisDoHaras,
@@ -1649,6 +1650,7 @@ export function VisitaDetalhe({
                 vacinacoesAnimais, protocolosVacinacao,
                 vermifugacoesAnimais, protocolosVermifugacao,
                 opgs, medicoes,
+                registrosReproducao,
               });
               doc.save(nomePdfVisitaClinica(haras, visita.data));
             }}
