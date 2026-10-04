@@ -225,7 +225,7 @@ const loadAllData = async () => {
       fetchAll('protocolos_vermifugacao', fromDbProtocoloVermifugacao),
       fetchAll('vermifugacoes_animais_verm', fromDbVermifugacaoAnimal),
       fetchAll('opgs', fromDbOpg),
-      fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por })),
+      fetchAll('medicoes', r => ({ id: r.id, cavaloId: r.cavalo_id, dataRegistro: r.data_registro, peso: r.peso, alturaCernelha: r.altura_cernelha, perimetroCanela: r.perimetro_canela, perimetroAbdominal: r.perimetro_abdominal, perimetroToracico: r.perimetro_toracico, perimetroPescoco1: r.perimetro_pescoco_1, perimetroPescoco2: r.perimetro_pescoco_2, perimetroPescoco3: r.perimetro_pescoco_3, gorduraBaseCauda: r.gordura_base_cauda, gorduraCostelas: r.gordura_costelas, gorduraPescoco: r.gordura_pescoco, observacoes: r.observacoes, registradoPor: r.registrado_por, visitaClinicaId: r.visita_clinica_id || null })),
       fetchAll('anotacoes_clinicas', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, hora: r.hora || '', tipo: r.tipo || 'Outro', gravidade: r.gravidade || '', titulo: r.titulo, descricao: r.descricao || '', autor: r.autor || '', mes: r.mes, insumosCriados: r.insumos_criados || [], procsCriados: r.procs_criados || [], visitaClinicaId: r.visita_clinica_id || null })),
       fetchAll('exames_complementares', r => ({ id: r.id, cavaloId: r.cavalo_id, data: r.data, tipo: r.tipo, descricao: r.descricao || '', arquivoUrl: r.arquivo_url || '', arquivoNome: r.arquivo_nome || '', arquivoTipo: r.arquivo_tipo || '', mes: r.mes })),
       fetchAll('reproducao_registros', r => ({ id: r.id, eguaId: r.egua_id, data: r.data, tipo: r.tipo, dados: typeof r.dados === 'string' ? JSON.parse(r.dados || '{}') : (r.dados || {}), insumosUsados: typeof r.insumos_usados === 'string' ? JSON.parse(r.insumos_usados || '[]') : (r.insumos_usados || []), dataRetorno: r.data_retorno || null, autor: r.autor || '', mes: r.mes, workspaceId: r.workspace_id || 'haras', vetId: r.vet_id || null, localId: r.local_id || null })),
@@ -908,7 +908,7 @@ const loadAllData = async () => {
   const medToDb = (src) => { const r = {}; Object.entries(MED_FIELD_MAP).forEach(([c,s]) => { if (src[c] != null) r[s] = src[c]; }); return r; };
   const addMedicao = (m) => {
     setMedicoes(prev => [...prev, m]);
-    dbInsert('medicoes', { id: m.id, cavalo_id: m.cavaloId, data_registro: m.dataRegistro, ...medToDb(m), observacoes: m.observacoes || null, registrado_por: m.registradoPor || null });
+    dbInsert('medicoes', { id: m.id, cavalo_id: m.cavaloId, data_registro: m.dataRegistro, ...medToDb(m), observacoes: m.observacoes || null, registrado_por: m.registradoPor || null, visita_clinica_id: m.visitaClinicaId || null });
   };
   const updateMedicao = (id, data) => {
     setMedicoes(prev => prev.map(m => m.id === id ? { ...m, ...data } : m));

@@ -495,10 +495,133 @@ const rowStyle = {
   display: 'flex', alignItems: 'center', gap: 10,
 };
 
+// Row de potro com atalho pra registrar medição inline.
+const MedicaoRow = ({ potro, visita, currentUser, addMedicao }) => {
+  const [aberto, setAberto] = useState(false);
+  const [peso, setPeso] = useState('');
+  const [altura, setAltura] = useState('');
+  const [perTor, setPerTor] = useState('');
+  const [obs, setObs] = useState('');
+  const canSave = (peso || altura || perTor);
+  const salvar = () => {
+    if (!canSave || !addMedicao) return;
+    addMedicao({
+      id: 'med_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      cavaloId: potro.id,
+      dataRegistro: visita.data || new Date().toISOString().slice(0, 10),
+      peso: peso ? Number(peso) : null,
+      alturaCernelha: altura ? Number(altura) : null,
+      perimetroToracico: perTor ? Number(perTor) : null,
+      observacoes: obs.trim() || null,
+      registradoPor: currentUser?.nome || '',
+      visitaClinicaId: visita.id,
+    });
+    setPeso(''); setAltura(''); setPerTor(''); setObs(''); setAberto(false);
+  };
+  const inputStyle = {
+    width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)',
+    background: 'var(--bg)', fontSize: 12, boxSizing: 'border-box',
+  };
+  return (
+    <div style={{ ...rowStyle, flexDirection: 'column', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{potro.nome}</span>
+        {addMedicao && (
+          <button onClick={() => setAberto(a => !a)} style={{
+            padding: '4px 8px', borderRadius: 6, border: 'none',
+            background: '#b45309', color: '#fff', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>{aberto ? '×' : '+ Medir'}</button>
+        )}
+      </div>
+      {aberto && (
+        <div style={{ marginTop: 8, display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 6 }}>
+          <input placeholder="peso kg" type="number" step="0.5" value={peso} onChange={e => setPeso(e.target.value)} style={inputStyle} />
+          <input placeholder="alt cernelha cm" type="number" step="0.1" value={altura} onChange={e => setAltura(e.target.value)} style={inputStyle} />
+          <input placeholder="per torác cm" type="number" step="0.1" value={perTor} onChange={e => setPerTor(e.target.value)} style={inputStyle} />
+          <input placeholder="observações" value={obs} onChange={e => setObs(e.target.value)} style={{ ...inputStyle, gridColumn: '1 / -1' }} />
+          <button onClick={salvar} disabled={!canSave} style={{
+            gridColumn: '1 / -1', padding: '8px', borderRadius: 6, border: 'none',
+            background: canSave ? '#b45309' : 'var(--soft)',
+            color: canSave ? '#fff' : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 700, cursor: canSave ? 'pointer' : 'default',
+            fontFamily: 'var(--sans)',
+          }}>Salvar medição</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Row de gestante com atalho pra registrar anotação obstétrica inline.
+const GestanteRow = ({ egua, semanasGestacao, anotacoesNoMes, visita, currentUser, addAnotacaoClinica }) => {
+  const [aberto, setAberto] = useState(false);
+  const [titulo, setTitulo] = useState('');
+  const [descricao, setDescricao] = useState('');
+  const canSave = titulo.trim();
+  const salvar = () => {
+    if (!canSave || !addAnotacaoClinica) return;
+    const hoje = visita?.data || new Date().toISOString().slice(0, 10);
+    addAnotacaoClinica({
+      id: 'anot_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      cavaloId: egua.id, data: hoje, hora: new Date().toTimeString().slice(0, 5),
+      tipo: 'Obstétrica', gravidade: '',
+      titulo: titulo.trim(), descricao: descricao.trim(),
+      autor: currentUser?.nome || '', mes: hoje.slice(0, 7),
+      insumosCriados: [], procsCriados: [],
+      visitaClinicaId: visita.id,
+    });
+    setTitulo(''); setDescricao(''); setAberto(false);
+  };
+  const inputStyle = {
+    width: '100%', padding: '6px 8px', borderRadius: 6, border: '1px solid var(--line)',
+    background: 'var(--bg)', fontSize: 12, boxSizing: 'border-box',
+  };
+  return (
+    <div style={{ ...rowStyle, flexDirection: 'column', alignItems: 'stretch' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1 }}>
+          <span style={{ fontSize: 13, color: 'var(--ink)' }}>{egua.nome}</span>
+          <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+            {semanasGestacao != null ? `${semanasGestacao} semana${semanasGestacao !== 1 ? 's' : ''}` : 'sem data cobrição'}
+            {' · '}{anotacoesNoMes === 0 ? 'sem anotação no mês' : `${anotacoesNoMes} anotação(ões) no mês`}
+          </div>
+        </div>
+        {anotacoesNoMes === 0 && !aberto && (
+          <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
+            PENDENTE
+          </span>
+        )}
+        {addAnotacaoClinica && (
+          <button onClick={() => setAberto(a => !a)} style={{
+            padding: '4px 8px', borderRadius: 6, border: 'none',
+            background: '#be185d', color: '#fff', fontSize: 11, fontWeight: 700,
+            cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>{aberto ? '×' : '+ Anotação'}</button>
+        )}
+      </div>
+      {aberto && (
+        <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <input placeholder="Título (ex: US gestacional, DG30)" value={titulo} onChange={e => setTitulo(e.target.value)} style={inputStyle} />
+          <textarea placeholder="Descrição / achados…" value={descricao} onChange={e => setDescricao(e.target.value)} rows={3} style={{ ...inputStyle, resize: 'vertical' }} />
+          <button onClick={salvar} disabled={!canSave} style={{
+            padding: '8px', borderRadius: 6, border: 'none',
+            background: canSave ? '#be185d' : 'var(--soft)',
+            color: canSave ? '#fff' : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 700, cursor: canSave ? 'pointer' : 'default',
+            fontFamily: 'var(--sans)',
+          }}>Salvar anotação obstétrica</button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Bloco de pendências pra vacinação OU vermifugação, com 3 sub-grupos
 // (atrasadas, do mês, a vencer no próximo mês). Colapsa automaticamente
-// os sub-grupos vazios.
-const PendenciasBloco = ({ titulo, cor, bg, atrasadas = [], doMes = [], aVencer = [], rotuloItem }) => {
+// os sub-grupos vazios. Quando onFazer é passado, cada linha ganha
+// botão "✓" pra marcar o registro como feito nesta visita.
+const PendenciasBloco = ({ titulo, cor, bg, atrasadas = [], doMes = [], aVencer = [], rotuloItem, onFazer }) => {
   const total = atrasadas.length + doMes.length + aVencer.length;
   if (total === 0) return null;
   const SubGrupo = ({ label, items, destaque }) => {
@@ -511,11 +634,22 @@ const PendenciasBloco = ({ titulo, cor, bg, atrasadas = [], doMes = [], aVencer 
         }}>{label} · {items.length}</div>
         {items.slice(0, 8).map((it, i) => (
           <div key={i} style={rowStyle}>
-            <span style={{ fontSize: 13, color: 'var(--ink)' }}>{rotuloItem(it)}</span>
+            <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{rotuloItem(it)}</span>
             {it.dataPrevista && (
-              <span style={{ fontSize: 10, color: 'var(--ink-3)', marginLeft: 'auto' }}>
+              <span style={{ fontSize: 10, color: 'var(--ink-3)', marginRight: onFazer ? 8 : 0 }}>
                 {fmtData(it.dataPrevista)}
               </span>
+            )}
+            {onFazer && (
+              <button
+                onClick={() => onFazer(it)}
+                title="Marcar como feito nesta visita"
+                style={{
+                  padding: '4px 8px', borderRadius: 6, border: 'none',
+                  background: cor, color: '#fff', fontSize: 11, fontWeight: 700,
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}
+              >✓ Fazer</button>
             )}
           </div>
         ))}
@@ -1451,7 +1585,7 @@ export function VisitaDetalhe({
               </div>
             )}
 
-            {/* Bloco 1: Vacinação */}
+            {/* Bloco 1: Vacinação — botão "✓ Fazer" grava com visita_clinica_id */}
             <PendenciasBloco titulo="Vacinação" cor="#1e40af" bg="#dbeafe"
               atrasadas={vac.atrasadas} doMes={vac.doMes} aVencer={vac.aVencer}
               protocolos={protocolosVacinacao} cavalos={cavalos}
@@ -1460,9 +1594,18 @@ export function VisitaDetalhe({
                 const cav = cavalos.find(c => c.id === it.cavaloId);
                 return `${cav?.nome || '—'} · ${p?.nome || 'vacina'}${it.doseIdx != null ? ` (dose ${it.doseIdx + 1})` : ''}`;
               }}
+              onFazer={upsertVacinacaoAnimal ? (it) => {
+                upsertVacinacaoAnimal({
+                  ...it,
+                  feito: true,
+                  feitoEm: new Date().toISOString(),
+                  feitoPor: currentUser?.nome || '',
+                  visitaClinicaId: visita.id,
+                });
+              } : null}
             />
 
-            {/* Bloco 2: Vermifugação */}
+            {/* Bloco 2: Vermifugação — idem vacinação */}
             <PendenciasBloco titulo="Vermifugação" cor="#15803d" bg="#dcfce7"
               atrasadas={verm.atrasadas} doMes={verm.doMes} aVencer={verm.aVencer}
               protocolos={protocolosVermifugacao} cavalos={cavalos}
@@ -1471,14 +1614,46 @@ export function VisitaDetalhe({
                 const cav = cavalos.find(c => c.id === it.cavaloId);
                 return `${cav?.nome || '—'} · ${p?.nome || 'vermífugo'}`;
               }}
+              onFazer={addVermifugacaoAnimal ? (it) => {
+                const proto = protocolosVermifugacao.find(p => p.id === it.protocoloId);
+                addVermifugacaoAnimal({
+                  id: 'verm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                  protocoloId: it.protocoloId || null,
+                  cavaloId: it.cavaloId,
+                  dataRealizacao: new Date().toISOString().slice(0, 10),
+                  produto: proto?.nome || '',
+                  registradoPor: currentUser?.nome || '',
+                  etapaIdx: it.etapaIdx ?? null,
+                  visitaClinicaId: visita.id,
+                });
+              } : null}
             />
 
-            {/* Bloco 3: OPGs pendentes */}
+            {/* Bloco 3: OPGs pendentes — botão "+ Coletar" grava OPG com visita_clinica_id */}
             {opgsPendentes.length > 0 && (
               <SecaoLista titulo={`OPGs pendentes (sem coleta nos últimos 90 dias) · ${opgsPendentes.length}`} cor="#92400e" bg="#fef3c7">
                 {opgsPendentes.slice(0, 8).map(c => (
                   <div key={c.id} style={rowStyle}>
-                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{c.nome}</span>
+                    <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{c.nome}</span>
+                    {addOpg && (
+                      <button
+                        onClick={() => addOpg({
+                          id: 'opg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+                          cavaloId: c.id,
+                          dataColeta: new Date().toISOString().slice(0, 10),
+                          dataResultado: null, resultado: [],
+                          precisaVermifugacao: null, insumoVermId: '',
+                          dataAplicacao: '', aplicado: false, dispensado: false,
+                          principioAtivo: '', observacoes: '', proximaData: null, etapaIdx: null,
+                          visitaClinicaId: visita.id,
+                        })}
+                        style={{
+                          padding: '4px 8px', borderRadius: 6, border: 'none',
+                          background: '#92400e', color: '#fff', fontSize: 11, fontWeight: 700,
+                          cursor: 'pointer', fontFamily: 'var(--sans)',
+                        }}
+                      >+ Coletar</button>
+                    )}
                   </div>
                 ))}
                 {opgsPendentes.length > 8 && (
@@ -1501,35 +1676,30 @@ export function VisitaDetalhe({
               </SecaoLista>
             )}
 
-            {/* Bloco 5: Acompanhamento gestacional */}
+            {/* Bloco 5: Acompanhamento gestacional — botão "+ Anotação"
+                abre form de anotação tipo Obstétrica pré-preenchido. */}
             {acompanhamentoGestantes.length > 0 && (
               <SecaoLista titulo={`Acompanhamento gestacional · ${acompanhamentoGestantes.length} égua${acompanhamentoGestantes.length !== 1 ? 's' : ''}`} cor="#be185d" bg="#fce7f3">
                 {acompanhamentoGestantes.map(({ egua, anotacoesNoMes, semanasGestacao }) => (
-                  <div key={egua.id} style={rowStyle}>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 13, color: 'var(--ink)' }}>{egua.nome}</span>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
-                        {semanasGestacao != null ? `${semanasGestacao} semana${semanasGestacao !== 1 ? 's' : ''}` : 'sem data cobrição'}
-                        {' · '}{anotacoesNoMes === 0 ? 'sem anotação no mês' : `${anotacoesNoMes} anotação(ões) no mês`}
-                      </div>
-                    </div>
-                    {anotacoesNoMes === 0 && (
-                      <span style={{ fontSize: 10, padding: '2px 6px', borderRadius: 4, background: '#fef3c7', color: '#92400e', fontWeight: 700 }}>
-                        PENDENTE
-                      </span>
-                    )}
-                  </div>
+                  <GestanteRow
+                    key={egua.id} egua={egua}
+                    semanasGestacao={semanasGestacao}
+                    anotacoesNoMes={anotacoesNoMes}
+                    visita={visita} currentUser={currentUser}
+                    addAnotacaoClinica={addAnotacaoClinica}
+                  />
                 ))}
               </SecaoLista>
             )}
 
-            {/* Bloco 6: Potros sem medição */}
+            {/* Bloco 6: Potros sem medição — botão "+ Medir" abre form compacto */}
             {potrosSemMedicao.length > 0 && (
               <SecaoLista titulo={`Potros sem medição (>30 dias) · ${potrosSemMedicao.length}`} cor="#b45309" bg="#fef3c7">
                 {potrosSemMedicao.map(c => (
-                  <div key={c.id} style={rowStyle}>
-                    <span style={{ fontSize: 13, color: 'var(--ink)' }}>{c.nome}</span>
-                  </div>
+                  <MedicaoRow
+                    key={c.id} potro={c} visita={visita} currentUser={currentUser}
+                    addMedicao={addMedicao}
+                  />
                 ))}
               </SecaoLista>
             )}
