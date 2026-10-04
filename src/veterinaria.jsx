@@ -755,6 +755,33 @@ export function VeterinariaScreen({
     );
   }
   if (secao === 'assessoria' && mostrarAssessoria) {
+    // Bundle completo: tudo que as sub-telas (Vacinação, Vermifugação,
+    // Gestação, Desenvolvimento, Exames, Anotações) precisam. A visita
+    // reusa as mesmas telas da Veterinária mas filtrando pelo haras do
+    // contrato — e wrappers nos mutators setam visita_clinica_id auto.
+    const visitaBundle = {
+      insumos, servicos, currentUser,
+      proprietarios, movimentacoes, partos,
+      addRegistro, addAtividade, addProcedimento, deleteRegistro, deleteProcedimento,
+      // Vacinação
+      protocolosVacinacao, vacinacoesAnimais,
+      addProtocoloVacinacao, updateProtocoloVacinacao, deleteProtocoloVacinacao,
+      upsertVacinacaoAnimal, agendaVac,
+      // Vermifugação
+      protocolosVermifugacao, vermifugacoesAnimais, opgs,
+      addProtocoloVermifugacao, updateProtocoloVermifugacao, deleteProtocoloVermifugacao,
+      addVermifugacaoAnimal, addOpg, updateOpg, deleteOpg, agendaVerm,
+      // Desenvolvimento
+      medicoes, addMedicao, updateMedicao, deleteMedicao,
+      // Anotações clínicas
+      anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+      // Exames
+      exames, uploadExame, deleteExame,
+      // Gestação e partos
+      progProgramas, progAplicacoes,
+      addProgesteronaPrograma, encerrarProgesteronaPrograma, deleteProgesteronaPrograma,
+      updateProgesteronaAplicacao,
+    };
     return (
       <AssessoriaFlow
         contratosAssessoria={contratosAssessoria}
@@ -771,7 +798,7 @@ export function VeterinariaScreen({
         currentUser={currentUser}
         onBack={() => setSecao(null)}
         empresaInfo={empresaInfo}
-        // Dados para o painel de preparação da visita (C4):
+        // Dados pro painel de preparação + registrosReproducao pra calcular DGs
         cavalos={cavalos}
         insumos={insumos}
         protocolosVacinacao={protocolosVacinacao}
@@ -783,15 +810,16 @@ export function VeterinariaScreen({
         anotacoesClinicas={anotacoesClinicas}
         registrosReproducao={registrosReproducao}
         partos={partos}
-        // Mutators pros atalhos do caderno (C7)
+        // Mutators pros atalhos antigos (C7, C10) — mantidos pra compat
         addAnotacaoClinica={addAnotacaoClinica}
         updateAnotacaoClinica={updateAnotacaoClinica}
         deleteAnotacaoClinica={deleteAnotacaoClinica}
-        // Mutators pros atalhos de registro (C10)
         upsertVacinacaoAnimal={upsertVacinacaoAnimal}
         addVermifugacaoAnimal={addVermifugacaoAnimal}
         addOpg={addOpg}
         addMedicao={addMedicao}
+        // Bundle pras sub-telas embutidas na visita (C11)
+        visitaBundle={visitaBundle}
       />
     );
   }
@@ -973,7 +1001,7 @@ export function VeterinariaScreen({
 }
 
 // ─── VacinacaoScreen ──────────────────────────────────────────
-function VacinacaoScreen({
+export function VacinacaoScreen({
   cavalos, insumos, currentUser, addRegistro, addAtividade,
   protocolos, vacinacoesAnimais, agenda,
   addProtocolo, updateProtocolo, deleteProtocolo, upsertVacinacao, onBack,
@@ -1527,7 +1555,7 @@ const INTERVALO_OPTIONS = [
   { value: 365, label: 'Anual (365 dias)' },
 ];
 
-function VermifugacaoScreen({
+export function VermifugacaoScreen({
   cavalos, insumos, currentUser, addAtividade, addRegistro,
   protocolos, vermifugacoesAnimais, opgs, agenda,
   addProtocolo, updateProtocolo, deleteProtocolo,
@@ -2919,7 +2947,7 @@ function OPGForm({ initial, cavalos, insumos, onSave, onCancel }) {
 
 // ─── Anotações Clínicas ────────────────────────────────────────
 
-function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, deleteRegistro, deleteProcedimento, onBack }) {
+export function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUser, anotacoesClinicas, addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica, addRegistro, addAtividade, addProcedimento, deleteRegistro, deleteProcedimento, onBack }) {
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editNota, setEditNota] = useState(null);
@@ -3700,7 +3728,7 @@ function RelatorioVetScreen({ cavalos, insumos, servicos, anotacoesClinicas, med
 const TIPOS_EXAME = ['Raio-X','Ultrassom','Endoscopia','Odontograma','Hemograma','Bioquímica','Laudo','Eletrocardiograma','Outros'];
 const TIPO_EXAME_COR = { 'Raio-X':'#1d4ed8','Ultrassom':'#0e7490','Endoscopia':'#7c3aed','Odontograma':'#9d174d','Hemograma':'#dc2626','Bioquímica':'#b45309','Laudo':'#374151','Eletrocardiograma':'#15803d','Outros':'#6b7280' };
 
-function ExamesComplementaresScreen({ cavalos, exames, uploadExame, deleteExame, onBack }) {
+export function ExamesComplementaresScreen({ cavalos, exames, uploadExame, deleteExame, onBack }) {
   const [filtroAnimal, setFiltroAnimal] = useState('');
   const [showForm, setShowForm] = useState(false);
 

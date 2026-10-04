@@ -6,7 +6,12 @@
 import React, { useMemo, useState } from 'react';
 import { Icon } from './icons';
 import { TopBar } from './screens';
-import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
+import {
+  calcAgendaVac, calcAgendaVerm,
+  VacinacaoScreen, VermifugacaoScreen, AnotacoesClinicasScreen, ExamesComplementaresScreen,
+} from './veterinaria';
+import { DesenvolvimentoScreen } from './desenvolvimento';
+import { GestacaoPartosScreen } from './gestacao';
 import { gerarPdfVisitaClinica, nomePdfVisitaClinica } from './utils/pdfVisitaClinica';
 
 // Orquestra a navegação entre hub → form → detalhe do contrato.
@@ -24,6 +29,8 @@ export function AssessoriaFlow({
   // Mutators pros atalhos do caderno (C7, C10)
   addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
   upsertVacinacaoAnimal, addVermifugacaoAnimal, addOpg, addMedicao,
+  // Bundle pras sub-telas embutidas na visita (C11)
+  visitaBundle = {},
 }) {
   const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato' | 'visitaDetalhe'
   const [contratoSelId, setContratoSelId] = useState(null);
@@ -127,6 +134,7 @@ export function AssessoriaFlow({
         addVermifugacaoAnimal={addVermifugacaoAnimal}
         addOpg={addOpg}
         addMedicao={addMedicao}
+        visitaBundle={visitaBundle}
       />
     );
   }
@@ -1200,6 +1208,36 @@ function AnimaisDoHaras({ animais = [], proprietarios = [], medicoes = [], vacin
   );
 }
 
+// Card grande de atalho pra uma área de controle (Vacinação, Vermifugação,
+// Gestação e Partos, Desenvolvimento, Exames, Anotações).
+const ControleCard = ({ cor, bg, icone, titulo, sub, destaque, onClick }) => (
+  <button onClick={onClick} style={{
+    width: '100%', textAlign: 'left', cursor: 'pointer',
+    background: 'var(--card)', border: `1.5px solid ${bg}`,
+    borderRadius: 14, padding: '14px 16px', marginBottom: 8,
+    display: 'flex', alignItems: 'center', gap: 12, color: 'var(--ink)',
+    fontFamily: 'var(--sans)',
+  }}>
+    <div style={{
+      width: 40, height: 40, borderRadius: 10, background: bg, color: cor,
+      display: 'grid', placeItems: 'center', flexShrink: 0,
+    }}>
+      <Icon name={icone} size={20} />
+    </div>
+    <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{titulo}</div>
+      <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{sub}</div>
+    </div>
+    {destaque && (
+      <span style={{
+        fontSize: 10, fontWeight: 700, padding: '3px 8px', borderRadius: 10,
+        background: '#fee2e2', color: '#991b1b', whiteSpace: 'nowrap',
+      }}>{destaque}</span>
+    )}
+    <Icon name="chevron-right" size={16} color="var(--ink-3)" />
+  </button>
+);
+
 export function VisitaDetalhe({
   visita, contrato, proprietarios = [], locais = [], vetsExternos = [],
   onBack, updateVisitaClinica, deleteVisitaClinica, currentUser,
@@ -1209,14 +1247,17 @@ export function VisitaDetalhe({
   medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
   addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
   upsertVacinacaoAnimal, addVermifugacaoAnimal, addOpg, addMedicao,
+  visitaBundle = {},
 }) {
   const [editMode, setEditMode] = useState(false);
   const [data, setData] = useState(visita.data);
   const [vetsIds, setVetsIds] = useState(visita.vetsParticipantes || []);
   const [valor, setValor] = useState(String(visita.valorCobrado || contrato?.valorMensal || 0));
   const [obs, setObs] = useState(visita.observacoes || '');
-  // Sub-aba atual: caderno (padrão) | pendencias | animais
+  // Sub-aba atual: caderno (padrão) | controle | animais
   const [aba, setAba] = useState('caderno');
+  // Sub-tela de controle (vacinação/vermifugação/etc) aberta inline
+  const [subTelaVisita, setSubTelaVisita] = useState(null);
   // Autosave do textarea de observações pra não perder enquanto digita
   React.useEffect(() => {
     const t = setTimeout(() => {
@@ -1407,6 +1448,121 @@ export function VisitaDetalhe({
 
   const haras = nomeContrato(contrato, proprietarios, locais);
 
+  // ── Sub-tela de controle embutida na visita ─────────────────
+  // Reusa as mesmas telas da Veterinária (Vacinação, Vermifugação,
+  // Gestação e Partos, Desenvolvimento, Exames, Anotações). Diferenças:
+  // 1. cavalos filtrado pros animais do haras do contrato.
+  // 2. Wrappers nos mutators que setam visita_clinica_id automático.
+  // 3. onBack volta pra visita (não pra hub da Veterinária).
+  if (subTelaVisita) {
+    const vb = visitaBundle || {};
+    const voltar = () => setSubTelaVisita(null);
+    const withVisita = (fn) => fn ? (payload) => fn({ ...payload, visitaClinicaId: visita.id }) : undefined;
+    const idsHaras = new Set(animaisDoHaras.map(c => c.id));
+    // Agendas filtradas pros animais do haras
+    const agendaVacHaras = (vb.agendaVac || []).filter(i => idsHaras.has(i.cavaloId));
+    const agendaVermHaras = (vb.agendaVerm || []).filter(i => idsHaras.has(i.cavaloId));
+
+    if (subTelaVisita === 'vacinacao') {
+      return (
+        <VacinacaoScreen
+          cavalos={animaisDoHaras} insumos={vb.insumos || []} currentUser={currentUser}
+          addRegistro={vb.addRegistro} addAtividade={vb.addAtividade}
+          protocolos={vb.protocolosVacinacao || []}
+          vacinacoesAnimais={(vb.vacinacoesAnimais || []).filter(v => idsHaras.has(v.cavaloId))}
+          addProtocolo={vb.addProtocoloVacinacao}
+          updateProtocolo={vb.updateProtocoloVacinacao}
+          deleteProtocolo={vb.deleteProtocoloVacinacao}
+          upsertVacinacao={withVisita(vb.upsertVacinacaoAnimal)}
+          agenda={agendaVacHaras}
+          onBack={voltar}
+        />
+      );
+    }
+    if (subTelaVisita === 'vermifugacao') {
+      return (
+        <VermifugacaoScreen
+          cavalos={animaisDoHaras} insumos={vb.insumos || []} currentUser={currentUser}
+          addAtividade={vb.addAtividade} addRegistro={vb.addRegistro}
+          protocolos={vb.protocolosVermifugacao || []}
+          vermifugacoesAnimais={(vb.vermifugacoesAnimais || []).filter(v => idsHaras.has(v.cavaloId))}
+          opgs={(vb.opgs || []).filter(o => idsHaras.has(o.cavaloId))}
+          addProtocolo={vb.addProtocoloVermifugacao}
+          updateProtocolo={vb.updateProtocoloVermifugacao}
+          deleteProtocolo={vb.deleteProtocoloVermifugacao}
+          addVermifugacao={withVisita(vb.addVermifugacaoAnimal)}
+          addOpg={withVisita(vb.addOpg)}
+          updateOpg={vb.updateOpg}
+          deleteOpg={vb.deleteOpg}
+          addProcedimento={vb.addProcedimento}
+          servicos={vb.servicos || []}
+          agenda={agendaVermHaras}
+          onBack={voltar}
+        />
+      );
+    }
+    if (subTelaVisita === 'gestacao') {
+      return (
+        <GestacaoPartosScreen
+          setScreen={() => {}} setSelected={() => {}}
+          partos={(vb.partos || []).filter(p => idsHaras.has(p.eguaId) || idsHaras.has(p.potroId))}
+          cavalos={animaisDoHaras}
+          proprietarios={vb.proprietarios || proprietarios}
+          movimentacoes={vb.movimentacoes || []}
+          insumos={vb.insumos || []}
+          currentUser={currentUser}
+          progProgramas={(vb.progProgramas || []).filter(p => idsHaras.has(p.cavaloId))}
+          progAplicacoes={vb.progAplicacoes || []}
+          addProgesteronaPrograma={vb.addProgesteronaPrograma}
+          encerrarProgesteronaPrograma={vb.encerrarProgesteronaPrograma}
+          deleteProgesteronaPrograma={vb.deleteProgesteronaPrograma}
+          updateProgesteronaAplicacao={vb.updateProgesteronaAplicacao}
+          addRegistro={vb.addRegistro} deleteRegistro={vb.deleteRegistro}
+          addAtividade={vb.addAtividade}
+          onBack={voltar}
+        />
+      );
+    }
+    if (subTelaVisita === 'desenvolvimento') {
+      return (
+        <DesenvolvimentoScreen
+          cavalos={animaisDoHaras} currentUser={currentUser}
+          medicoes={(vb.medicoes || []).filter(m => idsHaras.has(m.cavaloId))}
+          addMedicao={withVisita(vb.addMedicao)}
+          updateMedicao={vb.updateMedicao} deleteMedicao={vb.deleteMedicao}
+          onBack={voltar}
+        />
+      );
+    }
+    if (subTelaVisita === 'exames') {
+      return (
+        <ExamesComplementaresScreen
+          cavalos={animaisDoHaras}
+          exames={(vb.exames || []).filter(e => idsHaras.has(e.cavaloId))}
+          uploadExame={vb.uploadExame}
+          deleteExame={vb.deleteExame}
+          onBack={voltar}
+        />
+      );
+    }
+    if (subTelaVisita === 'anotacoes') {
+      return (
+        <AnotacoesClinicasScreen
+          cavalos={animaisDoHaras} insumos={vb.insumos || []} servicos={vb.servicos || []}
+          currentUser={currentUser}
+          anotacoesClinicas={(vb.anotacoesClinicas || []).filter(a => idsHaras.has(a.cavaloId))}
+          addAnotacaoClinica={withVisita(vb.addAnotacaoClinica)}
+          updateAnotacaoClinica={vb.updateAnotacaoClinica}
+          deleteAnotacaoClinica={vb.deleteAnotacaoClinica}
+          addRegistro={vb.addRegistro} addAtividade={vb.addAtividade}
+          addProcedimento={vb.addProcedimento}
+          deleteRegistro={vb.deleteRegistro} deleteProcedimento={vb.deleteProcedimento}
+          onBack={voltar}
+        />
+      );
+    }
+  }
+
   return (
     <div style={{ paddingBottom: 90 }}>
       <TopBar
@@ -1452,14 +1608,14 @@ export function VisitaDetalhe({
           {finalizada ? '✓ Finalizada' : '● Em andamento'}
         </div>
 
-        {/* Sub-abas: Caderno (padrão) | Pendências | Animais */}
+        {/* Sub-abas: Caderno (padrão) | Controle | Animais */}
         <div style={{
           display: 'flex', gap: 2, marginBottom: 14, background: 'var(--soft)',
           borderRadius: 10, padding: 3,
         }}>
           {[
             ['caderno', 'Caderno', (anotacoesClinicas.filter(a => a.visitaClinicaId === visita.id).length)],
-            ['pendencias', 'Pendências', null],
+            ['controle', 'Controle', null],
             ['animais', 'Animais', animaisDoHaras.length],
           ].map(([k, lbl, badge]) => (
             <button key={k} onClick={() => setAba(k)} style={{
@@ -1564,7 +1720,7 @@ export function VisitaDetalhe({
         )}
 
         {/* Aba Pendências — mesmo conteúdo do painel original */}
-        {aba === 'pendencias' && (!finalizada || editMode) && (
+        {aba === 'controle' && (!finalizada || editMode) && (
           <>
             {animaisDoHaras.length === 0 ? (
               <AnimaisDoHaras
@@ -1572,148 +1728,75 @@ export function VisitaDetalhe({
                 locais={locais} contrato={contrato}
               />
             ) : (
-              /* Resumo do haras */
-              <div style={{
-                background: 'var(--soft)', borderRadius: 10, padding: '10px 12px',
-                marginBottom: 12, fontSize: 12, color: 'var(--ink-2)',
-              }}>
-                <strong>{animaisDoHaras.length}</strong> animal{animaisDoHaras.length !== 1 ? 'is' : ''} no haras
-                {gestantes.length > 0 && <> · <strong>{gestantes.length}</strong> gestante{gestantes.length !== 1 ? 's' : ''}</>}
-                {animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length > 0 && (
-                  <> · <strong>{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length}</strong> potro{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length !== 1 ? 's' : ''}</>
-                )}
-              </div>
+              <>
+                <div style={{
+                  background: 'var(--soft)', borderRadius: 10, padding: '10px 12px',
+                  marginBottom: 12, fontSize: 12, color: 'var(--ink-2)',
+                }}>
+                  <strong>{animaisDoHaras.length}</strong> animal{animaisDoHaras.length !== 1 ? 'is' : ''} no haras
+                  {gestantes.length > 0 && <> · <strong>{gestantes.length}</strong> gestante{gestantes.length !== 1 ? 's' : ''}</>}
+                  {animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length > 0 && (
+                    <> · <strong>{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length}</strong> potro{animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length !== 1 ? 's' : ''}</>
+                  )}
+                </div>
+
+                <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 700 }}>
+                  Áreas de controle · só animais deste haras
+                </div>
+
+                {/* Cards grandes de atalho pra cada área de controle.
+                    Cada um abre a tela completa da Veterinária com os
+                    animais do haras filtrados. Qualquer registro feito
+                    lá fica vinculado à visita automaticamente. */}
+                <ControleCard
+                  cor="#1e40af" bg="#dbeafe" icone="syringe" titulo="Vacinação"
+                  sub={`${vac.atrasadas.length + vac.doMes.length + vac.aVencer.length} pendência${vac.atrasadas.length + vac.doMes.length + vac.aVencer.length !== 1 ? 's' : ''}`}
+                  destaque={vac.atrasadas.length > 0 ? `${vac.atrasadas.length} atrasada${vac.atrasadas.length !== 1 ? 's' : ''}` : null}
+                  onClick={() => setSubTelaVisita('vacinacao')}
+                />
+                <ControleCard
+                  cor="#15803d" bg="#dcfce7" icone="worm" titulo="Vermifugação"
+                  sub={`${verm.atrasadas.length + verm.doMes.length + verm.aVencer.length} pendência${verm.atrasadas.length + verm.doMes.length + verm.aVencer.length !== 1 ? 's' : ''}`}
+                  destaque={verm.atrasadas.length > 0 ? `${verm.atrasadas.length} atrasada${verm.atrasadas.length !== 1 ? 's' : ''}` : null}
+                  onClick={() => setSubTelaVisita('vermifugacao')}
+                />
+                <ControleCard
+                  cor="#be185d" bg="#fce7f3" icone="heart" titulo="Gestação e partos"
+                  sub={`${gestantes.length} gestante${gestantes.length !== 1 ? 's' : ''}`}
+                  destaque={dgsPendentes.length > 0 ? `${dgsPendentes.length} DG pendente${dgsPendentes.length !== 1 ? 's' : ''}` : null}
+                  onClick={() => setSubTelaVisita('gestacao')}
+                />
+                <ControleCard
+                  cor="#b45309" bg="#fef3c7" icone="bar-chart" titulo="Desenvolvimento"
+                  sub={`${animaisDoHaras.filter(c => (c.categorias || []).includes('Potro ao pé') || c.categoria === 'Potro ao pé').length} potro(s) · biometria`}
+                  destaque={potrosSemMedicao.length > 0 ? `${potrosSemMedicao.length} sem medição` : null}
+                  onClick={() => setSubTelaVisita('desenvolvimento')}
+                />
+                <ControleCard
+                  cor="#0e7490" bg="#cffafe" icone="test-tube" titulo="Exames complementares"
+                  sub="PDFs e imagens"
+                  onClick={() => setSubTelaVisita('exames')}
+                />
+                <ControleCard
+                  cor="#92400e" bg="#fef3c7" icone="clipboard" titulo="Anotações clínicas"
+                  sub="Histórico por animal"
+                  destaque={anotacoesClinicas.filter(a => a.visitaClinicaId === visita.id).length > 0
+                    ? `${anotacoesClinicas.filter(a => a.visitaClinicaId === visita.id).length} nesta visita`
+                    : null}
+                  onClick={() => setSubTelaVisita('anotacoes')}
+                />
+
+                <div style={{
+                  background: '#f5e8ff30', border: '1px solid #d8b4fe',
+                  borderRadius: 10, padding: '10px 12px', marginTop: 14,
+                  fontSize: 11, color: '#6b21a8',
+                }}>
+                  💡 Cada card abre a tela completa da área com os animais do haras
+                  filtrados. Registros feitos aí ficam vinculados à visita
+                  (visita_clinica_id) e aparecem no PDF cupom + histórico do animal.
+                </div>
+              </>
             )}
-
-            {/* Bloco 1: Vacinação — botão "✓ Fazer" grava com visita_clinica_id */}
-            <PendenciasBloco titulo="Vacinação" cor="#1e40af" bg="#dbeafe"
-              atrasadas={vac.atrasadas} doMes={vac.doMes} aVencer={vac.aVencer}
-              protocolos={protocolosVacinacao} cavalos={cavalos}
-              rotuloItem={(it) => {
-                const p = protocolosVacinacao.find(pr => pr.id === it.protocoloId);
-                const cav = cavalos.find(c => c.id === it.cavaloId);
-                return `${cav?.nome || '—'} · ${p?.nome || 'vacina'}${it.doseIdx != null ? ` (dose ${it.doseIdx + 1})` : ''}`;
-              }}
-              onFazer={upsertVacinacaoAnimal ? (it) => {
-                upsertVacinacaoAnimal({
-                  ...it,
-                  feito: true,
-                  feitoEm: new Date().toISOString(),
-                  feitoPor: currentUser?.nome || '',
-                  visitaClinicaId: visita.id,
-                });
-              } : null}
-            />
-
-            {/* Bloco 2: Vermifugação — idem vacinação */}
-            <PendenciasBloco titulo="Vermifugação" cor="#15803d" bg="#dcfce7"
-              atrasadas={verm.atrasadas} doMes={verm.doMes} aVencer={verm.aVencer}
-              protocolos={protocolosVermifugacao} cavalos={cavalos}
-              rotuloItem={(it) => {
-                const p = protocolosVermifugacao.find(pr => pr.id === it.protocoloId);
-                const cav = cavalos.find(c => c.id === it.cavaloId);
-                return `${cav?.nome || '—'} · ${p?.nome || 'vermífugo'}`;
-              }}
-              onFazer={addVermifugacaoAnimal ? (it) => {
-                const proto = protocolosVermifugacao.find(p => p.id === it.protocoloId);
-                addVermifugacaoAnimal({
-                  id: 'verm_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-                  protocoloId: it.protocoloId || null,
-                  cavaloId: it.cavaloId,
-                  dataRealizacao: new Date().toISOString().slice(0, 10),
-                  produto: proto?.nome || '',
-                  registradoPor: currentUser?.nome || '',
-                  etapaIdx: it.etapaIdx ?? null,
-                  visitaClinicaId: visita.id,
-                });
-              } : null}
-            />
-
-            {/* Bloco 3: OPGs pendentes — botão "+ Coletar" grava OPG com visita_clinica_id */}
-            {opgsPendentes.length > 0 && (
-              <SecaoLista titulo={`OPGs pendentes (sem coleta nos últimos 90 dias) · ${opgsPendentes.length}`} cor="#92400e" bg="#fef3c7">
-                {opgsPendentes.slice(0, 8).map(c => (
-                  <div key={c.id} style={rowStyle}>
-                    <span style={{ fontSize: 13, color: 'var(--ink)', flex: 1 }}>{c.nome}</span>
-                    {addOpg && (
-                      <button
-                        onClick={() => addOpg({
-                          id: 'opg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
-                          cavaloId: c.id,
-                          dataColeta: new Date().toISOString().slice(0, 10),
-                          dataResultado: null, resultado: [],
-                          precisaVermifugacao: null, insumoVermId: '',
-                          dataAplicacao: '', aplicado: false, dispensado: false,
-                          principioAtivo: '', observacoes: '', proximaData: null, etapaIdx: null,
-                          visitaClinicaId: visita.id,
-                        })}
-                        style={{
-                          padding: '4px 8px', borderRadius: 6, border: 'none',
-                          background: '#92400e', color: '#fff', fontSize: 11, fontWeight: 700,
-                          cursor: 'pointer', fontFamily: 'var(--sans)',
-                        }}
-                      >+ Coletar</button>
-                    )}
-                  </div>
-                ))}
-                {opgsPendentes.length > 8 && (
-                  <div style={{ fontSize: 11, color: 'var(--ink-3)', padding: '6px 10px' }}>+{opgsPendentes.length - 8} animal(is)</div>
-                )}
-              </SecaoLista>
-            )}
-
-            {/* Bloco 4: DGs pendentes */}
-            {dgsPendentes.length > 0 && (
-              <SecaoLista titulo={`DGs pendentes · ${dgsPendentes.length}`} cor="#6b21a8" bg="#f5e8ff">
-                {dgsPendentes.map(({ egua, marco, dataEsperada }) => (
-                  <div key={egua.id + marco} style={rowStyle}>
-                    <div style={{ flex: 1 }}>
-                      <span style={{ fontSize: 13, color: 'var(--ink)' }}>{egua.nome}</span>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>{marco} esperado em {fmtData(dataEsperada)}</div>
-                    </div>
-                  </div>
-                ))}
-              </SecaoLista>
-            )}
-
-            {/* Bloco 5: Acompanhamento gestacional — botão "+ Anotação"
-                abre form de anotação tipo Obstétrica pré-preenchido. */}
-            {acompanhamentoGestantes.length > 0 && (
-              <SecaoLista titulo={`Acompanhamento gestacional · ${acompanhamentoGestantes.length} égua${acompanhamentoGestantes.length !== 1 ? 's' : ''}`} cor="#be185d" bg="#fce7f3">
-                {acompanhamentoGestantes.map(({ egua, anotacoesNoMes, semanasGestacao }) => (
-                  <GestanteRow
-                    key={egua.id} egua={egua}
-                    semanasGestacao={semanasGestacao}
-                    anotacoesNoMes={anotacoesNoMes}
-                    visita={visita} currentUser={currentUser}
-                    addAnotacaoClinica={addAnotacaoClinica}
-                  />
-                ))}
-              </SecaoLista>
-            )}
-
-            {/* Bloco 6: Potros sem medição — botão "+ Medir" abre form compacto */}
-            {potrosSemMedicao.length > 0 && (
-              <SecaoLista titulo={`Potros sem medição (>30 dias) · ${potrosSemMedicao.length}`} cor="#b45309" bg="#fef3c7">
-                {potrosSemMedicao.map(c => (
-                  <MedicaoRow
-                    key={c.id} potro={c} visita={visita} currentUser={currentUser}
-                    addMedicao={addMedicao}
-                  />
-                ))}
-              </SecaoLista>
-            )}
-
-            {/* Dica — pra registrar, usa as abas da Veterinária */}
-            <div style={{
-              background: '#dbeafe30', border: '1px solid #93c5fd',
-              borderRadius: 10, padding: '10px 12px', marginBottom: 14,
-              fontSize: 11, color: '#1e3a8a',
-            }}>
-              💡 Pra registrar vacina, vermífugo, OPG, medição ou anotação clínica,
-              use a aba Veterinária. Os registros feitos durante a visita aparecem
-              automaticamente no histórico.
-            </div>
           </>
         )}
 
