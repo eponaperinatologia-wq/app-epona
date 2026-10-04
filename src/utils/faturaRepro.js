@@ -403,12 +403,20 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     if (!idsContratos.has(v.contratoId)) continue;
     if (!isMes(v.data, ref)) continue;
     const c = contratosDoProp.find(x => x.id === v.contratoId);
+    const insumosExtras = Array.isArray(v.insumosCobrados) ? v.insumosCobrados : [];
+    const totalInsumos = insumosExtras.reduce(
+      (s, it) => s + (Number(it.qtd) || 0) * (Number(it.valorUnit) || 0), 0,
+    );
     assessoriasLinhas.push({
       data: v.data,
       visitaId: v.id,
       contratoId: v.contratoId,
       descricao: c?.nomeApelido ? `Assessoria · ${c.nomeApelido}` : 'Assessoria mensal',
-      valor: Number(v.valorCobrado) || 0,
+      // valor = mensal + extras (insumos que a Epona forneceu nesta visita)
+      valor: (Number(v.valorCobrado) || 0) + totalInsumos,
+      valorBase: Number(v.valorCobrado) || 0,
+      insumosExtras,
+      totalInsumos,
       vetsParticipantes: v.vetsParticipantes || [],
     });
   }

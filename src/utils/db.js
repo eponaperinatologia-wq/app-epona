@@ -149,6 +149,9 @@ export const fromDbVisitaClinica = r => ({
   vetsParticipantes: Array.isArray(r.vets_participantes) ? r.vets_participantes : (r.vets_participantes || []),
   valorCobrado: Number(r.valor_cobrado) || 0,
   observacoes: r.observacoes || '',
+  // Insumos adicionais a cobrar nesta visita (comprados pela Epona
+  // e repassados ao cliente). Lista: [{insumoId, qtd, valorUnit, descricao}]
+  insumosCobrados: Array.isArray(r.insumos_cobrados) ? r.insumos_cobrados : (r.insumos_cobrados || []),
   status: r.status || 'rascunho',
   finalizadaEm: r.finalizada_em || null,
   finalizadaPor: r.finalizada_por || '',
@@ -163,6 +166,7 @@ export const toDbVisitaClinica = v => ({
   vets_participantes: v.vetsParticipantes || [],
   valor_cobrado: Number(v.valorCobrado) || 0,
   observacoes: v.observacoes || '',
+  insumos_cobrados: v.insumosCobrados || [],
   status: v.status || 'rascunho',
   finalizada_em: v.finalizadaEm || null,
   finalizada_por: v.finalizadaPor || '',

@@ -18,6 +18,7 @@ export function gerarPdfVisitaClinica({
   empresa = {},
   vetsExternos = [],
   cavalos = [],
+  insumos = [],
   anotacoesClinicas = [],
   vacinacoesAnimais = [], protocolosVacinacao = [],
   vermifugacoesAnimais = [], protocolosVermifugacao = [],
@@ -118,11 +119,48 @@ export function gerarPdfVisitaClinica({
     const vetsWrap = doc.splitTextToSize(`Vets: ${vetsPart}`, contentW);
     vetsWrap.forEach(l => { doc.text(l, L, y); y += 3; });
 
-    if (visita.valorCobrado) {
-      doc.text(`Valor cobrado: ${BRL(visita.valorCobrado)}`, L, y);
+    // Valor cobrado + eventuais insumos extras (que a Epona forneceu)
+    const extras = Array.isArray(visita.insumosCobrados) ? visita.insumosCobrados : [];
+    const totalExtras = extras.reduce((s, it) => s + (Number(it.qtd) || 0) * (Number(it.valorUnit) || 0), 0);
+    if (visita.valorCobrado || totalExtras > 0) {
+      doc.text(`Mensal: ${BRL(visita.valorCobrado)}${totalExtras > 0 ? ` · Extras: ${BRL(totalExtras)}` : ''}`, L, y);
       y += 3;
+      if (totalExtras > 0) {
+        setColor(doc, doc.setTextColor, INK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text(`Total: ${BRL(Number(visita.valorCobrado || 0) + totalExtras)}`, L, y);
+        y += 3;
+        setColor(doc, doc.setTextColor, INK3);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+      }
     }
     y += 2;
+
+    // ── Insumos extras cobrados ───────────────────
+    if (extras.length > 0) {
+      y = sectionHeader(doc, y, `INSUMOS EXTRAS (COBRADOS) · ${extras.length}`);
+      extras.forEach(it => {
+        const nome = it.descricao || (insumos.find(i => i.id === it.insumoId)?.nome) || '—';
+        const unidade = (insumos.find(i => i.id === it.insumoId)?.unidade) || '';
+        const sub = `${it.qtd} ${unidade} × ${BRL(it.valorUnit)}`.trim();
+        setColor(doc, doc.setTextColor, INK);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        const availW = contentW - 20;
+        const wrap = doc.splitTextToSize(nome, availW);
+        doc.text(wrap[0], L, y);
+        setColor(doc, doc.setTextColor, INK3);
+        doc.text(BRL((Number(it.qtd) || 0) * (Number(it.valorUnit) || 0)), R, y, { align: 'right' });
+        y += 3;
+        setColor(doc, doc.setTextColor, INK3);
+        doc.setFontSize(6.5);
+        doc.text(sub, L, y);
+        y += 3;
+      });
+      y += 2;
+    }
 
     // ── Observações gerais ─────────────────────
     if (visita.observacoes) {

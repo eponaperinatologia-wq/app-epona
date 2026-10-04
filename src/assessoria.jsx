@@ -18,11 +18,12 @@ export function AssessoriaFlow({
   addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   currentUser, onBack, empresaInfo = null,
   // Dados pra pendências do painel (C4)
-  cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
+  cavalos = [], insumos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
   protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
   medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
-  // Mutators pros atalhos do caderno (C7)
+  // Mutators pros atalhos do caderno (C7, C10)
   addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+  upsertVacinacaoAnimal, addVermifugacaoAnimal, addOpg, addMedicao,
 }) {
   const [tela, setTela] = useState('hub'); // 'hub' | 'novoContrato' | 'editarContrato' | 'detalheContrato' | 'visitaDetalhe'
   const [contratoSelId, setContratoSelId] = useState(null);
@@ -109,6 +110,7 @@ export function AssessoriaFlow({
         currentUser={currentUser}
         empresaInfo={empresaInfo}
         cavalos={cavalos}
+        insumos={insumos}
         protocolosVacinacao={protocolosVacinacao}
         vacinacoesAnimais={vacinacoesAnimais}
         protocolosVermifugacao={protocolosVermifugacao}
@@ -121,6 +123,10 @@ export function AssessoriaFlow({
         addAnotacaoClinica={addAnotacaoClinica}
         updateAnotacaoClinica={updateAnotacaoClinica}
         deleteAnotacaoClinica={deleteAnotacaoClinica}
+        upsertVacinacaoAnimal={upsertVacinacaoAnimal}
+        addVermifugacaoAnimal={addVermifugacaoAnimal}
+        addOpg={addOpg}
+        addMedicao={addMedicao}
       />
     );
   }
@@ -594,6 +600,153 @@ const AgendarButton = ({ onPick }) => {
 // Em C4 recebe os blocos de pendências automáticas e atalhos pra
 // registrar. Por enquanto: resumo + finalizar/cancelar.
 // ─────────────────────────────────────────────────────────────
+// Seção de insumos adicionais a cobrar na visita.
+// Em assessoria, vacinas/vermífugos consumidos NÃO entram na fatura
+// automaticamente (cliente compra por fora). Esta é a seção pra
+// cobrar extras que a Epona forneceu.
+function InsumosCobrados({ visita, insumos = [], readonly = false, onChange }) {
+  const lista = Array.isArray(visita.insumosCobrados) ? visita.insumosCobrados : [];
+  const total = lista.reduce((s, it) => s + (Number(it.qtd) || 0) * (Number(it.valorUnit) || 0), 0);
+  const [novo, setNovo] = useState({ insumoId: '', qtd: 1, valorUnit: '', descricao: '' });
+
+  const insumoNome = (id) => (insumos.find(i => i.id === id)?.nome) || '—';
+  const insumoUnidade = (id) => (insumos.find(i => i.id === id)?.unidade) || '';
+  const sugestoesInsumo = [...insumos]
+    .filter(i => i.ativo !== false)
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+
+  const canAdd = (novo.insumoId || novo.descricao.trim()) && Number(novo.qtd) > 0 && Number(novo.valorUnit) >= 0;
+
+  const inputStyle = {
+    padding: '8px 10px', borderRadius: 8, border: '1px solid var(--line)',
+    background: 'var(--card)', fontSize: 13, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none', boxSizing: 'border-box',
+  };
+
+  const adicionar = () => {
+    if (!canAdd) return;
+    const item = {
+      insumoId: novo.insumoId || null,
+      descricao: novo.descricao.trim() || (novo.insumoId ? insumoNome(novo.insumoId) : ''),
+      qtd: Number(novo.qtd),
+      valorUnit: Number(novo.valorUnit),
+    };
+    onChange([...lista, item]);
+    setNovo({ insumoId: '', qtd: 1, valorUnit: '', descricao: '' });
+  };
+  const remover = (i) => onChange(lista.filter((_, idx) => idx !== i));
+  const alterarQtd = (i, qtd) => onChange(lista.map((it, idx) => idx === i ? { ...it, qtd: Number(qtd) || 0 } : it));
+  const alterarValor = (i, valor) => onChange(lista.map((it, idx) => idx === i ? { ...it, valorUnit: Number(valor) || 0 } : it));
+
+  // Autofill do valor unitário quando seleciona um insumo do catálogo
+  const selecionarInsumo = (id) => {
+    const ins = insumos.find(i => i.id === id);
+    setNovo(n => ({
+      ...n, insumoId: id,
+      valorUnit: ins?.valorVenda != null ? String(ins.valorVenda) : n.valorUnit,
+      descricao: ins?.nome || n.descricao,
+    }));
+  };
+
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', fontWeight: 700 }}>
+          Insumos extras a cobrar · {lista.length}
+        </div>
+        {lista.length > 0 && (
+          <div style={{ fontSize: 12, color: '#7c2d8c', fontWeight: 700 }}>
+            + {formatBRL(total)}
+          </div>
+        )}
+      </div>
+
+      {lista.length === 0 && !readonly && (
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
+          Vacinas/insumos aplicados nesta visita <strong>não entram automaticamente</strong> na fatura
+          (cliente compra por fora). Adicione aqui só o que a Epona forneceu e vai cobrar.
+        </div>
+      )}
+
+      {lista.map((it, i) => (
+        <div key={i} style={{
+          background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 8, padding: '8px 10px', marginBottom: 4,
+          display: 'grid', gridTemplateColumns: '1fr 60px 90px 24px', gap: 6, alignItems: 'center',
+        }}>
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--ink)' }}>{it.descricao || insumoNome(it.insumoId)}</div>
+            <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+              {formatBRL((Number(it.qtd) || 0) * (Number(it.valorUnit) || 0))} total
+            </div>
+          </div>
+          {readonly ? (
+            <>
+              <div style={{ fontSize: 12, color: 'var(--ink-2)', textAlign: 'right' }}>
+                {it.qtd} {insumoUnidade(it.insumoId)}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-2)', textAlign: 'right', fontFamily: 'var(--mono)' }}>
+                {formatBRL(it.valorUnit)}
+              </div>
+              <div />
+            </>
+          ) : (
+            <>
+              <input type="number" min="0" step="0.5" value={it.qtd}
+                onChange={e => alterarQtd(i, e.target.value)}
+                style={{ ...inputStyle, textAlign: 'right' }} />
+              <input type="number" min="0" step="0.01" value={it.valorUnit}
+                onChange={e => alterarValor(i, e.target.value)}
+                style={{ ...inputStyle, textAlign: 'right' }} />
+              <button onClick={() => remover(i)} style={{
+                width: 24, height: 24, borderRadius: 6, border: '1px solid var(--line)',
+                background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+                display: 'grid', placeItems: 'center',
+              }}>
+                <Icon name="x" size={11} />
+              </button>
+            </>
+          )}
+        </div>
+      ))}
+
+      {!readonly && (
+        <div style={{
+          background: 'var(--soft)', border: '1px dashed var(--line)',
+          borderRadius: 8, padding: 8, marginTop: 6,
+          display: 'grid', gridTemplateColumns: '1fr 60px 90px 60px', gap: 6, alignItems: 'center',
+        }}>
+          <select value={novo.insumoId} onChange={e => selecionarInsumo(e.target.value)} style={inputStyle}>
+            <option value="">— Insumo do catálogo (opcional) —</option>
+            {sugestoesInsumo.map(i => (
+              <option key={i.id} value={i.id}>{i.nome}{i.workspaceId === 'haras' ? ' (haras)' : ''}</option>
+            ))}
+          </select>
+          <input type="number" min="0" step="0.5" value={novo.qtd}
+            onChange={e => setNovo(n => ({ ...n, qtd: e.target.value }))}
+            style={{ ...inputStyle, textAlign: 'right' }} placeholder="qtd" />
+          <input type="number" min="0" step="0.01" value={novo.valorUnit}
+            onChange={e => setNovo(n => ({ ...n, valorUnit: e.target.value }))}
+            style={{ ...inputStyle, textAlign: 'right' }} placeholder="valor unit" />
+          <button onClick={adicionar} disabled={!canAdd} style={{
+            padding: '8px', borderRadius: 8, border: 'none',
+            background: canAdd ? '#7c2d8c' : 'var(--soft)',
+            color: canAdd ? '#fff' : 'var(--ink-3)',
+            fontSize: 12, fontWeight: 700, cursor: canAdd ? 'pointer' : 'default',
+            fontFamily: 'var(--sans)',
+          }}>+ Add</button>
+          {!novo.insumoId && (
+            <input value={novo.descricao}
+              onChange={e => setNovo(n => ({ ...n, descricao: e.target.value }))}
+              placeholder="Ou descrição livre (ex: ivermectina 1 fr)"
+              style={{ ...inputStyle, gridColumn: '1 / -1' }} />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────────────────────
 // Caderno da visita: observações gerais + anotações clínicas
 // vinculadas à visita (por animal). O vet escreve livremente aqui
@@ -605,6 +758,7 @@ function CadernoVisita({
   visita, contrato, animaisDoHaras = [], vetsExternos = [],
   anotacoesClinicas = [], addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
   currentUser, obs, setObs,
+  insumos = [], updateVisitaClinica,
 }) {
   const readonly = !addAnotacaoClinica;
   // Anotações feitas nesta visita (vinculadas via visita_clinica_id)
@@ -649,6 +803,18 @@ function CadernoVisita({
           </div>
         )}
       </div>
+
+      {/* Insumos adicionais a cobrar nessa visita (opcional).
+          Em assessoria o cliente geralmente compra as vacinas/insumos
+          por fora — então nada é cobrado automaticamente. Esta seção
+          é pra quando a Epona FORNECEU algum insumo específico e
+          precisa cobrar extra do cliente. Vai pro valor da fatura. */}
+      <InsumosCobrados
+        visita={visita}
+        insumos={insumos}
+        readonly={!updateVisitaClinica}
+        onChange={(novos) => updateVisitaClinica && updateVisitaClinica(visita.id, { insumosCobrados: novos })}
+      />
 
       {/* Anotações clínicas da visita */}
       <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -904,10 +1070,11 @@ export function VisitaDetalhe({
   visita, contrato, proprietarios = [], locais = [], vetsExternos = [],
   onBack, updateVisitaClinica, deleteVisitaClinica, currentUser,
   empresaInfo = null,
-  cavalos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
+  cavalos = [], insumos = [], protocolosVacinacao = [], vacinacoesAnimais = [],
   protocolosVermifugacao = [], vermifugacoesAnimais = [], opgs = [],
   medicoes = [], anotacoesClinicas = [], registrosReproducao = [], partos = [],
   addAnotacaoClinica, updateAnotacaoClinica, deleteAnotacaoClinica,
+  upsertVacinacaoAnimal, addVermifugacaoAnimal, addOpg, addMedicao,
 }) {
   const [editMode, setEditMode] = useState(false);
   const [data, setData] = useState(visita.data);
@@ -1120,6 +1287,7 @@ export function VisitaDetalhe({
                 empresa: empresaInfo || {},
                 vetsExternos,
                 cavalos: animaisDoHaras,
+                insumos,
                 anotacoesClinicas,
                 vacinacoesAnimais, protocolosVacinacao,
                 vermifugacoesAnimais, protocolosVermifugacao,
@@ -1229,6 +1397,8 @@ export function VisitaDetalhe({
             deleteAnotacaoClinica={deleteAnotacaoClinica}
             currentUser={currentUser}
             obs={obs} setObs={setObs}
+            insumos={insumos}
+            updateVisitaClinica={updateVisitaClinica}
           />
         )}
 
@@ -1243,6 +1413,8 @@ export function VisitaDetalhe({
             deleteAnotacaoClinica={deleteAnotacaoClinica}
             currentUser={currentUser}
             obs={visita.observacoes || ''} setObs={null}
+            insumos={insumos}
+            updateVisitaClinica={null /* readonly */}
           />
         )}
 
