@@ -212,9 +212,18 @@ export const fromDbRegistro = r => ({
 export const fromDbProcedimento = r => {
   const extras = r.dados_extras || {};
   const isExamesLab = !r.servico_id && (extras.examesSelecionados?.length > 0 || extras.laboratorio);
+  // Recupera o servicoId sintético pra procedimentos auto-gerados pela
+  // cobrança do caderno de reprodução (id do registro começa com rrhp_).
+  const isReproHaras = !r.servico_id && typeof r.id === 'string' && r.id.startsWith('rrhp_');
+  const nota = String(r.nota || '');
+  const reproServicoId = isReproHaras
+    ? (/insemina/i.test(nota) ? '__repro_haras_ia__'
+      : /coleta|embri/i.test(nota) ? '__repro_haras_ce__'
+      : null)
+    : null;
   return {
     id: r.id, cavaloId: r.cavalo_id,
-    servicoId: r.servico_id || (isExamesLab ? '__exames_lab__' : null),
+    servicoId: r.servico_id || reproServicoId || (isExamesLab ? '__exames_lab__' : null),
     valorServico: Number(r.valor_servico) || 0,
     descartaveisObrigatorios: r.descartaveis_obrigatorios || [],
     insumosAdicionais: r.insumos_adicionais || [],
@@ -254,6 +263,9 @@ export const fromDbAviso = r => ({
   tipo: r.tipo || '', cavaloId: r.cavalo_id || null,
   data_entrada: r.data_entrada || '',
   respostas: r.respostas || [],
+  // Data (YYYY-MM-DD) do último push disparado — rate-limit cross-device
+  // pra evitar que cada login dispare notificação do mesmo aviso.
+  ultimoPushEm: r.ultimo_push_em || null,
 });
 
 export const fromDbFaturaFechada = r => ({
@@ -388,9 +400,19 @@ export const toDbRegistro = r => ({
   cobrar_avulso: !!r.cobrarAvulso,
 });
 
+// IDs sintéticos que não existem na tabela servicos (procedimentos
+// gerados automaticamente pelo caderno de reprodução do haras ou por
+// exames laboratoriais). Setamos NULL no servico_id (coluna é
+// nullable, mas tem FK — qualquer valor que não exista em servicos.id
+// quebra o insert com 23503).
+const SERVICO_IDS_SINTETICOS = new Set([
+  '__exames_lab__',
+  '__repro_haras_ia__',
+  '__repro_haras_ce__',
+]);
 export const toDbProcedimento = p => ({
   id: p.id, cavalo_id: p.cavaloId,
-  servico_id: (p.servicoId === '__exames_lab__' || !p.servicoId) ? null : p.servicoId,
+  servico_id: (!p.servicoId || SERVICO_IDS_SINTETICOS.has(p.servicoId)) ? null : p.servicoId,
   valor_servico: Number(p.valorServico) || 0,
   descartaveis_obrigatorios: p.descartaveisObrigatorios || [],
   insumos_adicionais: p.insumosAdicionais || [],
@@ -452,6 +474,7 @@ export const toDbAviso = a => ({
   tipo: a.tipo || '', cavalo_id: a.cavaloId || null,
   data_entrada: a.data_entrada || '',
   respostas: a.respostas || [],
+  ultimo_push_em: a.ultimoPushEm || null,
 });
 
 export const fromDbListaCompra = r => ({

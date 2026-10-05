@@ -1502,18 +1502,13 @@ const loadAllData = async () => {
   };
   const gerarAvisosMaternidade = () => {
     const hoje = new Date().toLocaleDateString('sv-SE');
-    // Rate-limit: no máximo 1 push por égua por dia. Usa localStorage
-    // pra sobreviver reloads. Chave rotaciona pela data.
-    const chaveNotif = 'epona_mat_push_' + hoje;
-    let notifsHoje = new Set();
-    try { notifsHoje = new Set(JSON.parse(localStorage.getItem(chaveNotif) || '[]')); } catch {}
-    const marcarNotificado = (cid) => {
-      notifsHoje.add(cid);
-      try { localStorage.setItem(chaveNotif, JSON.stringify([...notifsHoje])); } catch {}
-    };
+    // Rate-limit cross-device: usa o campo ultimo_push_em do próprio
+    // aviso (persistido no banco). Antes era via localStorage, que é
+    // por dispositivo — cada login de qualquer usuário disparava push
+    // novo. Com DB, o 1º dispositivo que disparou grava a data; os
+    // demais veem a data == hoje e não disparam.
 
     for (const c of cavalos) {
-      // Filtros de escopo: só éguas presentes do haras
       if (!c.gestacao?.dataCobricao) continue;
       if (c.presente === false) continue;
       if (c.workspaceId === 'repro') continue;
@@ -1530,16 +1525,18 @@ const loadAllData = async () => {
       );
 
       if (avisoExistente) {
-        // Aviso já existe. Se foi resolvido, não faz nada.
-        // Se está ativo E ainda não notificou hoje, dispara 1 push.
-        if (!avisoExistente.resolvido && !notifsHoje.has(c.id)) {
-          sendPush('🏥 Alerta maternidade', texto, 'all');
-          marcarNotificado(c.id);
-        }
+        // Resolvido → nunca mais notifica.
+        if (avisoExistente.resolvido) continue;
+        // Já disparou push hoje em qualquer dispositivo? Pula.
+        if ((avisoExistente.ultimoPushEm || '').slice(0, 10) === hoje) continue;
+        // Dispara UMA vez e persiste a data no banco.
+        sendPush('🏥 Alerta maternidade', texto, 'all');
+        setAvisos(prev => prev.map(a => a.id === avisoExistente.id ? { ...a, ultimoPushEm: hoje } : a));
+        dbUpdate('avisos', avisoExistente.id, { ultimo_push_em: hoje });
         continue;
       }
 
-      // Cria aviso novo. Push só se ainda não notificou hoje.
+      // Cria aviso novo. Push dispara agora e marca ultimo_push_em.
       const novoAviso = {
         id: avisoId,
         autor: 'Sistema', avatar: '🏥',
@@ -1547,16 +1544,14 @@ const loadAllData = async () => {
         texto, urgente: true, resolvido: false, resolvidoPor: '',
         tipo: 'maternidade', cavaloId: c.id,
         data_entrada: hoje, respostas: [],
+        ultimoPushEm: hoje,
       };
       setAvisos(prev => {
         if (prev.some(a => a.id === novoAviso.id)) return prev;
         dbInsertIgnore('avisos', toDbAviso(novoAviso));
         return [novoAviso, ...prev];
       });
-      if (!notifsHoje.has(c.id)) {
-        sendPush('🏥 Alerta maternidade', texto, 'all');
-        marcarNotificado(c.id);
-      }
+      sendPush('🏥 Alerta maternidade', texto, 'all');
     }
   };
 
