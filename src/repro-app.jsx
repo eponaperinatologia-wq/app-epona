@@ -104,6 +104,9 @@ function TabBar({ tab, setTab, setScreen }) {
       background: 'var(--bg)', borderTop: '1px solid var(--line)',
       paddingTop: 8, paddingBottom: 28,
       display: 'grid', gridTemplateColumns: `repeat(${abas.length}, 1fr)`, gap: 0,
+      // z-index acima dos modais (100) e abaixo do ghost do drag (9999)
+      // pra TabBar sempre receber o clique mesmo com modal aberto.
+      position: 'relative', zIndex: 200,
     }}>
       {abas.map(t => (
         <button key={t.id} onClick={() => { setTab(t.id); setScreen(t.screen); }} style={{
