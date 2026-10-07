@@ -467,27 +467,35 @@ function DraggableEvento({
   onOpen, onDragStart, pointerStartRef, longPressTimer, dbg,
 }) {
   const ref = useRef(null);
+  // Guarda os handlers numa ref que atualiza a cada render — isso permite
+  // que o useEffect do listener nativo rode UMA VEZ (quando o ref monta),
+  // sem precisar re-registrar a cada render do pai. Economiza bastante
+  // trabalho porque o Planner re-renderiza muito.
+  const handlersRef = useRef({});
+  handlersRef.current = { ev, egua, onDragStart, dbg, pointerStartRef, pointerStartedDrag, longPressTimer };
 
   useEffect(() => {
     const el = ref.current;
     if (!el || !canDrag) return;
     const handleDown = (e) => {
-      dbg?.(`DOWN ${ev.tipoEv} ${egua?.nome || '?'}`);
-      pointerStartRef.current = { x: e.clientX, y: e.clientY };
-      pointerStartedDrag.current = false;
+      const h = handlersRef.current;
+      h.dbg?.(`DOWN ${h.ev.tipoEv} ${h.egua?.nome || '?'}`);
+      h.pointerStartRef.current = { x: e.clientX, y: e.clientY };
+      h.pointerStartedDrag.current = false;
       const target = el;
       const pointerId = e.pointerId;
       const startX = e.clientX;
       const startY = e.clientY;
-      longPressTimer.current = setTimeout(() => {
-        dbg?.('LONGPRESS fired');
-        pointerStartedDrag.current = true;
-        onDragStart(startX, startY, target, pointerId);
+      h.longPressTimer.current = setTimeout(() => {
+        const hh = handlersRef.current;
+        hh.dbg?.('LONGPRESS fired');
+        hh.pointerStartedDrag.current = true;
+        hh.onDragStart(startX, startY, target, pointerId);
       }, 400);
     };
     el.addEventListener('pointerdown', handleDown, { passive: false });
     return () => el.removeEventListener('pointerdown', handleDown);
-  }, [canDrag, onDragStart, pointerStartRef, pointerStartedDrag, longPressTimer, ev, egua, dbg]);
+  }, [canDrag]);
 
   return (
     <div
@@ -506,7 +514,11 @@ function DraggableEvento({
         borderLeft: `3px solid ${cor}`,
         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
         opacity: sendoArrastado ? 0.4 : (ev.cumprido ? 0.7 : 1),
-        touchAction: canDrag ? 'none' : 'auto',
+        // 'pan-y' permite o usuário SCROLLAR a página verticalmente mesmo
+        // com dedo em cima do box (o drag horizontal só ativa após 400ms
+        // de dedo parado). Antes era 'none', que bloqueava scroll vertical
+        // e travava a navegação da home.
+        touchAction: canDrag ? 'pan-y' : 'auto',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         WebkitTouchCallout: 'none',
@@ -701,30 +713,37 @@ function Planner({
     return bucket ? bucket.getAttribute('data-bucket-key') : null;
   };
 
-  // Listeners nativos no container (via useEffect + addEventListener)
-  // com {passive: false}. React sintetiza pointer events com passive:true
-  // em alguns browsers, aí preventDefault() não funciona pra bloquear o
-  // scroll ou menu nativo. Nativo resolve.
+  // Listeners nativos no container pra pointermove/up (preventDefault no
+  // move funciona bem). Guardamos TUDO que o handler precisa num ref —
+  // isso permite o useEffect rodar UMA VEZ ao montar, sem re-registrar
+  // listener a cada render. Antes, deps incluíam vetBundle (objeto novo
+  // sempre) e re-registrava milhares de vezes.
+  const planerHandlersRef = useRef({});
+  planerHandlersRef.current = {
+    draggingEv, dropTarget, hoje,
+    updateRegistroReproducao, vetBundle, updateVisitaClinica,
+    setGhostPos, setDropTarget, setDraggingEv,
+    dbg,
+  };
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onMove = (e) => {
-      if (!pointerStartedDrag.current && !draggingEv) {
-        // Antes do long-press disparar: cancela se mover demais (scroll)
+      const h = planerHandlersRef.current;
+      if (!pointerStartedDrag.current && !h.draggingEv) {
         const dx = e.clientX - pointerStartRef.current.x;
         const dy = e.clientY - pointerStartRef.current.y;
         if (Math.hypot(dx, dy) > 10 && longPressTimer.current) {
-          dbg(`CANCEL (move ${Math.hypot(dx, dy).toFixed(0)}px antes do longpress)`);
+          h.dbg?.(`CANCEL (move ${Math.hypot(dx, dy).toFixed(0)}px antes do longpress)`);
           clearTimeout(longPressTimer.current);
           longPressTimer.current = null;
         }
         return;
       }
-      // Em drag: atualiza ghost, detecta bucket, auto-scroll perto da borda
       e.preventDefault();
-      setGhostPos({ x: e.clientX, y: e.clientY });
+      h.setGhostPos({ x: e.clientX, y: e.clientY });
       const alvo = bucketKeyAt(e.clientX, e.clientY);
-      setDropTarget(alvo);
+      h.setDropTarget(alvo);
       if (scrollRef.current) {
         const rect = scrollRef.current.getBoundingClientRect();
         const EDGE = 60;
@@ -734,6 +753,7 @@ function Planner({
       }
     };
     const onUp = (e) => {
+      const h = planerHandlersRef.current;
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
@@ -741,18 +761,21 @@ function Planner({
       autoScrollRef.current = 0;
       if (!pointerStartedDrag.current) return;
       pointerStartedDrag.current = false;
-      // Bloqueia o click sintético pós-drag
       recentlyDragged.current = true;
       setTimeout(() => { recentlyDragged.current = false; }, 350);
       e?.preventDefault?.();
-      const evCap = draggingEv;
-      const alvo = dropTarget;
-      setDraggingEv(null);
-      setDropTarget(null);
+      const evCap = h.draggingEv;
+      const alvo = h.dropTarget;
+      h.setDraggingEv(null);
+      h.setDropTarget(null);
       if (evCap && alvo && alvo !== 'atrasado') {
-        const novaData = alvo === 'hoje' ? hoje : alvo;
+        const novaData = alvo === 'hoje' ? h.hoje : alvo;
         if (novaData !== evCap.dataEv) {
-          remarcarEvento(evCap, novaData, { updateRegistroReproducao, vetBundle, updateVisitaClinica });
+          remarcarEvento(evCap, novaData, {
+            updateRegistroReproducao: h.updateRegistroReproducao,
+            vetBundle: h.vetBundle,
+            updateVisitaClinica: h.updateVisitaClinica,
+          });
         }
       }
     };
@@ -764,7 +787,17 @@ function Planner({
       el.removeEventListener('pointerup', onUp);
       el.removeEventListener('pointercancel', onUp);
     };
-  }, [draggingEv, dropTarget, hoje, updateRegistroReproducao, vetBundle]);
+    // Deps vazias — handler sempre lê planerHandlersRef.current atualizado.
+  }, []);
+
+  // Garante que o drag é liberado se o componente desmontar no meio.
+  // Antes, trocar de tela com drag ativo deixava pointer capture preso
+  // e o bottom nav parava de responder até reload.
+  useEffect(() => () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    autoScrollRef.current = 0;
+    pointerStartedDrag.current = false;
+  }, []);
 
   // Ghost: réplica visual pequena do evento que segue o cursor.
   const ghostVet = draggingEv ? vetsExternos.find(v => v.id === draggingEv.vetId) : null;
@@ -800,7 +833,10 @@ function Planner({
             display: 'flex', overflowX: 'auto', gap: 8, padding: '2px 12px 4px',
             // Scroll snap atrapalha quando a lista cresce dinamicamente no drag.
             scrollSnapType: draggingEv ? 'none' : 'x mandatory',
-            touchAction: draggingEv ? 'none' : 'pan-x',
+            // 'auto' permite scroll vertical passar (quando user puxa a
+            // página pra cima/baixo com dedo sobre a agenda). Durante o
+            // drag ativo, bloqueia tudo pra não brigar com o auto-scroll.
+            touchAction: draggingEv ? 'none' : 'auto',
           }}
         >
           {ordem.map(k => {
