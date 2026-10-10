@@ -977,8 +977,26 @@ const loadAllData = async () => {
         criadoPor: r.vetId || null,
       });
     }
+    // CF repro marcando "induzir ovulação" com horário cria aviso de
+    // indução — fica no mural até alguém marcar como feito. Visível pra
+    // todo o time que precisa induzir no horário programado.
+    if (r.workspaceId === 'repro' && r.tipo === 'controle_folicular'
+      && r.dados?.dataInducaoOvulacao && r.dados?.horaInducaoOvulacao) {
+      const egua = cavalos.find(c => c.id === r.eguaId);
+      const nomeEgua = (egua?.nome || 'ÉGUA').toUpperCase();
+      addAvisoRepro({
+        tipo: 'inducao_ovulacao',
+        texto: `INDUZIR OVULAÇÃO DA ${nomeEgua} ÀS ${r.dados.horaInducaoOvulacao}`,
+        eguaId: r.eguaId,
+        referenciaId: r.id,
+        criadoPor: r.vetId || null,
+      });
+    }
   };
   const updateRegistroReproducao = (id, patch) => {
+    // Pega o registro ANTES do patch pra detectar transições (ex: indução
+    // de ovulação adicionada agora pela 1ª vez → cria aviso).
+    const antes = registrosReproducao.find(r => r.id === id);
     setRegistrosReproducao(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
     // Envia SÓ as colunas alteradas. Antes regravava a linha inteira a partir
     // da cópia local: outro aparelho que marcou DG45 nesse meio-tempo tinha a
@@ -994,6 +1012,29 @@ const loadAllData = async () => {
       if (MAPA[k]) cols[MAPA[k][0]] = MAPA[k][1](v);
     }
     dbUpdate('reproducao_registros', id, cols);
+
+    // Detecta: CF repro que PASSOU A TER indução de ovulação agora (não tinha
+    // antes). Cria aviso de indução. Evita duplicar se já existe aviso ativo.
+    const novo = { ...(antes || {}), ...patch };
+    const dadosNovos = novo.dados || {};
+    const dadosAntes = antes?.dados || {};
+    const tipoRepro = novo.workspaceId === 'repro' && novo.tipo === 'controle_folicular';
+    const temInducaoAgora = dadosNovos.dataInducaoOvulacao && dadosNovos.horaInducaoOvulacao;
+    const naoTinhaAntes = !(dadosAntes.dataInducaoOvulacao && dadosAntes.horaInducaoOvulacao);
+    if (tipoRepro && temInducaoAgora && naoTinhaAntes) {
+      const avisoAtivo = (avisosRepro || []).find(a => a.referenciaId === id && a.tipo === 'inducao_ovulacao' && !a.resolvidoEm);
+      if (!avisoAtivo) {
+        const egua = cavalos.find(c => c.id === novo.eguaId);
+        const nomeEgua = (egua?.nome || 'ÉGUA').toUpperCase();
+        addAvisoRepro({
+          tipo: 'inducao_ovulacao',
+          texto: `INDUZIR OVULAÇÃO DA ${nomeEgua} ÀS ${dadosNovos.horaInducaoOvulacao}`,
+          eguaId: novo.eguaId,
+          referenciaId: id,
+          criadoPor: novo.vetId || null,
+        });
+      }
+    }
   };
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));

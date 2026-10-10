@@ -9,6 +9,7 @@ import { trocarSenhaVetExterno } from './auth-vet-externo';
 import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
+import { sendPush } from './utils/push';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
 import { EguaGestanteDetalheScreen } from './gestacao';
@@ -365,30 +366,41 @@ function ReproSubHomeReproducao({
 // ─────────────────────────────────────────────────────────────
 // Mural de avisos persistentes (RESERVAR RECEPTORA etc.)
 // ─────────────────────────────────────────────────────────────
+// Paleta por tipo de aviso. Padrão amber (reservar receptora, geral);
+// indução de ovulação em roxo pra o vet reconhecer rápido como "hora
+// de aplicar hormônio".
+const CORES_AVISO = {
+  reservar_receptora: { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
+  inducao_ovulacao:   { bg: '#f5e8ff', border: '#9333ea', chip: '#9333ea', ink: '#581c87' },
+  _default:           { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
+};
 function MuralAvisos({ avisos, onResolver }) {
   return (
     <div style={{ marginBottom: 16 }}>
-      {avisos.map(a => (
-        <div key={a.id} style={{
-          background: '#fef3c7', border: '1px solid #f59e0b',
-          borderRadius: 12, padding: '12px 14px', marginBottom: 8,
-          display: 'flex', alignItems: 'center', gap: 10,
-        }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: 30, background: '#f59e0b', color: '#fff',
-            display: 'grid', placeItems: 'center', flexShrink: 0,
+      {avisos.map(a => {
+        const c = CORES_AVISO[a.tipo] || CORES_AVISO._default;
+        return (
+          <div key={a.id} style={{
+            background: c.bg, border: `1px solid ${c.border}`,
+            borderRadius: 12, padding: '12px 14px', marginBottom: 8,
+            display: 'flex', alignItems: 'center', gap: 10,
           }}>
-            <Icon name="bell" size={14} />
+            <div style={{
+              width: 30, height: 30, borderRadius: 30, background: c.chip, color: '#fff',
+              display: 'grid', placeItems: 'center', flexShrink: 0,
+            }}>
+              <Icon name="bell" size={14} />
+            </div>
+            <div style={{ flex: 1, fontSize: 13, color: c.ink, fontWeight: 700, letterSpacing: '0.02em' }}>
+              {a.texto}
+            </div>
+            <button onClick={() => onResolver(a.id)} style={{
+              padding: '8px 12px', borderRadius: 8, border: 'none', background: c.chip, color: '#fff',
+              fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>OK</button>
           </div>
-          <div style={{ flex: 1, fontSize: 13, color: '#78350f', fontWeight: 700, letterSpacing: '0.02em' }}>
-            {a.texto}
-          </div>
-          <button onClick={() => onResolver(a.id)} style={{
-            padding: '8px 12px', borderRadius: 8, border: 'none', background: '#f59e0b', color: '#fff',
-            fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
-          }}>OK</button>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -399,7 +411,8 @@ function MuralAvisos({ avisos, onResolver }) {
 function ehRemarcavelEv(ev) {
   if (!ev) return false;
   if (ev.fonte === 'repro') {
-    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta' || ev.tipoEv === 'inducao';
+    // 'inducao' saiu do kanban (virou aviso no mural). Resta retorno/coleta.
+    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta';
   }
   if (ev.fonte === 'vet') {
     return ['anotacao_clinica', 'opg', 'medicao', 'vacinacao'].includes(ev.tipoEv);
@@ -517,11 +530,14 @@ function DraggableEvento({
         borderLeft: `3px solid ${cor}`,
         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
         opacity: sendoArrastado ? 0.4 : (ev.cumprido ? 0.7 : 1),
-        // 'pan-y' permite o usuário SCROLLAR a página verticalmente mesmo
-        // com dedo em cima do box (o drag horizontal só ativa após 400ms
-        // de dedo parado). Antes era 'none', que bloqueava scroll vertical
-        // e travava a navegação da home.
-        touchAction: canDrag ? 'pan-y' : 'auto',
+        // 'none' nos boxes dragáveis: o browser não vai interpretar nem
+        // cancelar o touch como scroll. Antes tinha 'pan-y' que deixava
+        // scroll vertical passar MAS cancelava os pointermove em alguns
+        // devices depois do long-press → impossível arrastar.
+        // Scroll vertical da home acontece FORA dos boxes (entre eles,
+        // nos espaços e áreas sem box). A agenda tem altura ~250px,
+        // menos de 1/3 da tela, então sobra bastante área scrollável.
+        touchAction: canDrag ? 'none' : 'auto',
         userSelect: 'none',
         WebkitUserSelect: 'none',
         WebkitTouchCallout: 'none',
@@ -543,7 +559,9 @@ function DraggableEvento({
         {rotulo}
       </div>
       <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, textDecoration: ev.cumprido ? 'line-through' : 'none' }}>
-        {ev.fonte === 'assessoria' ? (ev.rotuloHaras || 'haras') : (egua?.nome || 'égua')}
+        {ev.fonte === 'assessoria' ? (ev.rotuloHaras || 'haras') : (
+          <>{egua?.nome || 'égua'}<span style={{ color: 'var(--ink-3)', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 500 }}>{sufixoEvento(ev)}</span></>
+        )}
       </div>
       {vet && ev.fonte !== 'vet' && ev.fonte !== 'assessoria' && (
         <div style={{ fontSize: 10, color: vet.cor, fontWeight: 600, marginTop: 1 }}>
@@ -1111,6 +1129,15 @@ function eventosPendentes(registros, hoje) {
   // cumpridos de HOJE entram com flag cumprido:true pra UI mostrar
   // separados (com check, embaixo da coluna) — ajuda o vet a ver num
   // relance "o que já fiz hoje × o que ainda falta".
+  // Pra deduplicar retorno/coleta vs procedimento HOJE: se o vet clicou
+  // num retorno/coleta hoje e já registrou algo pra essa égua hoje, não
+  // mostra os eventos duplicados — fica só o procedimento novo (que tem
+  // o tipo correto, ex: CF/IA/TE).
+  const eguasComProcHoje = new Set();
+  for (const r of (registros || [])) {
+    if (r.data === hoje) eguasComProcHoje.add(r.eguaId);
+  }
+
   for (const r of (registros || [])) {
     const dados = r.dados || {};
     // Procedimento agendado no futuro (ou hoje). Se é hoje, considera
@@ -1120,22 +1147,26 @@ function eventosPendentes(registros, hoje) {
     }
     if (r.dataRetorno) {
       const cumprido = retornoCumprido(r, registros);
-      if (!cumprido || r.dataRetorno === hoje) {
+      // Oculta retorno de hoje se já tem procedimento novo pra mesma
+      // égua hoje — evita box duplicado riscado + novo.
+      const dupHoje = r.dataRetorno === hoje && eguasComProcHoje.has(r.eguaId);
+      if (!cumprido && !dupHoje) {
+        out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro', cumprido });
+      } else if (r.dataRetorno === hoje && !dupHoje) {
         out.push({ ...eventoBase(r), tipoEv: 'retorno', dataEv: r.dataRetorno, fonte: 'repro', cumprido });
       }
     }
     if (dados.dataColetaAgendada) {
       const cumprido = coletaCumprida(r, registros);
-      if (!cumprido || dados.dataColetaAgendada === hoje) {
+      const dupHoje = dados.dataColetaAgendada === hoje && eguasComProcHoje.has(r.eguaId);
+      if (!cumprido && !dupHoje) {
+        out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro', cumprido });
+      } else if (dados.dataColetaAgendada === hoje && !dupHoje) {
         out.push({ ...eventoBase(r), tipoEv: 'coleta', dataEv: dados.dataColetaAgendada, fonte: 'repro', cumprido });
       }
     }
-    if (dados.dataInducaoOvulacao) {
-      const cumprido = inducaoCumprida(r, registros);
-      if (!cumprido || dados.dataInducaoOvulacao === hoje) {
-        out.push({ ...eventoBase(r), tipoEv: 'inducao', dataEv: dados.dataInducaoOvulacao, hora: dados.horaInducaoOvulacao || '', fonte: 'repro', cumprido });
-      }
-    }
+    // Indução de ovulação não é mais evento no kanban — vira aviso
+    // próprio no mural (gerado em gerarAvisosInducao em app.jsx).
   }
   return out;
 }
@@ -1145,6 +1176,22 @@ function rotuloEvento(ev) {
   if (ev.tipoEv === 'coleta') return 'Coleta';
   if (ev.tipoEv === 'inducao') return ev.hora ? `Induzir ${ev.hora}` : 'Induzir';
   return (TIPO_META[ev.tipo]?.short) || '—';
+}
+
+// Sufixo descritivo mostrado depois do nome da égua no box:
+// - IA: nome do garanhão
+// - TE / coleta: + ou - do resultado (quando já marcado)
+// Retorna '' se não há info útil pro tipo.
+function sufixoEvento(ev) {
+  const dados = ev?.registro?.dados || {};
+  if (ev.tipo === 'inseminacao_artificial' && dados.garanhao) {
+    return ' · ' + dados.garanhao;
+  }
+  if (ev.tipo === 'transferencia_embriao') {
+    if (dados.resultado === 'positivo') return ' (+)';
+    if (dados.resultado === 'negativo') return ' (−)';
+  }
+  return '';
 }
 
 function fmtDataBrCurto(iso) {
@@ -6118,6 +6165,54 @@ export function ReproApp({
   const [historicoEguaId, setHistoricoEguaId] = useState(null);
   // Pré-preenchimento do form do caderno quando vindo da agenda/calendário
   const [preFillCaderno, setPreFillCaderno] = useState(null);
+
+  // ── Scheduler de push de indução de ovulação ────────────────
+  // Pra cada aviso de indução não resolvido com horário no futuro
+  // (até final do dia), agenda setTimeout. Quando dispara, envia
+  // push pra todo o time + browser notification local se possível.
+  // Precisa app aberto; pra background puro, precisaria web push
+  // agendado via servidor (cron fino) — fica pra depois.
+  const timersInducaoRef = useRef({});
+  useEffect(() => {
+    const timers = timersInducaoRef.current;
+    const hojeStr = new Date().toLocaleDateString('sv-SE');
+    const avisosInducao = (avisosRepro || []).filter(a =>
+      a.tipo === 'inducao_ovulacao' && !a.resolvidoEm,
+    );
+    // Limpa timers de avisos que foram resolvidos / removidos
+    for (const id of Object.keys(timers)) {
+      if (!avisosInducao.find(a => a.id === id)) {
+        clearTimeout(timers[id]);
+        delete timers[id];
+      }
+    }
+    for (const aviso of avisosInducao) {
+      if (timers[aviso.id]) continue; // já agendado
+      const reg = (registrosReproducao || []).find(r => r.id === aviso.referenciaId);
+      const data = reg?.dados?.dataInducaoOvulacao;
+      const hora = reg?.dados?.horaInducaoOvulacao;
+      if (!data || !hora || data !== hojeStr) continue;
+      const [hh, mm] = hora.split(':').map(Number);
+      const alvo = new Date();
+      alvo.setHours(hh, mm, 0, 0);
+      const delay = alvo.getTime() - Date.now();
+      if (delay <= 0 || delay > 24 * 3600 * 1000) continue;
+      timers[aviso.id] = setTimeout(() => {
+        try {
+          sendPush('💉 Indução de ovulação', aviso.texto, 'all');
+        } catch {}
+        try {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('💉 Indução de ovulação', { body: aviso.texto });
+          }
+        } catch {}
+        delete timers[aviso.id];
+      }, delay);
+    }
+    return () => {
+      // Não limpa aqui (ReproApp fica montado) — cleanup via diff acima.
+    };
+  }, [avisosRepro, registrosReproducao]);
   // Filtro global de local — quando setado, todas as telas do repro
   // mostram apenas dados relacionados a esse local. localFiltroId=''
   // significa "todos os locais".
