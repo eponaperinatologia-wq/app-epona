@@ -189,7 +189,13 @@ function ReproHome({
       </div>
 
       {avisosPend.length > 0 && (
-        <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
+        <MuralAvisos
+          avisos={avisosPend}
+          onResolver={(id) => resolverAvisoRepro(id, currentUser.id)}
+          montarMensagemReserva={(aviso) => montarMensagemReservaReceptora(aviso, {
+            registros: registrosRepro, cavalos: eguasRepro, proprietarios: propRepro,
+          })}
+        />
       )}
 
       <button onClick={() => { setTab('caderno'); setScreen('repro-caderno'); }} style={{
@@ -312,7 +318,13 @@ function ReproSubHomeReproducao({
       </div>
 
       {avisosPend.length > 0 && (
-        <MuralAvisos avisos={avisosPend} onResolver={(id) => resolverAvisoRepro(id, currentUser.id)} />
+        <MuralAvisos
+          avisos={avisosPend}
+          onResolver={(id) => resolverAvisoRepro(id, currentUser.id)}
+          montarMensagemReserva={(aviso) => montarMensagemReservaReceptora(aviso, {
+            registros: registrosRepro, cavalos: eguasRepro, proprietarios: propRepro,
+          })}
+        />
       )}
 
       {/* Planner horizontal — só eventos reprodutivos (vetBundle=null) */}
@@ -374,16 +386,71 @@ const CORES_AVISO = {
   inducao_ovulacao:   { bg: '#f5e8ff', border: '#9333ea', chip: '#9333ea', ink: '#581c87' },
   _default:           { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
 };
-function MuralAvisos({ avisos, onResolver }) {
+// Monta a mensagem de WhatsApp pra reservar receptora na central.
+// Lê quantidade de receptoras do campo ovulacoes do registro IA
+// (0 ou vazio = default 1), nome do proprietário via cavalos+props,
+// garanhão + data da IA do registro, e data da coleta (dataColetaAgendada
+// se setada, senão IA + 9 dias).
+function montarMensagemReservaReceptora(aviso, { registros = [], cavalos = [], proprietarios = [] } = {}) {
+  const reg = registros.find(r => r.id === aviso.referenciaId);
+  if (!reg) return null;
+  const dados = reg.dados || {};
+  const egua = cavalos.find(c => c.id === reg.eguaId);
+  const prop = egua && proprietarios.find(p =>
+    p.id === egua.proprietarioId || (egua.proprietarioIds || []).includes(p.id),
+  );
+  const h = new Date().getHours();
+  const saudacao = h < 12 ? 'Bom dia' : (h < 18 ? 'Boa tarde' : 'Boa noite');
+  const nOv = Math.max(1, Math.min(3, Number(dados.ovulacoes) || 1));
+  const qtd = nOv === 1 ? 'uma receptora' : nOv === 2 ? 'duas receptoras' : 'três receptoras';
+  const fmtData = (iso) => {
+    if (!iso) return '—';
+    const [y, m, d] = String(iso).slice(0, 10).split('-');
+    return `${d}/${m}/${y}`;
+  };
+  const dataIA = reg.data;
+  const addDiasISO = (iso, n) => {
+    const d = new Date(iso + 'T00:00:00');
+    d.setDate(d.getDate() + n);
+    return d.toISOString().slice(0, 10);
+  };
+  const dataColeta = dados.dataColetaAgendada || (dataIA ? addDiasISO(dataIA, 9) : '');
+  const linhas = [
+    `${saudacao}, gostaria de reservar ${qtd}.`,
+    `Proprietário: ${prop?.nome || '—'}`,
+    `Cruzamento: ${dados.garanhao || '—'} x ${egua?.nome || '—'}`,
+    `Data da OV: ${fmtData(dataIA)}`,
+    `Data da Coleta: ${fmtData(dataColeta)}`,
+  ];
+  return linhas.join('\n');
+}
+
+function MuralAvisos({ avisos, onResolver, montarMensagemReserva }) {
+  const [copiadoId, setCopiadoId] = useState(null);
+  const copiar = async (aviso) => {
+    if (!montarMensagemReserva) return;
+    const msg = montarMensagemReserva(aviso);
+    if (!msg) return;
+    try {
+      await navigator.clipboard.writeText(msg);
+      setCopiadoId(aviso.id);
+      setTimeout(() => setCopiadoId(null), 1800);
+    } catch {
+      // Fallback: alert com a mensagem pro usuário copiar manual
+      window.prompt('Copie a mensagem:', msg);
+    }
+  };
   return (
     <div style={{ marginBottom: 16 }}>
       {avisos.map(a => {
         const c = CORES_AVISO[a.tipo] || CORES_AVISO._default;
+        const temCopiar = a.tipo === 'reservar_receptora' && montarMensagemReserva;
+        const isCopiado = copiadoId === a.id;
         return (
           <div key={a.id} style={{
             background: c.bg, border: `1px solid ${c.border}`,
             borderRadius: 12, padding: '12px 14px', marginBottom: 8,
-            display: 'flex', alignItems: 'center', gap: 10,
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
           }}>
             <div style={{
               width: 30, height: 30, borderRadius: 30, background: c.chip, color: '#fff',
@@ -391,9 +458,21 @@ function MuralAvisos({ avisos, onResolver }) {
             }}>
               <Icon name="bell" size={14} />
             </div>
-            <div style={{ flex: 1, fontSize: 13, color: c.ink, fontWeight: 700, letterSpacing: '0.02em' }}>
+            <div style={{ flex: 1, minWidth: 180, fontSize: 13, color: c.ink, fontWeight: 700, letterSpacing: '0.02em' }}>
               {a.texto}
             </div>
+            {temCopiar && (
+              <button onClick={() => copiar(a)} style={{
+                padding: '8px 12px', borderRadius: 8,
+                border: `1px solid ${c.chip}`,
+                background: isCopiado ? c.chip : 'transparent',
+                color: isCopiado ? '#fff' : c.chip,
+                fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+                transition: 'background 0.15s, color 0.15s',
+              }}>
+                {isCopiado ? '✓ Copiado' : 'Copiar mensagem'}
+              </button>
+            )}
             <button onClick={() => onResolver(a.id)} style={{
               padding: '8px 12px', borderRadius: 8, border: 'none', background: c.chip, color: '#fff',
               fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
