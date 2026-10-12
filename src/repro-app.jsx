@@ -132,7 +132,7 @@ function ReproHome({
   centraisRepro = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
-  updateRegistroReproducao = null,
+  updateRegistroReproducao = null, onEditarRegistro = null,
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
 }) {
@@ -297,6 +297,7 @@ function ReproHome({
         eguasLookup={eguasReproLookup || eguasRepro}
         centraisRepro={centraisRepro}
         updateRegistroReproducao={updateRegistroReproducao}
+        onEditarRegistro={onEditarRegistro}
       />
     </div>
   );
@@ -417,9 +418,19 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     const d = r.dados || {};
     const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
     const egua = cavalosLookup.find(c => c.id === r.eguaId);
-    // Resolve IA de origem pro garanhão (se vinculada; senão deixa vazio)
-    const iaOrigem = d.iaOrigemId ? registrosRepro.find(x => x.id === d.iaOrigemId) : null;
+    // Resolve IA de origem pro garanhão (se vinculada; senão tenta
+    // inferir pela égua: última IA com destino=transferencia antes
+    // da coleta — mesma lógica do fallback do form).
+    const iaOrigem = d.iaOrigemId
+      ? registrosRepro.find(x => x.id === d.iaOrigemId)
+      : (registrosRepro
+          .filter(x => x.tipo === 'inseminacao_artificial'
+            && x.eguaId === r.eguaId
+            && x.dados?.destino === 'transferencia'
+            && (x.data || '') <= (r.data || ''))
+          .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null);
     const garanhao = iaOrigem?.dados?.garanhao || '';
+    const dataIa = iaOrigem?.data || null;
     // Destinos preferido: dados.destinos (novo); fallback: receptoras (texto livre, tipo egua)
     const destinosArr = Array.isArray(d.destinos) ? d.destinos :
       (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
@@ -445,7 +456,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
       else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
       out.push({
-        regId: r.id, embIdx: i, dataColeta: r.data, garanhao,
+        regId: r.id, embIdx: i, dataColeta: r.data, dataIa, garanhao,
         eguaDoadora: egua?.nome || '—',
         destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
       });
@@ -484,7 +495,7 @@ function patchDgEmbriao(registro, embIdx, patch) {
 
 function PainelEmbrioesAcompanhamento({
   registrosRepro = [], eguasLookup = [], centraisRepro = [],
-  updateRegistroReproducao,
+  updateRegistroReproducao, onEditarRegistro = null,
 }) {
   // Acordeão fechado por padrão: fica no final da página pra consulta,
   // não atrapalha o dia a dia.
@@ -588,13 +599,30 @@ function PainelEmbrioesAcompanhamento({
                   </span>
                 )}
               </div>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                background: meta.bg, color: meta.ink, textTransform: 'uppercase', letterSpacing: '0.04em',
-              }}>{meta.label}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                  background: meta.bg, color: meta.ink, textTransform: 'uppercase', letterSpacing: '0.04em',
+                }}>{meta.label}</span>
+                {onEditarRegistro && (
+                  <button
+                    onClick={() => onEditarRegistro(item.regId)}
+                    title="Editar registro de coleta"
+                    style={{
+                      width: 26, height: 26, borderRadius: 6, border: '1px solid var(--line)',
+                      background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+                      display: 'grid', placeItems: 'center',
+                    }}
+                  >
+                    <Icon name="edit" size={11} />
+                  </button>
+                )}
+              </div>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
-              Coleta: {fmtDataBr(item.dataColeta)} · {destinoLabel}
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6, lineHeight: 1.5 }}>
+              IA: {fmtDataBr(item.dataIa) || '—'} · Coleta: {fmtDataBr(item.dataColeta)}
+              <br />
+              {destinoLabel}
               {temReceptora && item.destino?.tipo === 'central' && (
                 <> · Receptora: <strong style={{ color: 'var(--ink-2)' }}>{item.dgs.receptora}</strong></>
               )}
@@ -2396,11 +2424,22 @@ function ReproCaderno({
   const [novoBase, setNovoBase] = useState(null);
 
   // Se veio um preFill (via click em evento), abre o form auto.
+  // preFill.editarRegistroId tem prioridade: abre o form em modo edição
+  // do registro apontado (usado pelo painel 'Embriões Coletados').
   useEffect(() => {
     if (preFill) {
-      setEditReg(null);
-      setNovoBase(preFill);
-      setShowForm(true);
+      if (preFill.editarRegistroId) {
+        const reg = (registrosRepro || []).find(r => r.id === preFill.editarRegistroId);
+        if (reg) {
+          setNovoBase(null);
+          setEditReg(reg);
+          setShowForm(true);
+        }
+      } else {
+        setEditReg(null);
+        setNovoBase(preFill);
+        setShowForm(true);
+      }
       onConsumirPreFill && onConsumirPreFill();
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6833,6 +6872,13 @@ export function ReproApp({
   const servicosRepro = servicos;
 
   const goCadastros = (sub = 'locais') => { setCadSub(sub); setLocalSelecionado(null); setTab('cadastros'); setScreen('repro-cadastros'); };
+  // Abre o Caderno em modo edição do registro apontado. Usado pelo
+  // painel 'Embriões Coletados' pra permitir editar os dados da CE.
+  const abrirCadernoEditarRegistro = (registroId) => {
+    setPreFillCaderno({ editarRegistroId: registroId });
+    setTab('caderno');
+    setScreen('repro-caderno');
+  };
   const abrirCadastroGestante = () => {
     setCadSub('eguas');
     setLocalSelecionado(null);
@@ -6862,6 +6908,7 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
       updateRegistroReproducao={updateRegistroReproducao}
+      onEditarRegistro={abrirCadernoEditarRegistro}
       visitasClinicas={visitasClinicas.filter(v => v.workspaceId === 'repro')}
       contratosAssessoria={contratosAssessoria.filter(c => c.workspaceId === 'repro')}
       proprietarios={proprietarios}
