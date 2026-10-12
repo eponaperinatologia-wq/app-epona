@@ -219,13 +219,6 @@ function ReproHome({
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
-      <PainelEmbrioesAcompanhamento
-        registrosRepro={registrosRepro}
-        eguasLookup={eguasReproLookup || eguasRepro}
-        centraisRepro={centraisRepro}
-        updateRegistroReproducao={updateRegistroReproducao}
-      />
-
       <Planner
         registros={registrosRepro} eguasRepro={eguasRepro}
         eguasReproLookup={eguasReproLookup || eguasRepro}
@@ -286,6 +279,7 @@ function ReproHome({
           width: '100%', background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
           padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
           display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
+          marginBottom: 12,
         }}>
           <div style={{ width: 40, height: 40, borderRadius: 10, background: 'var(--soft)', color: 'var(--ink-2)', display: 'grid', placeItems: 'center' }}>
             <Icon name="menu" size={18} />
@@ -297,6 +291,13 @@ function ReproHome({
           <span style={{ fontSize: 18, opacity: 0.6 }}>›</span>
         </button>
       )}
+
+      <PainelEmbrioesAcompanhamento
+        registrosRepro={registrosRepro}
+        eguasLookup={eguasReproLookup || eguasRepro}
+        centraisRepro={centraisRepro}
+        updateRegistroReproducao={updateRegistroReproducao}
+      />
     </div>
   );
 }
@@ -485,16 +486,22 @@ function PainelEmbrioesAcompanhamento({
   registrosRepro = [], eguasLookup = [], centraisRepro = [],
   updateRegistroReproducao,
 }) {
-  const [verHistorico, setVerHistorico] = useState(false);
+  // Acordeão fechado por padrão: fica no final da página pra consulta,
+  // não atrapalha o dia a dia.
+  const [aberto, setAberto] = useState(false);
   const [editReceptoraId, setEditReceptoraId] = useState(null); // `${regId}:${embIdx}`
   const [receptoraDraft, setReceptoraDraft] = useState('');
   const todos = useMemo(
     () => embrioesEmAcompanhamento(registrosRepro, eguasLookup),
     [registrosRepro, eguasLookup],
   );
+  // Embriões ficam na lista até o fim da estação (regra do negócio;
+  // "arquivar" ao fim da estação virá em fluxo futuro). Mostra todos,
+  // ordenados por data desc. Ativos e concluídos convivem — o badge
+  // de status diferencia visualmente.
   const ativos = todos.filter(e => !e.concluido);
   const concluidos = todos.filter(e => e.concluido);
-  const lista = verHistorico ? concluidos : ativos;
+  const lista = todos;
 
   if (todos.length === 0) return null;
 
@@ -526,7 +533,14 @@ function PainelEmbrioesAcompanhamento({
       background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
       padding: 14, marginBottom: 12,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+      <button
+        type="button"
+        onClick={() => setAberto(a => !a)}
+        style={{
+          display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+          padding: 0, background: 'none', border: 'none', cursor: 'pointer',
+          color: 'var(--ink)', fontFamily: 'var(--sans)', textAlign: 'left',
+        }}>
         <div style={{
           width: 32, height: 32, borderRadius: 10, background: '#cffafe', color: '#0e7490',
           display: 'grid', placeItems: 'center', flexShrink: 0,
@@ -535,30 +549,21 @@ function PainelEmbrioesAcompanhamento({
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>
-            Embriões em acompanhamento
+            Embriões Coletados
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            {ativos.length} ativo{ativos.length === 1 ? '' : 's'}{concluidos.length > 0 ? ` · ${concluidos.length} concluído${concluidos.length === 1 ? '' : 's'}` : ''}
+            {todos.length} embrião{todos.length === 1 ? '' : 'ões'} na estação
+            {ativos.length > 0 && ` · ${ativos.length} em acompanhamento`}
+            {concluidos.length > 0 && ` · ${concluidos.length} concluído${concluidos.length === 1 ? '' : 's'}`}
           </div>
         </div>
-        {concluidos.length > 0 && (
-          <button onClick={() => setVerHistorico(v => !v)} style={{
-            padding: '6px 10px', borderRadius: 8, border: '1px solid var(--line)',
-            background: verHistorico ? '#f3e8ff' : 'transparent',
-            color: verHistorico ? '#7c2d8c' : 'var(--ink-3)',
-            fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
-            textTransform: 'uppercase', letterSpacing: '0.05em',
-          }}>{verHistorico ? 'Ver ativos' : 'Ver histórico'}</button>
-        )}
-      </div>
+        <span style={{
+          fontSize: 18, color: 'var(--ink-3)', transition: 'transform 0.15s',
+          transform: aberto ? 'rotate(90deg)' : 'rotate(0deg)',
+        }}>›</span>
+      </button>
 
-      {lista.length === 0 && (
-        <div style={{ fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', padding: '14px 0' }}>
-          {verHistorico ? 'Nenhum embrião concluído ainda.' : 'Nenhum embrião ativo no momento.'}
-        </div>
-      )}
-
-      {lista.map((item) => {
+      {aberto && lista.map((item) => {
         const key = `${item.regId}:${item.embIdx}`;
         const meta = STATUS_META[item.status] || STATUS_META.coletado;
         const destinoLabel = item.destino?.tipo === 'central'
@@ -572,7 +577,7 @@ function PainelEmbrioesAcompanhamento({
         return (
           <div key={key} style={{
             borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 10,
-            opacity: item.concluido && !verHistorico ? 0.6 : 1,
+            opacity: item.concluido ? 0.75 : 1,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>
@@ -636,9 +641,8 @@ function PainelEmbrioesAcompanhamento({
               }}>Editar receptora</button>
             )}
 
-            {/* Botões de DG */}
-            {!verHistorico && (
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+            {/* Botões de DG — sempre disponíveis (concluídos podem ser revisados/corrigidos) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
                 {[['dg15', 'D15'], ['dg45', 'D45'], ['dg60', 'D60']].map(([campo, lbl]) => {
                   const val = item.dgs?.[campo] || null;
                   return (
@@ -661,8 +665,7 @@ function PainelEmbrioesAcompanhamento({
                     </div>
                   );
                 })}
-              </div>
-            )}
+            </div>
           </div>
         );
       })}
