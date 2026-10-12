@@ -43,6 +43,7 @@ import {
   fromDbCavalo, fromDbProprietario, fromDbInsumo, fromDbServico, fromDbFuncionario,
   fromDbVetExterno, toDbVetExterno,
   fromDbLocalRepro, toDbLocalRepro,
+  fromDbCentralRepro, toDbCentralRepro,
   fromDbVetKmLocal, toDbVetKmLocal,
   fromDbAvisoRepro, toDbAvisoRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
@@ -108,6 +109,7 @@ function AppEpona() {
   // Vets externos (Epona Repro Team) e locais que atendem — workspace 'repro'
   const [vetsExternos, setVetsExternos] = useState([]);
   const [locaisRepro, setLocaisRepro] = useState([]);
+  const [centraisRepro, setCentraisRepro] = useState([]);
   const [vetKmLocais, setVetKmLocais] = useState([]);
   const [avisosRepro, setAvisosRepro] = useState([]);
   const [notas, setNotas] = useState({});
@@ -197,7 +199,7 @@ const loadAllData = async () => {
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
-      vetsExternosData, locaisReproData, vetKmLocaisData,
+      vetsExternosData, locaisReproData, centraisReproData, vetKmLocaisData,
       avisosReproData, faturasReproData,
       contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
@@ -241,6 +243,7 @@ const loadAllData = async () => {
       fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
       fetchAll('vets_externos', fromDbVetExterno),
       fetchAll('locais_repro', fromDbLocalRepro),
+      fetchAll('centrais_repro', fromDbCentralRepro).catch(() => []),
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
       fetchAll('faturas_repro', fromDbFaturaRepro),
@@ -284,6 +287,7 @@ const loadAllData = async () => {
     setProgAplicacoes(progAplicacoesData || []);
     setVetsExternos(vetsExternosData || []);
     setLocaisRepro(locaisReproData || []);
+    setCentraisRepro(centraisReproData || []);
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
     setFaturasRepro(faturasReproData || []);
@@ -1375,6 +1379,24 @@ const loadAllData = async () => {
     dbDelete('locais_repro', id);
   };
 
+  // ── Centrais de reprodução (destinos de embriões coletados) ──
+  const addCentralRepro = (data) => {
+    const newId = 'cen_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { id: newId, workspaceId: 'repro', ...data };
+    setCentraisRepro(prev => [...prev, novo]);
+    dbInsert('centrais_repro', toDbCentralRepro(novo));
+    return newId;
+  };
+  const updateCentralRepro = (id, patch) => {
+    setCentraisRepro(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
+    const cur = centraisRepro.find(c => c.id === id);
+    dbUpdate('centrais_repro', id, toDbCentralRepro({ ...cur, ...patch }));
+  };
+  const deleteCentralRepro = (id) => {
+    setCentraisRepro(prev => prev.filter(c => c.id !== id));
+    dbDelete('centrais_repro', id);
+  };
+
   // ── Valor de km por vet+local (Epona Repro Team) ─────────────
   // Upsert por (vet_id, local_id) — cada vet cobra um valor próprio
   // pelo mesmo local. Se já existe registro pro par, atualiza; senão,
@@ -2110,6 +2132,7 @@ const loadAllData = async () => {
       currentUser={currentUser}
       vetsExternos={vetsExternos}
       locaisRepro={locaisRepro}
+      centraisRepro={centraisRepro}
       vetKmLocais={vetKmLocais}
       avisosRepro={avisosRepro}
       resolverAvisoRepro={resolverAvisoRepro}
@@ -2134,6 +2157,9 @@ const loadAllData = async () => {
       addLocalRepro={addLocalRepro}
       updateLocalRepro={updateLocalRepro}
       deleteLocalRepro={deleteLocalRepro}
+      addCentralRepro={addCentralRepro}
+      updateCentralRepro={updateCentralRepro}
+      deleteCentralRepro={deleteCentralRepro}
       upsertVetKmLocal={upsertVetKmLocal}
       addProprietario={addProprietario}
       updateProprietario={updateProprietario}

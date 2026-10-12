@@ -129,6 +129,7 @@ function TabBar({ tab, setTab, setScreen }) {
 // ─────────────────────────────────────────────────────────────
 function ReproHome({
   currentUser, locaisRepro, propRepro, eguasRepro, eguasReproLookup = null, vetsExternos = [],
+  centraisRepro = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
   updateRegistroReproducao = null,
@@ -217,6 +218,13 @@ function ReproHome({
         </div>
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
+
+      <PainelEmbrioesAcompanhamento
+        registrosRepro={registrosRepro}
+        eguasLookup={eguasReproLookup || eguasRepro}
+        centraisRepro={centraisRepro}
+        updateRegistroReproducao={updateRegistroReproducao}
+      />
 
       <Planner
         registros={registrosRepro} eguasRepro={eguasRepro}
@@ -386,6 +394,282 @@ const CORES_AVISO = {
   inducao_ovulacao:   { bg: '#f5e8ff', border: '#9333ea', chip: '#9333ea', ink: '#581c87' },
   _default:           { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
 };
+// ─────────────────────────────────────────────────────────────
+// Painel de embriões em acompanhamento (home da Repro)
+// ─────────────────────────────────────────────────────────────
+// Lista linear de embriões coletados (CE positivos) com status
+// de DG. Um CE com qtdEmbrioes=2 vira 2 itens aqui.
+//
+// shape por item:
+//   { regId, embIdx, dataColeta, garanhao, eguaDoadora,
+//     destino: { tipo: 'central'|'egua', centralId?, eguaNome? },
+//     dgs: { dg15, dg45, dg60 }, receptora, status, concluido }
+//
+// status: 'coletado' | 'd15_pos' | 'd45_pos' | 'd60_pos' |
+//         'd15_neg' | 'd45_neg' | 'd60_neg'
+// concluido: true se status final (negativo ou d60_pos)
+function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
+  const out = [];
+  for (const r of registrosRepro) {
+    if (r.tipo !== 'transferencia_embriao') continue;
+    if (r.dados?.resultado !== 'positivo') continue;
+    const d = r.dados || {};
+    const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
+    const egua = cavalosLookup.find(c => c.id === r.eguaId);
+    // Resolve IA de origem pro garanhão (se vinculada; senão deixa vazio)
+    const iaOrigem = d.iaOrigemId ? registrosRepro.find(x => x.id === d.iaOrigemId) : null;
+    const garanhao = iaOrigem?.dados?.garanhao || '';
+    // Destinos preferido: dados.destinos (novo); fallback: receptoras (texto livre, tipo egua)
+    const destinosArr = Array.isArray(d.destinos) ? d.destinos :
+      (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
+      (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
+    const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+    for (let i = 0; i < qtd; i++) {
+      const dgs = qtd === 1 && dgsArr.length === 0
+        ? { dg15: d.dg15 || null, dg30: d.dg30 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
+        : (dgsArr[i] || {});
+      const destino = destinosArr[i] || { tipo: 'egua', eguaNome: '' };
+      // Receptora final: no destino='egua' usa eguaNome; no destino='central' usa dgs.receptora
+      // (preenchida depois do D15); fallback pra campo texto livre antigo.
+      const receptora = destino.tipo === 'egua'
+        ? (destino.eguaNome || '')
+        : (dgs.receptora || destino.receptoraCentral || '');
+      let status = 'coletado';
+      let concluido = false;
+      // Prioridade do mais recente pro mais antigo
+      if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
+      else if (dgs.dg60 === 'negativo') { status = 'd60_neg'; concluido = true; }
+      else if (dgs.dg45 === 'negativo') { status = 'd45_neg'; concluido = true; }
+      else if (dgs.dg45 === 'positivo') { status = 'd45_pos'; }
+      else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
+      else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
+      out.push({
+        regId: r.id, embIdx: i, dataColeta: r.data, garanhao,
+        eguaDoadora: egua?.nome || '—',
+        destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
+      });
+    }
+  }
+  // Mais recentes primeiro
+  return out.sort((a, b) => (b.dataColeta || '').localeCompare(a.dataColeta || ''));
+}
+
+const STATUS_META = {
+  coletado: { label: 'Coletado · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
+  d15_pos:  { label: 'D15+ · aguarda D45',   bg: '#fef3c7', ink: '#78350f' },
+  d45_pos:  { label: 'D45+ · aguarda D60',   bg: '#fde68a', ink: '#78350f' },
+  d60_pos:  { label: 'D60+ · confirmado',    bg: '#dcfce7', ink: '#15803d' },
+  d15_neg:  { label: 'D15 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d45_neg:  { label: 'D45 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d60_neg:  { label: 'D60 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+};
+
+// Aplica patch nos dgs de um embrião dentro de um registro CE.
+// Mantém o formato dgsEmbrioes[] para múltiplos; usa d.dgXX para N=1 (legado).
+function patchDgEmbriao(registro, embIdx, patch) {
+  const d = { ...(registro.dados || {}) };
+  const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
+  if (qtd === 1) {
+    // Legado: mantém dg15/30/45/60 no dado raiz
+    Object.assign(d, patch);
+  } else {
+    const arr = Array.isArray(d.dgsEmbrioes) ? [...d.dgsEmbrioes] : [];
+    while (arr.length < qtd) arr.push({});
+    arr[embIdx] = { ...(arr[embIdx] || {}), ...patch };
+    d.dgsEmbrioes = arr;
+  }
+  return { ...registro, dados: d };
+}
+
+function PainelEmbrioesAcompanhamento({
+  registrosRepro = [], eguasLookup = [], centraisRepro = [],
+  updateRegistroReproducao,
+}) {
+  const [verHistorico, setVerHistorico] = useState(false);
+  const [editReceptoraId, setEditReceptoraId] = useState(null); // `${regId}:${embIdx}`
+  const [receptoraDraft, setReceptoraDraft] = useState('');
+  const todos = useMemo(
+    () => embrioesEmAcompanhamento(registrosRepro, eguasLookup),
+    [registrosRepro, eguasLookup],
+  );
+  const ativos = todos.filter(e => !e.concluido);
+  const concluidos = todos.filter(e => e.concluido);
+  const lista = verHistorico ? concluidos : ativos;
+
+  if (todos.length === 0) return null;
+
+  const centralNome = (id) => centraisRepro.find(c => c.id === id)?.nome || '—';
+
+  const marcarDg = (item, campo, valor) => {
+    if (!updateRegistroReproducao) return;
+    const reg = registrosRepro.find(r => r.id === item.regId);
+    if (!reg) return;
+    const atual = item.dgs?.[campo] || null;
+    const novo = atual === valor ? null : valor;
+    const patch = { [campo]: novo, [`${campo}_data`]: novo ? new Date().toLocaleDateString('sv-SE') : null };
+    const regAtualizado = patchDgEmbriao(reg, item.embIdx, patch);
+    updateRegistroReproducao(reg.id, regAtualizado);
+  };
+
+  const salvarReceptora = (item) => {
+    if (!updateRegistroReproducao) return;
+    const reg = registrosRepro.find(r => r.id === item.regId);
+    if (!reg) return;
+    const regAtualizado = patchDgEmbriao(reg, item.embIdx, { receptora: receptoraDraft.trim() });
+    updateRegistroReproducao(reg.id, regAtualizado);
+    setEditReceptoraId(null);
+    setReceptoraDraft('');
+  };
+
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+      padding: 14, marginBottom: 12,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+        <div style={{
+          width: 32, height: 32, borderRadius: 10, background: '#cffafe', color: '#0e7490',
+          display: 'grid', placeItems: 'center', flexShrink: 0,
+        }}>
+          <Icon name="file" size={16} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>
+            Embriões em acompanhamento
+          </div>
+          <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+            {ativos.length} ativo{ativos.length === 1 ? '' : 's'}{concluidos.length > 0 ? ` · ${concluidos.length} concluído${concluidos.length === 1 ? '' : 's'}` : ''}
+          </div>
+        </div>
+        {concluidos.length > 0 && (
+          <button onClick={() => setVerHistorico(v => !v)} style={{
+            padding: '6px 10px', borderRadius: 8, border: '1px solid var(--line)',
+            background: verHistorico ? '#f3e8ff' : 'transparent',
+            color: verHistorico ? '#7c2d8c' : 'var(--ink-3)',
+            fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            textTransform: 'uppercase', letterSpacing: '0.05em',
+          }}>{verHistorico ? 'Ver ativos' : 'Ver histórico'}</button>
+        )}
+      </div>
+
+      {lista.length === 0 && (
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', textAlign: 'center', padding: '14px 0' }}>
+          {verHistorico ? 'Nenhum embrião concluído ainda.' : 'Nenhum embrião ativo no momento.'}
+        </div>
+      )}
+
+      {lista.map((item) => {
+        const key = `${item.regId}:${item.embIdx}`;
+        const meta = STATUS_META[item.status] || STATUS_META.coletado;
+        const destinoLabel = item.destino?.tipo === 'central'
+          ? `Central: ${centralNome(item.destino.centralId)}`
+          : `Égua: ${item.destino?.eguaNome || '—'}`;
+        const precisaReceptora = item.destino?.tipo === 'central'
+          && item.dgs?.dg15 === 'positivo'
+          && !item.dgs?.receptora;
+        const temReceptora = !!item.dgs?.receptora;
+        const isEditandoReceptora = editReceptoraId === key;
+        return (
+          <div key={key} style={{
+            borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 10,
+            opacity: item.concluido && !verHistorico ? 0.6 : 1,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>
+                {item.garanhao || '—'} × {item.eguaDoadora}
+                {item.qtdTotalEmbrioes > 1 && (
+                  <span style={{ fontSize: 10, color: 'var(--ink-3)', marginLeft: 6 }}>
+                    (embrião {item.embIdx + 1}/{item.qtdTotalEmbrioes})
+                  </span>
+                )}
+              </div>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                background: meta.bg, color: meta.ink, textTransform: 'uppercase', letterSpacing: '0.04em',
+              }}>{meta.label}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6 }}>
+              Coleta: {fmtDataBr(item.dataColeta)} · {destinoLabel}
+              {temReceptora && item.destino?.tipo === 'central' && (
+                <> · Receptora: <strong style={{ color: 'var(--ink-2)' }}>{item.dgs.receptora}</strong></>
+              )}
+            </div>
+
+            {precisaReceptora && !isEditandoReceptora && (
+              <div style={{
+                background: '#fef3c7', border: '1px solid #f59e0b',
+                padding: '8px 10px', borderRadius: 8, marginBottom: 8,
+                display: 'flex', alignItems: 'center', gap: 8, fontSize: 11, color: '#78350f',
+              }}>
+                <Icon name="bell" size={12} />
+                <span style={{ flex: 1 }}>D15+: informe a receptora da central</span>
+                <button onClick={() => { setEditReceptoraId(key); setReceptoraDraft(''); }} style={{
+                  padding: '5px 10px', borderRadius: 6, border: 'none', background: '#f59e0b',
+                  color: '#fff', fontSize: 10, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>Informar</button>
+              </div>
+            )}
+            {isEditandoReceptora && (
+              <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+                <input autoFocus value={receptoraDraft} onChange={e => setReceptoraDraft(e.target.value)}
+                  placeholder="Nome da receptora"
+                  style={{
+                    flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)',
+                    background: 'var(--bg)', fontSize: 12, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+                  }} />
+                <button onClick={() => { setEditReceptoraId(null); setReceptoraDraft(''); }} style={{
+                  padding: '7px 10px', borderRadius: 8, border: '1px solid var(--line)',
+                  background: 'transparent', color: 'var(--ink-3)', fontSize: 11, cursor: 'pointer',
+                }}>Cancelar</button>
+                <button onClick={() => salvarReceptora(item)} disabled={!receptoraDraft.trim()} style={{
+                  padding: '7px 12px', borderRadius: 8, border: 'none',
+                  background: receptoraDraft.trim() ? '#0e7490' : 'var(--line)', color: '#fff',
+                  fontSize: 11, fontWeight: 700, cursor: receptoraDraft.trim() ? 'pointer' : 'default',
+                }}>Salvar</button>
+              </div>
+            )}
+            {temReceptora && item.destino?.tipo === 'central' && !isEditandoReceptora && (
+              <button onClick={() => { setEditReceptoraId(key); setReceptoraDraft(item.dgs.receptora || ''); }} style={{
+                padding: '4px 8px', borderRadius: 6, border: '1px dashed var(--line)',
+                background: 'transparent', color: 'var(--ink-3)', fontSize: 10, cursor: 'pointer',
+                fontFamily: 'var(--sans)', marginBottom: 8,
+              }}>Editar receptora</button>
+            )}
+
+            {/* Botões de DG */}
+            {!verHistorico && (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
+                {[['dg15', 'D15'], ['dg45', 'D45'], ['dg60', 'D60']].map(([campo, lbl]) => {
+                  const val = item.dgs?.[campo] || null;
+                  return (
+                    <div key={campo} style={{
+                      padding: 6, borderRadius: 8, border: '1px solid var(--line)',
+                      background: 'var(--bg)',
+                    }}>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>{lbl}</div>
+                      <div style={{ display: 'flex', gap: 3 }}>
+                        {['positivo', 'negativo'].map(v => (
+                          <button key={v} onClick={() => marcarDg(item, campo, v)} style={{
+                            flex: 1, padding: '4px 2px', borderRadius: 5, fontSize: 9, fontWeight: 700,
+                            border: `1px solid ${val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--line)'}`,
+                            background: val === v ? (v === 'positivo' ? '#dcfce7' : '#fee2e2') : 'var(--card)',
+                            color: val === v ? (v === 'positivo' ? '#15803d' : '#dc2626') : 'var(--ink-3)',
+                            cursor: 'pointer', fontFamily: 'var(--sans)',
+                          }}>{v === 'positivo' ? '✓' : '✗'}</button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // Monta a mensagem de WhatsApp pra reservar receptora na central.
 // Lê quantidade de receptoras do campo ovulacoes do registro IA
 // (0 ou vazio = default 1), nome do proprietário via cavalos+props,
@@ -1459,6 +1743,117 @@ function ReproLocais({ locaisRepro, vetsExternos = [], vetKmLocais = [], addLoca
 }
 
 // ─────────────────────────────────────────────────────────────
+// Centrais de reprodução — destinos de embriões coletados
+// (distintos de locais_repro: aqui são lugares pra onde o
+// embrião é ENVIADO, não lugares que o vet visita).
+// ─────────────────────────────────────────────────────────────
+function ReproCentrais({ centraisRepro = [], addCentralRepro, updateCentralRepro, deleteCentralRepro }) {
+  const [busca, setBusca] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [editId, setEditId] = useState(null);
+  const [form, setForm] = useState({ nome: '', cidade: '', estado: '', contato: '', telefone: '', observacoes: '' });
+
+  const lista = [...centraisRepro]
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+    .filter(c => !busca.trim() || norm(`${c.nome || ''} ${c.cidade || ''} ${c.contato || ''}`).includes(norm(busca.trim())));
+
+  const abrirNovo = () => {
+    setEditId(null);
+    setForm({ nome: '', cidade: '', estado: '', contato: '', telefone: '', observacoes: '' });
+    setShowForm(true);
+  };
+  const abrirEditar = (c) => {
+    setEditId(c.id);
+    setForm({ nome: c.nome, cidade: c.cidade || '', estado: c.estado || '', contato: c.contato || '', telefone: c.telefone || '', observacoes: c.observacoes || '' });
+    setShowForm(true);
+  };
+  const salvar = () => {
+    if (!form.nome.trim()) return;
+    if (editId) updateCentralRepro(editId, form);
+    else addCentralRepro(form);
+    setShowForm(false);
+  };
+
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+    border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
+
+  return (
+    <div>
+      <TopBar title="Centrais de reprodução" subtitle="Destinos de embriões coletados" action={
+        <button onClick={abrirNovo} style={{
+          width: 36, height: 36, borderRadius: 12, background: CORES_TAB_ATIVA,
+          display: 'grid', placeItems: 'center', border: 'none', cursor: 'pointer',
+        }}>
+          <Icon name="plus" size={18} color="#fff" />
+        </button>
+      } />
+      <div style={{ padding: '12px 20px 0' }}>
+        <SearchBar value={busca} onChange={setBusca} placeholder="Buscar central…" />
+      </div>
+      <div style={{ padding: '12px 20px 0' }}>
+        {lista.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
+            {busca ? 'Nenhuma central encontrada.' : 'Nenhuma central cadastrada. Toque em + para criar.'}
+          </div>
+        )}
+        {lista.map(c => (
+          <div key={c.id} style={{
+            background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+            padding: '14px 16px', marginBottom: 8,
+            display: 'flex', alignItems: 'center', gap: 12,
+          }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: 10, background: '#cffafe', color: '#0e7490',
+              display: 'grid', placeItems: 'center', flexShrink: 0,
+            }}>
+              <Icon name="building" size={18} />
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>{c.nome}</div>
+              <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>
+                {[c.cidade, c.estado].filter(Boolean).join(' / ') || c.contato || c.telefone || '—'}
+              </div>
+            </div>
+            <button onClick={() => abrirEditar(c)} style={{
+              width: 32, height: 32, borderRadius: 10, border: '1px solid var(--line)',
+              background: 'transparent', display: 'grid', placeItems: 'center', color: 'var(--ink-3)', cursor: 'pointer',
+            }}>
+              <Icon name="edit" size={14} />
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {showForm && (
+        <Modal onClose={() => setShowForm(false)}>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 14 }}>
+            {editId ? 'Editar central' : 'Nova central'}
+          </div>
+          <FormField label="Nome da central"><input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} /></FormField>
+          <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
+            <FormField label="Cidade"><input value={form.cidade} onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))} style={inputStyle} /></FormField>
+            <FormField label="Estado"><input value={form.estado} onChange={e => setForm(f => ({ ...f, estado: e.target.value.toUpperCase().slice(0, 2) }))} style={inputStyle} /></FormField>
+          </div>
+          <FormField label="Contato (responsável)"><input value={form.contato} onChange={e => setForm(f => ({ ...f, contato: e.target.value }))} style={inputStyle} placeholder="Ex: Dr. João" /></FormField>
+          <FormField label="Telefone / WhatsApp"><input value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} style={inputStyle} placeholder="(xx) xxxx-xxxx" /></FormField>
+          <FormField label="Observações"><textarea value={form.observacoes} onChange={e => setForm(f => ({ ...f, observacoes: e.target.value }))} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} /></FormField>
+          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+            {editId && deleteCentralRepro && (
+              <button onClick={() => { if (window.confirm(`Excluir ${form.nome}?`)) { deleteCentralRepro(editId); setShowForm(false); } }} style={{ padding: '11px 14px', borderRadius: 10, border: '1px solid #dc262640', background: '#fee2e2', color: '#dc2626', fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Excluir</button>
+            )}
+            <button onClick={() => setShowForm(false)} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Cancelar</button>
+            <button onClick={salvar} disabled={!form.nome.trim()} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: form.nome.trim() ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: form.nome.trim() ? 1 : 0.5 }}>{editId ? 'Salvar' : 'Criar'}</button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────
 // Proprietários do Repro (workspace='repro')
 // ─────────────────────────────────────────────────────────────
 function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updateProprietario, deleteProprietario }) {
@@ -1559,7 +1954,7 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
           <FormField label="Nome"><input value={form.nome} onChange={e => setForm(f => ({ ...f, nome: e.target.value }))} style={inputStyle} autoFocus /></FormField>
           <FormField label="Telefone"><input value={form.telefone} onChange={e => setForm(f => ({ ...f, telefone: e.target.value }))} style={inputStyle} placeholder="(11) 99999-9999" /></FormField>
           <FormField label="Email"><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></FormField>
-          <FormField label="Valor do resultado reprodutivo (R$) — cobrado quando DG30+">
+          <FormField label="Valor do resultado reprodutivo (R$) — cobrado quando DG45+">
             <input type="number" min="0" step="0.01" value={form.valorResultadoRepro} onChange={e => setForm(f => ({ ...f, valorResultadoRepro: e.target.value }))} style={inputStyle} placeholder="0,00" />
           </FormField>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
@@ -1981,6 +2376,7 @@ const addDias = (iso, n) => {
 
 function ReproCaderno({
   registrosRepro, eguasRepro, eguasParaLookup, propRepro, propParaLookup, locaisRepro, vetsExternos, currentUser,
+  centraisRepro = [],
   servicos = [], insumos = [],
   preFill = null, onConsumirPreFill,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
@@ -2087,6 +2483,7 @@ function ReproCaderno({
           eguasRepro={eguasRepro}
           propRepro={propRepro}
           locaisRepro={locaisRepro}
+          centraisRepro={centraisRepro}
           vetsExternos={vetsExternos}
           currentUser={currentUser}
           servicos={servicos}
@@ -3421,7 +3818,7 @@ function UltimaAnotacaoEgua({ eguaId, eguasRepro = [], propRepro = [], locaisRep
   );
 }
 
-function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, vetsExternos = [], currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel, updateRegistroReproducao = null }) {
+function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, locaisRepro, centraisRepro = [], vetsExternos = [], currentUser, servicos = [], insumos = [], registrosRepro = [], onSave, onCancel, updateRegistroReproducao = null }) {
   // Data local (toISOString é UTC: depois das 21h caía no dia seguinte e
   // o registro do último dia do mês ia para a fatura do mês seguinte).
   const hoje = new Date().toLocaleDateString('sv-SE');
@@ -3510,9 +3907,19 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
   // IDs dos insumos obrigatórios do serviço vinculado ao tipo/dados
   // atuais. Usado tanto pra pré-popular insumosUsados no init quanto pra
   // o badge "obrig." nas linhas. Memoizado pra não recomputar a cada tecla.
-  const obrigatoriosAtuais = useMemo(
+  //
+  // Filtra obrigatórios cujo insumoId não existe mais no catálogo visível:
+  // antes esses vinham como linhas vazias "— Selecionar insumo —" com badge
+  // "Obrig." (ex.: 4 descartáveis do serviço CE apontando pra IDs deletados).
+  const insumosDisponiveisIds = useMemo(() => new Set(insumos.map(i => i.id)), [insumos]);
+  const obrigatoriosBruto = useMemo(
     () => obrigatoriosDoServico(tipo, dados, servicos),
     [tipo, dados, servicos],
+  );
+  const obrigatoriosOrfaosCount = obrigatoriosBruto.filter(o => !insumosDisponiveisIds.has(o.insumoId)).length;
+  const obrigatoriosAtuais = useMemo(
+    () => obrigatoriosBruto.filter(o => insumosDisponiveisIds.has(o.insumoId)),
+    [obrigatoriosBruto, insumosDisponiveisIds],
   );
   const obrigatoriosIds = useMemo(
     () => new Set(obrigatoriosAtuais.map(o => o.insumoId)),
@@ -3771,46 +4178,76 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
                   onChange={e => {
                     const n = Math.max(1, parseInt(e.target.value, 10) || 1);
                     setDado('qtdEmbrioes', n);
-                    // Ajusta array de receptoras
-                    const atual = Array.isArray(dados.receptoras) ? [...dados.receptoras] : [];
-                    while (atual.length < n) atual.push('');
+                    // Ajusta array de destinos
+                    const atual = Array.isArray(dados.destinos) ? [...dados.destinos] : [];
+                    while (atual.length < n) atual.push({ tipo: 'central', centralId: '', eguaNome: '' });
                     while (atual.length > n) atual.pop();
-                    setDado('receptoras', atual);
+                    setDado('destinos', atual);
                   }} style={inputStyle} placeholder="1" />
               </FormField>
               {(() => {
                 const n = Math.max(1, Number(dados.qtdEmbrioes) || 1);
-                const receptoras = Array.isArray(dados.receptoras) ? dados.receptoras : (dados.receptora ? [dados.receptora] : ['']);
-                // Preenche até n
-                while (receptoras.length < n) receptoras.push('');
-                return n === 1 ? (
-                  <FormField label="Receptora (nome ou local)">
-                    <input value={receptoras[0] || dados.receptora || ''}
-                      onChange={e => { setDado('receptoras', [e.target.value]); setDado('receptora', e.target.value); }}
-                      style={inputStyle} placeholder="Ex: Receptora 42 · Piquete 3" />
-                  </FormField>
-                ) : (
+                // Migração: se tem receptoras no formato antigo, converte pra destinos tipo=egua
+                const destinosLegacy = Array.isArray(dados.destinos) ? dados.destinos :
+                  (Array.isArray(dados.receptoras) ? dados.receptoras.map(r => ({ tipo: 'egua', centralId: '', eguaNome: r || '' })) :
+                  (dados.receptora ? [{ tipo: 'egua', centralId: '', eguaNome: dados.receptora }] : []));
+                const destinos = [...destinosLegacy];
+                while (destinos.length < n) destinos.push({ tipo: 'central', centralId: '', eguaNome: '' });
+                const setDestino = (i, patch) => {
+                  const arr = [...destinos];
+                  arr[i] = { ...arr[i], ...patch };
+                  setDado('destinos', arr);
+                };
+                return (
                   <div style={{ marginBottom: 10 }}>
                     <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>
-                      Receptoras (uma por embrião)
+                      Destino {n > 1 ? '(por embrião)' : 'do embrião'}
                     </div>
-                    {Array.from({ length: n }).map((_, i) => (
-                      <input key={i}
-                        value={receptoras[i] || ''}
-                        onChange={e => {
-                          const arr = [...(dados.receptoras || Array(n).fill(''))];
-                          while (arr.length < n) arr.push('');
-                          arr[i] = e.target.value;
-                          setDado('receptoras', arr);
-                        }}
-                        style={{ ...inputStyle, marginBottom: 6 }}
-                        placeholder={`Embrião ${i + 1} — receptora`} />
-                    ))}
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 8, lineHeight: 1.4 }}>
+                      Receptora é definida depois: se Central, só se sabe no D15.
+                    </div>
+                    {Array.from({ length: n }).map((_, i) => {
+                      const d = destinos[i] || { tipo: 'central', centralId: '', eguaNome: '' };
+                      return (
+                        <div key={i} style={{
+                          marginBottom: 10, padding: 10, borderRadius: 10,
+                          border: '1px solid var(--line)', background: 'var(--card)',
+                        }}>
+                          {n > 1 && (
+                            <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, marginBottom: 6 }}>
+                              Embrião {i + 1}
+                            </div>
+                          )}
+                          <div style={{ display: 'flex', gap: 4, marginBottom: 8 }}>
+                            {[['central', 'Central'], ['egua', 'Égua nossa']].map(([v, lbl]) => (
+                              <button key={v} type="button" onClick={() => setDestino(i, { tipo: v })} style={{
+                                flex: 1, padding: '7px 8px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                                border: `1.5px solid ${d.tipo === v ? '#0e7490' : 'var(--line)'}`,
+                                background: d.tipo === v ? '#cffafe' : 'var(--bg)',
+                                color: d.tipo === v ? '#0e7490' : 'var(--ink-2)',
+                                cursor: 'pointer', fontFamily: 'var(--sans)',
+                              }}>{lbl}</button>
+                            ))}
+                          </div>
+                          {d.tipo === 'central' ? (
+                            <select value={d.centralId || ''} onChange={e => setDestino(i, { centralId: e.target.value })} style={inputStyle}>
+                              <option value="">— Selecione a central —</option>
+                              {[...centraisRepro].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(c => (
+                                <option key={c.id} value={c.id}>{c.nome}{c.cidade ? ` · ${c.cidade}` : ''}</option>
+                              ))}
+                            </select>
+                          ) : (
+                            <input value={d.eguaNome || ''} onChange={e => setDestino(i, { eguaNome: e.target.value })}
+                              style={inputStyle} placeholder="Nome da égua receptora" />
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 );
               })()}
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 10 }}>
-                Diagnósticos gestacionais (DG15/30/45) de cada embrião podem ser marcados abrindo o detalhe do registro.
+                DGs (D15/D45/D60) são marcados no painel "Embriões em acompanhamento" na home.
               </div>
             </>
           )}
@@ -3933,6 +4370,15 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         setInsumosUsados={setInsumosUsados}
         obrigatoriosIds={obrigatoriosIds}
       />
+      {obrigatoriosOrfaosCount > 0 && (
+        <div style={{
+          padding: '8px 12px', borderRadius: 8, marginTop: -4, marginBottom: 10,
+          background: '#fef3c7', border: '1px solid #f59e0b', fontSize: 11, color: '#78350f',
+        }}>
+          ⚠ {obrigatoriosOrfaosCount} descartável(is) obrigatório(s) do cadastro deste serviço
+          referencia(m) insumos que não estão no catálogo. Revise em Cadastros → Serviços.
+        </div>
+      )}
 
       <FormField label="Observações">
         <textarea value={dados.observacoes || ''} onChange={e => setDado('observacoes', e.target.value)} style={{ ...inputStyle, minHeight: 60, resize: 'vertical' }} />
@@ -4023,8 +4469,8 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
 
   const dgs = [
     ['dg15', 'DG 15 dias'],
-    ['dg30', 'DG 30 dias'],
     ['dg45', 'DG 45 dias'],
+    ['dg60', 'DG 60 dias'],
   ];
 
   return (
@@ -4193,6 +4639,7 @@ const DetalheLinha = ({ label, valor }) => {
 // ─────────────────────────────────────────────────────────────
 function ReproCadastros({
   currentUser, vetsExternos, locaisRepro, propRepro, eguasRepro,
+  centraisRepro = [], addCentralRepro, updateCentralRepro, deleteCentralRepro,
   insumos, servicos,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
   addProprietario, updateProprietario, deleteProprietario,
@@ -4209,6 +4656,7 @@ function ReproCadastros({
 
   const abas = [
     ['locais', 'Locais'],
+    ['centrais', 'Centrais'],
     ['proprietarios', 'Proprietários'],
     ['eguas', 'Éguas'],
     ['insumos', 'Insumos'],
@@ -4240,6 +4688,14 @@ function ReproCadastros({
           updateLocalRepro={updateLocalRepro}
           deleteLocalRepro={deleteLocalRepro}
           onOpen={onOpenLocal}
+        />
+      )}
+      {sub === 'centrais' && (
+        <ReproCentrais
+          centraisRepro={centraisRepro}
+          addCentralRepro={addCentralRepro}
+          updateCentralRepro={updateCentralRepro}
+          deleteCentralRepro={deleteCentralRepro}
         />
       )}
       {sub === 'proprietarios' && (
@@ -4492,8 +4948,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
     return { total, pos, pct: total ? Math.round((pos / total) * 100) : 0 };
   };
   const dg15 = contarDg('dg15');
-  const dg30 = contarDg('dg30');
   const dg45 = contarDg('dg45');
+  const dg60 = contarDg('dg60');
 
   const cards = [
     { label: 'IA', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff' },
@@ -4558,7 +5014,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
           <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
             Diagnósticos gestacionais
           </div>
-          {[['DG 15', dg15], ['DG 30', dg30], ['DG 45', dg45]].map(([lbl, d]) => (
+          {[['DG 15', dg15], ['DG 45', dg45], ['DG 60', dg60]].map(([lbl, d]) => (
             <div key={lbl} style={{ marginBottom: 8 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
                 <span style={{ color: 'var(--ink)' }}>{lbl}</span>
@@ -5081,12 +5537,12 @@ function HistoricoEgua({ egua, registrosRepro, vetsExternos, locaisRepro, propRe
                       const badges = [];
                       if (arr && arr.length > 0) {
                         arr.forEach((e, i) => {
-                          ['dg15', 'dg30', 'dg45'].forEach(k => {
+                          ['dg15', 'dg45', 'dg60'].forEach(k => {
                             if (e?.[k]) badges.push({ chave: `e${i}${k}`, label: `E${i + 1} ${k.toUpperCase()}`, valor: e[k] });
                           });
                         });
                       } else if (r.dados) {
-                        ['dg15', 'dg30', 'dg45'].forEach(k => {
+                        ['dg15', 'dg45', 'dg60'].forEach(k => {
                           if (r.dados[k]) badges.push({ chave: k, label: k.toUpperCase(), valor: r.dados[k] });
                         });
                       }
@@ -5134,6 +5590,7 @@ function ReproCobrancas({
   currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal,
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
   vetsExternos, empresaInfo,
+  centraisRepro = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
@@ -5175,6 +5632,7 @@ function ReproCobrancas({
           insumos={insumos}
           vetKmLocais={vetKmLocais}
           locais={locaisRepro}
+          centraisRepro={centraisRepro}
           vetsExternos={vetsExternos}
           empresaInfo={empresaInfo}
           currentUser={currentUser}
@@ -5245,6 +5703,7 @@ const navBtn = {
 function ReproFaturas({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
   vetKmLocais, locais, vetsExternos, empresaInfo, currentUser,
+  centraisRepro = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
@@ -5292,6 +5751,7 @@ function ReproFaturas({
           eguasRepro={cavalos.filter(c => (c.workspaceId || 'haras') === 'repro')}
           propRepro={propRepro}
           locaisRepro={locais}
+          centraisRepro={centraisRepro}
           servicos={servicos}
           insumos={insumos}
           currentUser={currentUser}
@@ -5358,7 +5818,7 @@ function ReproFaturas({
                   (fat.insumosLinhas || []).length ? `${fat.insumosLinhas.length} insumo(s)` : null,
                   (fat.procedimentosLinhas || []).length ? `${fat.procedimentosLinhas.length} proc.` : null,
                   (fat.avulsosLinhas || []).length ? `${fat.avulsosLinhas.length} avulso(s)` : null,
-                  (fat.resultadosLinhas || []).length ? `${fat.resultadosLinhas.length} DG30+` : null,
+                  (fat.resultadosLinhas || []).length ? `${fat.resultadosLinhas.length} DG45+` : null,
                   (fat.assessoriasLinhas || []).length ? `${fat.assessoriasLinhas.length} assess.` : null,
                 ].filter(Boolean).join(' · ')}
               </div>
@@ -5395,7 +5855,7 @@ const StatusChip = ({ status, pagoEm, fechadaEm }) => {
 
 function ReproFaturaDetalhe({
   fatura, persist = null, empresaInfo, vetsExternos, onBack,
-  registros = [], eguasDoProp = [], eguasRepro = [], propRepro = [], locaisRepro = [], servicos = [], insumos = [], currentUser,
+  registros = [], eguasDoProp = [], eguasRepro = [], propRepro = [], locaisRepro = [], centraisRepro = [], servicos = [], insumos = [], currentUser,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   mesRef,
   addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
@@ -5647,6 +6107,7 @@ function ReproFaturaDetalhe({
           eguasRepro={eguasRepro}
           propRepro={propRepro}
           locaisRepro={locaisRepro}
+          centraisRepro={centraisRepro}
           vetsExternos={vetsExternos}
           currentUser={currentUser}
           servicos={servicos}
@@ -6220,6 +6681,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 // ─────────────────────────────────────────────────────────────
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
+  centraisRepro = [],
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
@@ -6228,6 +6690,7 @@ export function ReproApp({
   visitasClinicas = [], addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   empresaInfo = null,
   addLocalRepro, updateLocalRepro, deleteLocalRepro,
+  addCentralRepro, updateCentralRepro, deleteCentralRepro,
   addProprietario, updateProprietario, deleteProprietario,
   addCavalo, updateCavalo, deleteCavalo,
   addInsumo, updateInsumo, deleteInsumo,
@@ -6380,6 +6843,7 @@ export function ReproApp({
     content = <ReproHome
       currentUser={currentUser}
       locaisRepro={locaisRepro}
+      centraisRepro={centraisRepro}
       propRepro={propRepro}
       eguasRepro={eguasRepro}
       // Lookup completo (sem filtro de local) pros planners/agenda
@@ -6448,6 +6912,7 @@ export function ReproApp({
         currentUser={currentUser}
         vetsExternos={vetsExternos}
         locaisRepro={locaisRepro}
+        centraisRepro={centraisRepro}
         propRepro={propRepro}
         eguasRepro={eguasRepro}
         insumos={insumosRepro}
@@ -6456,6 +6921,9 @@ export function ReproApp({
         addLocalRepro={addLocalRepro}
         updateLocalRepro={updateLocalRepro}
         deleteLocalRepro={deleteLocalRepro}
+        addCentralRepro={addCentralRepro}
+        updateCentralRepro={updateCentralRepro}
+        deleteCentralRepro={deleteCentralRepro}
         addProprietario={addProprietario}
         updateProprietario={updateProprietario}
         deleteProprietario={deleteProprietario}
@@ -6483,6 +6951,7 @@ export function ReproApp({
       propRepro={propRepro}
       propParaLookup={propReproTodos}
       locaisRepro={locaisRepro}
+      centraisRepro={centraisRepro}
       vetsExternos={vetsExternos}
       currentUser={currentUser}
       servicos={servicosRepro}
@@ -6701,6 +7170,7 @@ export function ReproApp({
       insumos={insumosRepro}
       vetsExternos={vetsExternos}
       empresaInfo={empresaInfo}
+      centraisRepro={centraisRepro}
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}

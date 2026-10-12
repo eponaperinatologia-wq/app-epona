@@ -104,6 +104,22 @@ export const toDbLocalRepro = l => ({
   observacoes: l.observacoes || '',
 });
 
+// ── Central de reprodução (destino de embriões coletados) ──
+// Diferente de locais_repro: central é lugar PRA ONDE o embrião é
+// enviado (nem sempre a receptora é conhecida na hora da coleta).
+export const fromDbCentralRepro = r => ({
+  id: r.id, workspaceId: r.workspace_id || 'repro',
+  nome: r.nome, cidade: r.cidade || '', estado: r.estado || '',
+  contato: r.contato || '', telefone: r.telefone || '',
+  observacoes: r.observacoes || '',
+});
+export const toDbCentralRepro = c => ({
+  id: c.id, workspace_id: c.workspaceId || 'repro',
+  nome: c.nome, cidade: c.cidade || '', estado: c.estado || '',
+  contato: c.contato || '', telefone: c.telefone || '',
+  observacoes: c.observacoes || '',
+});
+
 // ── Valor de km por vet + local ─────────────────────────────
 export const fromDbVetKmLocal = r => ({
   id: r.id, vetId: r.vet_id, localId: r.local_id,
