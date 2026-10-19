@@ -36,11 +36,33 @@ export function servicosPadrao(servicos) {
   const isIa = (s) => /insemina/.test(n(s));
   const isTeEstrito = (s) => /(coleta|transferencia)\s+(de\s+)?embri|^(ce|te)\b|\((ce|te)\)/.test(n(s));
   const isTeAmplo = (s) => /^coleta\b|^transferencia\b/.test(n(s));
+  // Variantes "+" e "−" (ou "-") no nome diferenciam coleta positiva × negativa.
+  // Descartáveis obrigatórios diferem (CE+ gasta mais material); valor costuma
+  // ser o mesmo. teGenerico mantido como fallback pra fluxo antigo com 1 serviço só.
+  const isTePositivo = (s) => isTeEstrito(s) && /[+]/.test(s.nome || '');
+  const isTeNegativo = (s) => isTeEstrito(s) && /[-−]/.test(s.nome || '');
   const achar = (pred) => svRepro.find(pred) || svHaras.find(pred) || null;
+  const tePositivo = achar(isTePositivo);
+  const teNegativo = achar(isTeNegativo);
+  // Genérico: 1º TE sem +/− no nome (quando existe só uma opção)
+  const teGenerico = achar(s => isTeEstrito(s) && !isTePositivo(s) && !isTeNegativo(s))
+    || achar(isTeAmplo);
   return {
     ia: achar(isIa),
-    te: achar(isTeEstrito) || achar(isTeAmplo),
+    te: tePositivo || teNegativo || teGenerico,
+    tePositivo, teNegativo, teGenerico,
   };
+}
+
+// Resolve qual serviço TE usar baseado no resultado da coleta.
+// - 'positivo' → serviço "+" (mais descartáveis: ringer, filtros, etc.)
+// - 'negativo' → serviço "-" (menos descartáveis)
+// - vazio/ainda não marcado → genérico ou negativo como default
+export function servicoTeParaResultado(servicos, resultado) {
+  const p = servicosPadrao(servicos);
+  if (resultado === 'positivo') return p.tePositivo || p.teGenerico || p.te;
+  if (resultado === 'negativo') return p.teNegativo || p.teGenerico || p.te;
+  return p.teGenerico || p.teNegativo || p.te;
 }
 export function precosPadraoServicos(servicos) {
   const p = servicosPadrao(servicos);

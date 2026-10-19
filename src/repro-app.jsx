@@ -6,7 +6,7 @@ import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, dividirFatura, servicosPadrao } from './utils/faturaRepro';
+import { calcFaturaRepro, dividirFatura, servicosPadrao, servicoTeParaResultado } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
@@ -3521,6 +3521,17 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
     empilhar([{ insumoId: dados.indutorOvulacaoId, qtd: 1 }]);
   }
 
+  // 0a) Ringer Lactato na Coleta de Embrião — qtd declarada no form
+  // (dados.ringerLactatoL em litros). Não entra como obrigatório do serviço
+  // porque o volume varia por coleta; é cobrado aqui no salvar.
+  if (tipo === 'transferencia_embriao') {
+    const litros = Number(dados.ringerLactatoL) || 0;
+    if (litros > 0) {
+      const insRinger = resolverPorMatcher(insumos, TU_MATCHERS.ringer);
+      if (insRinger) empilharSomando([{ insumoId: insRinger.id, qtd: litros }]);
+    }
+  }
+
   // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
   if (tipo === 'controle_folicular' && dados.medRapidos) {
     for (const m of MED_RAPIDO) {
@@ -3594,7 +3605,10 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
   const padrao = servicosPadrao(servicos);
   let svcsVinculados = [];
   if (tipo === 'inseminacao_artificial' && padrao.ia) svcsVinculados.push(padrao.ia);
-  else if (tipo === 'transferencia_embriao' && padrao.te) svcsVinculados.push(padrao.te);
+  else if (tipo === 'transferencia_embriao') {
+    const svTe = servicoTeParaResultado(servicos, dados.resultado);
+    if (svTe) svcsVinculados.push(svTe);
+  }
   else if (tipo === 'servico_avulso' && dados.servicoId) {
     const sv = servicos.find(s => s.id === dados.servicoId);
     if (sv) svcsVinculados.push(sv);
@@ -3644,7 +3658,13 @@ function obrigatoriosDoServico(tipo, dados = {}, servicos = []) {
   const padrao = servicosPadrao(servicos);
   const svcs = [];
   if (tipo === 'inseminacao_artificial' && padrao.ia) svcs.push(padrao.ia);
-  else if (tipo === 'transferencia_embriao' && padrao.te) svcs.push(padrao.te);
+  else if (tipo === 'transferencia_embriao') {
+    // CE+ e CE− têm descartáveis obrigatórios diferentes. Escolhe pelo
+    // resultado marcado no form; se ainda não marcado, usa o fallback
+    // (genérico/negativo) definido em servicoTeParaResultado.
+    const svTe = servicoTeParaResultado(servicos, dados.resultado);
+    if (svTe) svcs.push(svTe);
+  }
   else if (tipo === 'servico_avulso' && dados.servicoId) {
     const sv = servicos.find(s => s.id === dados.servicoId);
     if (sv) svcs.push(sv);
