@@ -4977,17 +4977,23 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const totalIA = regs.filter(r => r.tipo === 'inseminacao_artificial').length;
   const totalTE = regs.filter(r => r.tipo === 'transferencia_embriao').length;
   const totalCF = regs.filter(r => r.tipo === 'controle_folicular').length;
-  const totalDG = regs.filter(r => r.tipo === 'diagnostico_gestacao').length;
   const totalSV = regs.filter(r => r.tipo === 'servico_avulso').length;
 
-  // % IA que viraram TE (destino=transferencia)
+  // IAs direcionadas pra CE — mede INTENÇÃO (destino=transferencia marcado).
+  // Diferente de "IA que virou CE efetivamente": a CE pode não ter sido
+  // cadastrada ainda, ou pode estar em outro mês. Pra evitar confusão
+  // visual (ex.: 9 direcionadas vs 6 CEs reais do mês), o rótulo é claro.
   const iaTransfer = regs.filter(r => r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'transferencia').length;
   const pctIaTe = totalIA ? Math.round((iaTransfer / totalIA) * 100) : 0;
 
-  // % TE positivas
+  // Taxa de recuperação (CE+): CEs com resultado positivo sobre TOTAL de CEs
+  // do mês (não sobre "CEs com resultado marcado"). Se existem CEs sem
+  // resultado ainda, elas entram como "não positivas" — reflete o que o
+  // card "CE: N" mostra em cima, evitando denominadores diferentes.
   const tePos = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo').length;
   const teNeg = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'negativo').length;
-  const pctTePos = (tePos + teNeg) ? Math.round((tePos / (tePos + teNeg)) * 100) : 0;
+  const teSemResultado = totalTE - tePos - teNeg;
+  const pctTePos = totalTE ? Math.round((tePos / totalTE) * 100) : 0;
 
   // Taxa DG15/30/45 — considera dg no formato legado (dados.dgXX) e no
   // formato novo por embrião (dados.dgsEmbrioes[i].dgXX). Múltiplos
@@ -5013,11 +5019,18 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const dg45 = contarDg('dg45');
   const dg60 = contarDg('dg60');
 
+  // Card "Embr+": embriões recuperados em CEs positivas no mês. Antes
+  // mostrava "DG" (registros tipo diagnostico_gestacao), mas o fluxo
+  // atual marca DGs dentro do próprio CE — totalDG ficava quase sempre 0.
+  const embrioesRecuperados = regs
+    .filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
+    .reduce((s, r) => s + Math.max(1, Number(r.dados?.qtdEmbrioes) || 1), 0);
+
   const cards = [
     { label: 'IA', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff' },
     { label: 'CE', valor: totalTE, cor: '#0e7490', bg: '#cffafe' },
     { label: 'CF', valor: totalCF, cor: '#0e7490', bg: '#cffafe' },
-    { label: 'DG', valor: totalDG, cor: '#15803d', bg: '#dcfce7' },
+    { label: 'Embr+', valor: embrioesRecuperados, cor: '#15803d', bg: '#dcfce7' },
     { label: 'SV', valor: totalSV, cor: '#c2410c', bg: '#fed7aa' },
   ];
 
@@ -5068,8 +5081,13 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
       </div>
 
       <div style={{ padding: '10px 20px 20px' }}>
-        <BarraPercentual titulo="IA que viraram CE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
-        <BarraPercentual titulo="CE positivas" valor={pctTePos} totalLabel={`${tePos}/${tePos + teNeg}`} cor="#0e7490" />
+        <BarraPercentual titulo="IAs direcionadas pra CE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
+        <BarraPercentual
+          titulo={`Taxa de recuperação (CE+)${teSemResultado > 0 ? ` · ${teSemResultado} s/ resultado` : ''}`}
+          valor={pctTePos}
+          totalLabel={`${tePos}/${totalTE}`}
+          cor="#0e7490"
+        />
         <div style={{
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 8,
         }}>
