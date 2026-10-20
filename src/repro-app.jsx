@@ -4888,7 +4888,7 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // ─────────────────────────────────────────────────────────────
 function ReproPainel({
   registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
-  servicos = [],
+  servicos = [], centraisRepro = [],
   currentUser, updateRegistroReproducao, onSelectEvento,
   vetBundle = null, apenasReproducao = false,
 }) {
@@ -4917,6 +4917,7 @@ function ReproPainel({
           eguasRepro={eguasRepro}
           vetsExternos={vetsExternos}
           servicos={servicos}
+          centraisRepro={centraisRepro}
           currentUser={currentUser}
         />
       )}
@@ -4945,7 +4946,7 @@ function ReproPainel({
 }
 
 // ── Dashboard ────────────────────────────────────────────────
-function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [], currentUser }) {
+function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [], centraisRepro = [], currentUser }) {
   const hoje = new Date();
   // Default: mês mais recente com registros. Se não há registros, mês atual.
   const mesInicial = useMemo(() => {
@@ -5062,16 +5063,18 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   // DGs são atribuídos ao INSEMINADOR:
   //  - Pra CE: usa vetDaCe (via IA de origem)
   //  - Pra IA destino=prenhez: usa o próprio vetId da IA
-  // Também constrói lista detalhada que o painel usa pra abrir modal
-  // ao clicar no card "DG".
+  // dgDados.linhas tem 1 item POR EMBRIÃO (CE com qtdEmbrioes=2 vira 2
+  // linhas). Enriquece com dados da IA de origem (garanhão × égua,
+  // palhetas, ovulações, pré/pós) e com destino/receptora (do painel
+  // "Embriões Coletados"), pra alimentar o modal de detalhe.
   const dgDados = (() => {
-    const linhas = []; // { regId, cavaloId, embIdx, destino, dg15, dg45, dg60, data }
+    const linhas = [];
     const base = filtroVetId
       ? regsMes.filter(r => {
           if (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez') {
             return r.vetId === filtroVetId;
           }
-          if (r.tipo === 'transferencia_embriao') {
+          if (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo') {
             return vetDaCe(r) === filtroVetId;
           }
           return false;
@@ -5082,22 +5085,29 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         );
     for (const r of base) {
       const d = r.dados || {};
-      const arr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : null;
-      if (arr && arr.length > 0) {
-        arr.forEach((e, i) => {
-          linhas.push({
-            regId: r.id, cavaloId: r.eguaId, embIdx: i,
-            destino: r.tipo === 'inseminacao_artificial' ? 'prenhez' : 'ce',
-            dg15: e?.dg15 || null, dg45: e?.dg45 || null, dg60: e?.dg60 || null,
-            data: r.data, qtd: Number(d.qtdEmbrioes) || 1,
-          });
-        });
-      } else {
+      const isPrenhez = r.tipo === 'inseminacao_artificial';
+      const ia = isPrenhez ? r : iaDeOrigem(r);
+      const vetInseminador = ia?.vetId || r.vetId;
+      const qtd = isPrenhez ? 1 : Math.max(1, Number(d.qtdEmbrioes) || 1);
+      const destinosArr = Array.isArray(d.destinos) ? d.destinos :
+        (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
+        (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
+      const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+      for (let i = 0; i < qtd; i++) {
+        const emb = qtd === 1 && dgsArr.length === 0
+          ? { dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
+          : (dgsArr[i] || {});
+        const destino = destinosArr[i] || null;
         linhas.push({
-          regId: r.id, cavaloId: r.eguaId, embIdx: 0,
-          destino: r.tipo === 'inseminacao_artificial' ? 'prenhez' : 'ce',
-          dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null,
-          data: r.data, qtd: 1,
+          regId: r.id, cavaloId: r.eguaId, embIdx: i, qtd,
+          destino: isPrenhez ? 'prenhez' : 'ce',
+          destinoObj: destino,
+          receptora: emb.receptora || null,
+          dg15: emb.dg15 || null, dg45: emb.dg45 || null, dg60: emb.dg60 || null,
+          data: r.data,
+          garanhao: ia?.dados?.garanhao || '',
+          iaData: ia?.data || null,
+          vetInseminador,
         });
       }
     }
@@ -5112,17 +5122,18 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   const dg45 = dgDados.dg45;
   const dg60 = dgDados.dg60;
 
-  // Card "Embr+": embriões recuperados em CEs positivas no mês,
-  // atribuídos ao inseminador.
-  const embrioesRecuperados = cesAtribuidas
-    .filter(r => r.dados?.resultado === 'positivo')
+  // Card "DG": quantidade de embriões coletados em CEs positivas
+  // atribuídas (ao inseminador) no mês — cada embrião vira uma linha
+  // no modal de detalhe (com cruzamento, DGs, central, receptora).
+  const embrioesCeAtribuidas = cesAtribuidas.filter(r => r.dados?.resultado === 'positivo');
+  const totalEmbrioes = embrioesCeAtribuidas
     .reduce((s, r) => s + Math.max(1, Number(r.dados?.qtdEmbrioes) || 1), 0);
 
   const cards = [
     { label: 'IA', key: 'ia', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff', clicavel: true },
     { label: 'CE', key: 'ce', valor: totalTE, cor: '#0e7490', bg: '#cffafe', clicavel: true },
     { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: false },
-    { label: 'Embr+', key: 'embr', valor: embrioesRecuperados, cor: '#15803d', bg: '#dcfce7', clicavel: false },
+    { label: 'DG', key: 'dg', valor: totalEmbrioes, cor: '#15803d', bg: '#dcfce7', clicavel: true },
     { label: 'SV', key: 'sv', valor: totalSV, cor: '#c2410c', bg: '#fed7aa', clicavel: true },
   ];
 
@@ -5231,6 +5242,9 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
           eguasRepro={eguasRepro}
           vetsExternos={vetsExternos}
           servicos={servicos}
+          centraisRepro={centraisRepro}
+          iaDeOrigem={iaDeOrigem}
+          filtroVetAtivo={!!filtroVetId}
           onClose={() => setDetalheAberto(null)}
         />
       )}
@@ -5240,72 +5254,107 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
 
 // Lista detalhada que abre ao clicar em um card do dashboard.
 // tipo: 'ia' | 'ce' | 'dg'
-function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], svsDoMes = [], eguasRepro = [], vetsExternos = [], servicos = [], onClose }) {
+function DetalhePainelLista({
+  tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], svsDoMes = [],
+  eguasRepro = [], vetsExternos = [], servicos = [], centraisRepro = [],
+  iaDeOrigem = null, filtroVetAtivo = false, onClose,
+}) {
   const nomeEgua = (id) => eguasRepro.find(e => e.id === id)?.nome || '—';
-  const nomeVet = (id) => vetsExternos.find(v => v.id === id)?.nome || '—';
   const nomeServico = (id) => servicos.find(s => s.id === id)?.nome || '—';
+  const corDoVet = (id) => vetsExternos.find(v => v.id === id)?.cor || 'var(--line)';
+  const nomeDoVet = (id) => vetsExternos.find(v => v.id === id)?.nome || null;
   const momentoLabel = (m) => m === 'pre_ovulacao' ? 'Pré' : m === 'pos_ovulacao' ? 'Pós' : '—';
+  const nomeCentral = (id) => centraisRepro.find(c => c.id === id)?.nome || '—';
   const titulo = tipo === 'ia' ? 'Inseminações'
     : tipo === 'ce' ? 'Coletas de embrião'
     : tipo === 'sv' ? 'Serviços avulsos'
     : 'Diagnósticos gestacionais';
+
+  // Helpers de UI reutilizados por cada tipo
+  const subsIa = (dados) => [
+    dados?.qtdPalhetas ? `${dados.qtdPalhetas} palheta(s)` : null,
+    dados?.ovulacoes ? `${dados.ovulacoes} ovulação(ões)` : null,
+    `Momento: ${momentoLabel(dados?.momento)}`,
+    dados?.destino === 'transferencia' ? '→ CE' : dados?.destino === 'prenhez' ? '→ Prenhez' : null,
+  ].filter(Boolean);
 
   let linhas = [];
   if (tipo === 'ia') {
     linhas = [...iasDoMes]
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
       .map(r => ({
-        key: r.id,
+        key: r.id, vetId: r.vetId,
         titulo: `${r.dados?.garanhao || '—'} × ${nomeEgua(r.eguaId)}`,
-        subs: [
-          fmtDataBr(r.data),
-          r.dados?.qtdPalhetas ? `${r.dados.qtdPalhetas} palheta(s)` : null,
-          r.dados?.ovulacoes ? `${r.dados.ovulacoes} ovulação(ões)` : null,
-          `Momento: ${momentoLabel(r.dados?.momento)}`,
-          r.dados?.destino === 'transferencia' ? '→ CE' : r.dados?.destino === 'prenhez' ? '→ Prenhez' : null,
-        ].filter(Boolean),
+        subs: [fmtDataBr(r.data), ...subsIa(r.dados)],
       }));
   } else if (tipo === 'sv') {
     linhas = [...svsDoMes]
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
       .map(r => ({
-        key: r.id,
+        key: r.id, vetId: r.vetId,
         titulo: nomeServico(r.dados?.servicoId),
         subs: [
           fmtDataBr(r.data),
           `Égua: ${nomeEgua(r.eguaId)}`,
-          `Por: ${nomeVet(r.vetId)}`,
-        ].filter(Boolean),
+        ],
       }));
   } else if (tipo === 'ce') {
     linhas = [...cesAtribuidas]
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
       .map(r => {
         const resultado = r.dados?.resultado;
+        const ia = iaDeOrigem ? iaDeOrigem(r) : null;
+        const dadosIa = ia?.dados || {};
+        const vetId = ia?.vetId || r.vetId;
+        // Título usa os mesmos dados da IA (garanhão × égua); se não achou
+        // IA de origem, cai pro nome da égua + aviso.
+        const titulo = ia
+          ? `${dadosIa.garanhao || '—'} × ${nomeEgua(r.eguaId)}`
+          : `${nomeEgua(r.eguaId)} · sem IA vinculada`;
         return {
-          key: r.id,
-          titulo: nomeEgua(r.eguaId),
+          key: r.id, vetId,
+          titulo,
           chip: resultado === 'positivo' ? { label: '✓ Positiva', bg: '#dcfce7', ink: '#15803d' }
             : resultado === 'negativo' ? { label: '✗ Negativa', bg: '#fee2e2', ink: '#dc2626' }
-            : null,
+            : { label: 's/ resultado', bg: 'var(--soft)', ink: 'var(--ink-3)' },
           subs: [
-            fmtDataBr(r.data),
+            `IA: ${ia ? fmtDataBr(ia.data) : '—'} · Coleta: ${fmtDataBr(r.data)}`,
+            ...subsIa(dadosIa),
             resultado === 'positivo' && r.dados?.qtdEmbrioes
-              ? `${r.dados.qtdEmbrioes} embrião(ões)` : null,
+              ? `${r.dados.qtdEmbrioes} embrião(ões) recuperado(s)` : null,
           ].filter(Boolean),
         };
       });
   } else {
+    // DG: lista por EMBRIÃO (já pré-processada em dgDados.linhas).
+    // Mostra cruzamento (garanhão × égua), destino (central ou égua
+    // nossa), receptora quando preenchida, e badges DG15/45/60.
+    const chip = (v) => v === 'positivo' ? { label: '+', bg: '#dcfce7', ink: '#15803d' }
+      : v === 'negativo' ? { label: '−', bg: '#fee2e2', ink: '#dc2626' }
+      : { label: '·', bg: 'var(--soft)', ink: 'var(--ink-3)' };
     linhas = [...dgLinhas]
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
       .map((l, i) => {
-        const chip = (v) => v === 'positivo' ? { label: '+', bg: '#dcfce7', ink: '#15803d' }
-          : v === 'negativo' ? { label: '-', bg: '#fee2e2', ink: '#dc2626' }
-          : { label: '·', bg: 'var(--soft)', ink: 'var(--ink-3)' };
+        const d = l.destinoObj;
+        const destinoLabel = l.destino === 'prenhez'
+          ? 'IA → prenhez'
+          : (d?.tipo === 'central'
+            ? `Central: ${nomeCentral(d.centralId)}`
+            : d?.tipo === 'egua'
+              ? `Égua: ${d.eguaNome || '—'}`
+              : '—');
+        const receptoraLabel = (l.destino === 'ce' && d?.tipo === 'central' && l.receptora)
+          ? `Receptora: ${l.receptora}` : null;
         return {
           key: `${l.regId}:${l.embIdx}:${i}`,
-          titulo: `${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
-          subs: [fmtDataBr(l.data), l.destino === 'prenhez' ? 'IA → prenhez' : 'CE'].filter(Boolean),
+          vetId: l.vetInseminador,
+          titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
+          subs: [
+            l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
+            l.destino === 'ce' ? `Coleta: ${fmtDataBr(l.data)}` : `Data: ${fmtDataBr(l.data)}`,
+            destinoLabel,
+            receptoraLabel,
+          ].filter(Boolean),
           dgs: { dg15: chip(l.dg15), dg45: chip(l.dg45), dg60: chip(l.dg60) },
         };
       });
@@ -5322,32 +5371,47 @@ function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas 
         </div>
       )}
       <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
-        {linhas.map(l => (
-          <div key={l.key} style={{
-            padding: '10px 2px', borderBottom: '1px solid var(--line)',
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-              <div style={{ flex: 1, fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{l.titulo}</div>
-              {l.chip && (
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
-                  background: l.chip.bg, color: l.chip.ink,
-                }}>{l.chip.label}</span>
+        {linhas.map(l => {
+          // Borda esquerda com cor do vet, mesmo padrão do kanban/caderno.
+          // Quando filtro de vet está ativo, a borda ainda aparece (identifica
+          // o inseminador no caso de DG/CE) mas é informação redundante.
+          const nomeVet = nomeDoVet(l.vetId);
+          return (
+            <div key={l.key} style={{
+              padding: '10px 10px', borderBottom: '1px solid var(--line)',
+              borderLeft: `3px solid ${corDoVet(l.vetId)}`,
+              background: 'var(--card)',
+              marginBottom: 4, borderRadius: 4,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+                <div style={{ flex: 1, fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{l.titulo}</div>
+                {l.chip && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                    background: l.chip.bg, color: l.chip.ink,
+                  }}>{l.chip.label}</span>
+                )}
+                {!filtroVetAtivo && nomeVet && (
+                  <span style={{
+                    fontSize: 10, color: '#fff', background: corDoVet(l.vetId),
+                    padding: '2px 6px', borderRadius: 4, fontWeight: 700,
+                  }}>{nomeVet.split(' ')[0]}</span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{l.subs.join(' · ')}</div>
+              {l.dgs && (
+                <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                  {['dg15', 'dg45', 'dg60'].map(k => (
+                    <span key={k} style={{
+                      fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                      background: l.dgs[k].bg, color: l.dgs[k].ink,
+                    }}>{k.toUpperCase()}: {l.dgs[k].label}</span>
+                  ))}
+                </div>
               )}
             </div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{l.subs.join(' · ')}</div>
-            {l.dgs && (
-              <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
-                {['dg15', 'dg45', 'dg60'].map(k => (
-                  <span key={k} style={{
-                    fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
-                    background: l.dgs[k].bg, color: l.dgs[k].ink,
-                  }}>{k.toUpperCase()}: {l.dgs[k].label}</span>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </div>
       <button onClick={onClose} style={{
         marginTop: 10, width: '100%', padding: '11px', borderRadius: 10,
@@ -7484,6 +7548,7 @@ export function ReproApp({
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
       servicos={servicosRepro}
+      centraisRepro={centraisRepro}
       currentUser={currentUser}
       updateRegistroReproducao={updateRegistroReproducao}
       onSelectEvento={abrirCadernoDoEvento}
