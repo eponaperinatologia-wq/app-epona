@@ -4888,6 +4888,7 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // ─────────────────────────────────────────────────────────────
 function ReproPainel({
   registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
+  servicos = [],
   currentUser, updateRegistroReproducao, onSelectEvento,
   vetBundle = null, apenasReproducao = false,
 }) {
@@ -4915,6 +4916,7 @@ function ReproPainel({
           registrosRepro={registrosRepro}
           eguasRepro={eguasRepro}
           vetsExternos={vetsExternos}
+          servicos={servicos}
           currentUser={currentUser}
         />
       )}
@@ -4943,7 +4945,7 @@ function ReproPainel({
 }
 
 // ── Dashboard ────────────────────────────────────────────────
-function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser }) {
+function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [], currentUser }) {
   const hoje = new Date();
   // Default: mês mais recente com registros. Se não há registros, mês atual.
   const mesInicial = useMemo(() => {
@@ -4958,7 +4960,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const [filtroVetId, setFiltroVetId] = useState('');
   const [todosMeses, setTodosMeses] = useState(false);
   // Lista detalhada que abre ao clicar nos cards de topo
-  const [detalheAberto, setDetalheAberto] = useState(null); // 'ia' | 'ce' | 'dg' | null
+  const [detalheAberto, setDetalheAberto] = useState(null); // 'ia' | 'ce' | 'dg' | 'sv' | null
 
   const emMes = (iso) => {
     if (!iso) return false;
@@ -5012,7 +5014,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const totalTE = cesAtribuidas.length;
 
   const totalCF = regs.filter(r => r.tipo === 'controle_folicular').length;
-  const totalSV = regs.filter(r => r.tipo === 'servico_avulso').length;
+  const svsDoMes = regs.filter(r => r.tipo === 'servico_avulso');
+  const totalSV = svsDoMes.length;
 
   // IA que viraram CE: IAs com destino=transferencia QUE TIVERAM uma CE
   // efetivamente cadastrada (iaOrigemId=ia.id OU heurística match). Antes
@@ -5120,7 +5123,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
     { label: 'CE', key: 'ce', valor: totalTE, cor: '#0e7490', bg: '#cffafe', clicavel: true },
     { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: false },
     { label: 'Embr+', key: 'embr', valor: embrioesRecuperados, cor: '#15803d', bg: '#dcfce7', clicavel: false },
-    { label: 'SV', key: 'sv', valor: totalSV, cor: '#c2410c', bg: '#fed7aa', clicavel: false },
+    { label: 'SV', key: 'sv', valor: totalSV, cor: '#c2410c', bg: '#fed7aa', clicavel: true },
   ];
 
   return (
@@ -5224,7 +5227,10 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
           iasDoMes={iasDoMes}
           cesAtribuidas={cesAtribuidas}
           dgLinhas={dgDados.linhas}
+          svsDoMes={svsDoMes}
           eguasRepro={eguasRepro}
+          vetsExternos={vetsExternos}
+          servicos={servicos}
           onClose={() => setDetalheAberto(null)}
         />
       )}
@@ -5234,10 +5240,15 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
 
 // Lista detalhada que abre ao clicar em um card do dashboard.
 // tipo: 'ia' | 'ce' | 'dg'
-function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], eguasRepro = [], onClose }) {
+function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], svsDoMes = [], eguasRepro = [], vetsExternos = [], servicos = [], onClose }) {
   const nomeEgua = (id) => eguasRepro.find(e => e.id === id)?.nome || '—';
+  const nomeVet = (id) => vetsExternos.find(v => v.id === id)?.nome || '—';
+  const nomeServico = (id) => servicos.find(s => s.id === id)?.nome || '—';
   const momentoLabel = (m) => m === 'pre_ovulacao' ? 'Pré' : m === 'pos_ovulacao' ? 'Pós' : '—';
-  const titulo = tipo === 'ia' ? 'Inseminações' : tipo === 'ce' ? 'Coletas de embrião' : 'Diagnósticos gestacionais';
+  const titulo = tipo === 'ia' ? 'Inseminações'
+    : tipo === 'ce' ? 'Coletas de embrião'
+    : tipo === 'sv' ? 'Serviços avulsos'
+    : 'Diagnósticos gestacionais';
 
   let linhas = [];
   if (tipo === 'ia') {
@@ -5252,6 +5263,18 @@ function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas 
           r.dados?.ovulacoes ? `${r.dados.ovulacoes} ovulação(ões)` : null,
           `Momento: ${momentoLabel(r.dados?.momento)}`,
           r.dados?.destino === 'transferencia' ? '→ CE' : r.dados?.destino === 'prenhez' ? '→ Prenhez' : null,
+        ].filter(Boolean),
+      }));
+  } else if (tipo === 'sv') {
+    linhas = [...svsDoMes]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(r => ({
+        key: r.id,
+        titulo: nomeServico(r.dados?.servicoId),
+        subs: [
+          fmtDataBr(r.data),
+          `Égua: ${nomeEgua(r.eguaId)}`,
+          `Por: ${nomeVet(r.vetId)}`,
         ].filter(Boolean),
       }));
   } else if (tipo === 'ce') {
@@ -7460,6 +7483,7 @@ export function ReproApp({
       propRepro={propRepro}
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
+      servicos={servicosRepro}
       currentUser={currentUser}
       updateRegistroReproducao={updateRegistroReproducao}
       onSelectEvento={abrirCadernoDoEvento}
@@ -7752,6 +7776,7 @@ export function ReproHarasView({
       propRepro={propHaras}
       locaisRepro={locaisHaras}
       vetsExternos={vetsHaras}
+      servicos={servicos}
       currentUser={currentUser}
       updateRegistroReproducao={wrapUpdate}
       onSelectEvento={abrirCadernoDoEvento}
