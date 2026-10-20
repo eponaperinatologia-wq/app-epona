@@ -4957,6 +4957,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
   const [mesRef, setMesRef] = useState(mesInicial);
   const [filtroVetId, setFiltroVetId] = useState('');
   const [todosMeses, setTodosMeses] = useState(false);
+  // Lista detalhada que abre ao clicar nos cards de topo
+  const [detalheAberto, setDetalheAberto] = useState(null); // 'ia' | 'ce' | 'dg' | null
 
   const emMes = (iso) => {
     if (!iso) return false;
@@ -4964,74 +4966,161 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
     return Number(y) === mesRef.ano && Number(m) === mesRef.mes;
   };
 
-  const regs = (registrosRepro || []).filter(r => {
-    if (!todosMeses && !emMes(r.data)) return false;
-    if (filtroVetId && r.vetId !== filtroVetId) return false;
-    return true;
-  });
+  // Resolve a IA de origem de uma CE (preferência: iaOrigemId; fallback:
+  // última IA da mesma égua com destino=transferencia nos 15 dias
+  // anteriores). Usado pra atribuir CE/DG ao vet INSEMINADOR (quem
+  // inseminou, não quem coletou — essa é a regra do negócio pra medir
+  // sucesso reprodutivo).
+  const todasIas = (registrosRepro || []).filter(r => r.tipo === 'inseminacao_artificial');
+  const iaDeOrigem = (ce) => {
+    if (ce.dados?.iaOrigemId) {
+      return todasIas.find(ia => ia.id === ce.dados.iaOrigemId) || null;
+    }
+    const candidatas = todasIas
+      .filter(ia => ia.eguaId === ce.eguaId
+        && ia.dados?.destino === 'transferencia'
+        && (ia.data || '') <= (ce.data || ''))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+    for (const ia of candidatas) {
+      if (!ia.data || !ce.data) continue;
+      const diasDiff = (new Date(ce.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
+      if (diasDiff <= 15) return ia;
+    }
+    return null;
+  };
+  const vetDaCe = (ce) => iaDeOrigem(ce)?.vetId || ce.vetId;
+
+  // Base: tudo do mês (sem filtro de vet). Filtro de vet aplica de forma
+  // diferente por métrica.
+  const regsMes = (registrosRepro || []).filter(r => todosMeses || emMes(r.data));
+  // regs filtrada por vet direto (quem executou o registro) — pra CF/SV/IA
+  const regs = filtroVetId ? regsMes.filter(r => r.vetId === filtroVetId) : regsMes;
 
   const semDadosMes = !todosMeses && regs.length === 0;
   const totalRegistrosGlobal = (registrosRepro || []).length;
 
-  // Totais por tipo
-  const totalIA = regs.filter(r => r.tipo === 'inseminacao_artificial').length;
-  const totalTE = regs.filter(r => r.tipo === 'transferencia_embriao').length;
+  // IAs: filtra por vet executor (que também é o inseminador)
+  const iasDoMes = regs.filter(r => r.tipo === 'inseminacao_artificial');
+  const totalIA = iasDoMes.length;
+
+  // CEs: atribuídas ao vet INSEMINADOR (via IA de origem). Se não há
+  // filtro, pega todas as CEs do mês.
+  const cesDoMesTodas = regsMes.filter(r => r.tipo === 'transferencia_embriao');
+  const cesAtribuidas = filtroVetId
+    ? cesDoMesTodas.filter(ce => vetDaCe(ce) === filtroVetId)
+    : cesDoMesTodas;
+  const totalTE = cesAtribuidas.length;
+
   const totalCF = regs.filter(r => r.tipo === 'controle_folicular').length;
   const totalSV = regs.filter(r => r.tipo === 'servico_avulso').length;
 
-  // IAs direcionadas pra CE — mede INTENÇÃO (destino=transferencia marcado).
-  // Diferente de "IA que virou CE efetivamente": a CE pode não ter sido
-  // cadastrada ainda, ou pode estar em outro mês. Pra evitar confusão
-  // visual (ex.: 9 direcionadas vs 6 CEs reais do mês), o rótulo é claro.
-  const iaTransfer = regs.filter(r => r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'transferencia').length;
-  const pctIaTe = totalIA ? Math.round((iaTransfer / totalIA) * 100) : 0;
+  // IA que viraram CE: IAs com destino=transferencia QUE TIVERAM uma CE
+  // efetivamente cadastrada (iaOrigemId=ia.id OU heurística match). Antes
+  // o rótulo "direcionadas" era honesto mas pouco útil — você quer saber
+  // a taxa real de coleta. Busca na base COMPLETA (não limita ao mês do
+  // vetor) porque a CE pode cair no mês seguinte da IA.
+  const todasCes = (registrosRepro || []).filter(r => r.tipo === 'transferencia_embriao');
+  const iasParaCe = iasDoMes.filter(r => r.dados?.destino === 'transferencia');
+  const iasQueViraramCe = iasParaCe.filter(ia =>
+    todasCes.some(ce => {
+      // iaOrigemId explícito
+      if (ce.dados?.iaOrigemId === ia.id) return true;
+      // Heurística: mesma égua, CE depois da IA em até 15 dias
+      if (ce.eguaId !== ia.eguaId) return false;
+      if (!ce.data || !ia.data) return false;
+      if (ce.data < ia.data) return false;
+      const dd = (new Date(ce.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
+      return dd <= 15 && dd >= 0;
+    }),
+  );
+  const totalIaParaCe = iasParaCe.length;
+  const iasComCe = iasQueViraramCe.length;
+  const pctIaTe = totalIaParaCe ? Math.round((iasComCe / totalIaParaCe) * 100) : 0;
 
-  // Taxa de recuperação (CE+): CEs com resultado positivo sobre TOTAL de CEs
-  // do mês (não sobre "CEs com resultado marcado"). Se existem CEs sem
-  // resultado ainda, elas entram como "não positivas" — reflete o que o
-  // card "CE: N" mostra em cima, evitando denominadores diferentes.
-  const tePos = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo').length;
-  const teNeg = regs.filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'negativo').length;
+  // Taxa de recuperação (CE+): CEs atribuídas com resultado positivo
+  // sobre total de CEs atribuídas. Se há CEs sem resultado, informa.
+  const tePos = cesAtribuidas.filter(ce => ce.dados?.resultado === 'positivo').length;
+  const teNeg = cesAtribuidas.filter(ce => ce.dados?.resultado === 'negativo').length;
   const teSemResultado = totalTE - tePos - teNeg;
   const pctTePos = totalTE ? Math.round((tePos / totalTE) * 100) : 0;
+
+  // IA pra prenhez na própria égua + taxa de confirmação (DG+ na IA).
+  // DG da prenhez fica no próprio registro da IA (dados.dg15/45/60).
+  // Confirmação = DG45 positivo (ponto de cobrança do resultado).
+  const iasPrenhez = iasDoMes.filter(r => r.dados?.destino === 'prenhez');
+  const totalIaPrenhez = iasPrenhez.length;
+  const iasPrenhezConfirmadas = iasPrenhez.filter(ia => ia.dados?.dg45 === 'positivo').length;
+  const pctPrenhezConfirmada = totalIaPrenhez ? Math.round((iasPrenhezConfirmadas / totalIaPrenhez) * 100) : 0;
 
   // Taxa DG15/30/45 — considera dg no formato legado (dados.dgXX) e no
   // formato novo por embrião (dados.dgsEmbrioes[i].dgXX). Múltiplos
   // embriões contam separadamente.
-  const contarDg = (chave) => {
-    let total = 0, pos = 0;
-    for (const r of regs) {
+  //
+  // DGs são atribuídos ao INSEMINADOR:
+  //  - Pra CE: usa vetDaCe (via IA de origem)
+  //  - Pra IA destino=prenhez: usa o próprio vetId da IA
+  // Também constrói lista detalhada que o painel usa pra abrir modal
+  // ao clicar no card "DG".
+  const dgDados = (() => {
+    const linhas = []; // { regId, cavaloId, embIdx, destino, dg15, dg45, dg60, data }
+    const base = filtroVetId
+      ? regsMes.filter(r => {
+          if (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez') {
+            return r.vetId === filtroVetId;
+          }
+          if (r.tipo === 'transferencia_embriao') {
+            return vetDaCe(r) === filtroVetId;
+          }
+          return false;
+        })
+      : regsMes.filter(r =>
+          (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
+          || (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez'),
+        );
+    for (const r of base) {
       const d = r.dados || {};
       const arr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : null;
       if (arr && arr.length > 0) {
-        for (const e of arr) {
-          if (e?.[chave] === 'positivo' || e?.[chave] === 'negativo') total += 1;
-          if (e?.[chave] === 'positivo') pos += 1;
-        }
+        arr.forEach((e, i) => {
+          linhas.push({
+            regId: r.id, cavaloId: r.eguaId, embIdx: i,
+            destino: r.tipo === 'inseminacao_artificial' ? 'prenhez' : 'ce',
+            dg15: e?.dg15 || null, dg45: e?.dg45 || null, dg60: e?.dg60 || null,
+            data: r.data, qtd: Number(d.qtdEmbrioes) || 1,
+          });
+        });
       } else {
-        if (d[chave] === 'positivo' || d[chave] === 'negativo') total += 1;
-        if (d[chave] === 'positivo') pos += 1;
+        linhas.push({
+          regId: r.id, cavaloId: r.eguaId, embIdx: 0,
+          destino: r.tipo === 'inseminacao_artificial' ? 'prenhez' : 'ce',
+          dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null,
+          data: r.data, qtd: 1,
+        });
       }
     }
-    return { total, pos, pct: total ? Math.round((pos / total) * 100) : 0 };
-  };
-  const dg15 = contarDg('dg15');
-  const dg45 = contarDg('dg45');
-  const dg60 = contarDg('dg60');
+    const taxa = (chave) => {
+      const comResultado = linhas.filter(l => l[chave] === 'positivo' || l[chave] === 'negativo');
+      const pos = comResultado.filter(l => l[chave] === 'positivo').length;
+      return { total: comResultado.length, pos, pct: comResultado.length ? Math.round((pos / comResultado.length) * 100) : 0 };
+    };
+    return { linhas, dg15: taxa('dg15'), dg45: taxa('dg45'), dg60: taxa('dg60') };
+  })();
+  const dg15 = dgDados.dg15;
+  const dg45 = dgDados.dg45;
+  const dg60 = dgDados.dg60;
 
-  // Card "Embr+": embriões recuperados em CEs positivas no mês. Antes
-  // mostrava "DG" (registros tipo diagnostico_gestacao), mas o fluxo
-  // atual marca DGs dentro do próprio CE — totalDG ficava quase sempre 0.
-  const embrioesRecuperados = regs
-    .filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
+  // Card "Embr+": embriões recuperados em CEs positivas no mês,
+  // atribuídos ao inseminador.
+  const embrioesRecuperados = cesAtribuidas
+    .filter(r => r.dados?.resultado === 'positivo')
     .reduce((s, r) => s + Math.max(1, Number(r.dados?.qtdEmbrioes) || 1), 0);
 
   const cards = [
-    { label: 'IA', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff' },
-    { label: 'CE', valor: totalTE, cor: '#0e7490', bg: '#cffafe' },
-    { label: 'CF', valor: totalCF, cor: '#0e7490', bg: '#cffafe' },
-    { label: 'Embr+', valor: embrioesRecuperados, cor: '#15803d', bg: '#dcfce7' },
-    { label: 'SV', valor: totalSV, cor: '#c2410c', bg: '#fed7aa' },
+    { label: 'IA', key: 'ia', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff', clicavel: true },
+    { label: 'CE', key: 'ce', valor: totalTE, cor: '#0e7490', bg: '#cffafe', clicavel: true },
+    { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: false },
+    { label: 'Embr+', key: 'embr', valor: embrioesRecuperados, cor: '#15803d', bg: '#dcfce7', clicavel: false },
+    { label: 'SV', key: 'sv', valor: totalSV, cor: '#c2410c', bg: '#fed7aa', clicavel: false },
   ];
 
   return (
@@ -5071,28 +5160,49 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
 
       <div style={{ padding: '4px 20px 8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
         {cards.map(c => (
-          <div key={c.label} style={{
-            background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 10, padding: '10px 6px', textAlign: 'center',
-          }}>
+          <button
+            key={c.label}
+            onClick={c.clicavel ? () => setDetalheAberto(c.key) : undefined}
+            disabled={!c.clicavel}
+            style={{
+              background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 10, padding: '10px 6px', textAlign: 'center',
+              cursor: c.clicavel ? 'pointer' : 'default', fontFamily: 'inherit',
+            }}>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: c.cor }}>{c.valor}</div>
             <div style={{ fontSize: 10, color: c.cor, fontWeight: 700, letterSpacing: '0.06em' }}>{c.label}</div>
-          </div>
+          </button>
         ))}
       </div>
 
       <div style={{ padding: '10px 20px 20px' }}>
-        <BarraPercentual titulo="IAs direcionadas pra CE" valor={pctIaTe} totalLabel={`${iaTransfer}/${totalIA}`} cor="#7c2d8c" />
+        <BarraPercentual
+          titulo="IA que viraram CE"
+          valor={pctIaTe}
+          totalLabel={`${iasComCe}/${totalIaParaCe}`}
+          cor="#7c2d8c"
+        />
         <BarraPercentual
           titulo={`Taxa de recuperação (CE+)${teSemResultado > 0 ? ` · ${teSemResultado} s/ resultado` : ''}`}
           valor={pctTePos}
           totalLabel={`${tePos}/${totalTE}`}
           cor="#0e7490"
         />
+        {totalIaPrenhez > 0 && (
+          <BarraPercentual
+            titulo="IA pra prenhez · confirmadas (DG45+)"
+            valor={pctPrenhezConfirmada}
+            totalLabel={`${iasPrenhezConfirmadas}/${totalIaPrenhez}`}
+            cor="#be123c"
+          />
+        )}
         <div style={{
           background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 8,
-        }}>
+          cursor: 'pointer',
+        }}
+          onClick={() => setDetalheAberto('dg')}
+        >
           <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
-            Diagnósticos gestacionais
+            Diagnósticos gestacionais {dgDados.linhas.length > 0 && <span style={{ color: 'var(--ink-2)', textTransform: 'none', letterSpacing: 0 }}>· tocar pra ver lista</span>}
           </div>
           {[['DG 15', dg15], ['DG 45', dg45], ['DG 60', dg60]].map(([lbl, d]) => (
             <div key={lbl} style={{ marginBottom: 8 }}>
@@ -5107,7 +5217,121 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, currentUser 
           ))}
         </div>
       </div>
+
+      {detalheAberto && (
+        <DetalhePainelLista
+          tipo={detalheAberto}
+          iasDoMes={iasDoMes}
+          cesAtribuidas={cesAtribuidas}
+          dgLinhas={dgDados.linhas}
+          eguasRepro={eguasRepro}
+          onClose={() => setDetalheAberto(null)}
+        />
+      )}
     </div>
+  );
+}
+
+// Lista detalhada que abre ao clicar em um card do dashboard.
+// tipo: 'ia' | 'ce' | 'dg'
+function DetalhePainelLista({ tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], eguasRepro = [], onClose }) {
+  const nomeEgua = (id) => eguasRepro.find(e => e.id === id)?.nome || '—';
+  const momentoLabel = (m) => m === 'pre_ovulacao' ? 'Pré' : m === 'pos_ovulacao' ? 'Pós' : '—';
+  const titulo = tipo === 'ia' ? 'Inseminações' : tipo === 'ce' ? 'Coletas de embrião' : 'Diagnósticos gestacionais';
+
+  let linhas = [];
+  if (tipo === 'ia') {
+    linhas = [...iasDoMes]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(r => ({
+        key: r.id,
+        titulo: `${r.dados?.garanhao || '—'} × ${nomeEgua(r.eguaId)}`,
+        subs: [
+          fmtDataBr(r.data),
+          r.dados?.qtdPalhetas ? `${r.dados.qtdPalhetas} palheta(s)` : null,
+          r.dados?.ovulacoes ? `${r.dados.ovulacoes} ovulação(ões)` : null,
+          `Momento: ${momentoLabel(r.dados?.momento)}`,
+          r.dados?.destino === 'transferencia' ? '→ CE' : r.dados?.destino === 'prenhez' ? '→ Prenhez' : null,
+        ].filter(Boolean),
+      }));
+  } else if (tipo === 'ce') {
+    linhas = [...cesAtribuidas]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(r => {
+        const resultado = r.dados?.resultado;
+        return {
+          key: r.id,
+          titulo: nomeEgua(r.eguaId),
+          chip: resultado === 'positivo' ? { label: '✓ Positiva', bg: '#dcfce7', ink: '#15803d' }
+            : resultado === 'negativo' ? { label: '✗ Negativa', bg: '#fee2e2', ink: '#dc2626' }
+            : null,
+          subs: [
+            fmtDataBr(r.data),
+            resultado === 'positivo' && r.dados?.qtdEmbrioes
+              ? `${r.dados.qtdEmbrioes} embrião(ões)` : null,
+          ].filter(Boolean),
+        };
+      });
+  } else {
+    linhas = [...dgLinhas]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map((l, i) => {
+        const chip = (v) => v === 'positivo' ? { label: '+', bg: '#dcfce7', ink: '#15803d' }
+          : v === 'negativo' ? { label: '-', bg: '#fee2e2', ink: '#dc2626' }
+          : { label: '·', bg: 'var(--soft)', ink: 'var(--ink-3)' };
+        return {
+          key: `${l.regId}:${l.embIdx}:${i}`,
+          titulo: `${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
+          subs: [fmtDataBr(l.data), l.destino === 'prenhez' ? 'IA → prenhez' : 'CE'].filter(Boolean),
+          dgs: { dg15: chip(l.dg15), dg45: chip(l.dg45), dg60: chip(l.dg60) },
+        };
+      });
+  }
+
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 10 }}>
+        {titulo} <span style={{ fontSize: 13, color: 'var(--ink-3)' }}>· {linhas.length}</span>
+      </div>
+      {linhas.length === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '24px 0', textAlign: 'center' }}>
+          Nenhum registro encontrado nesse filtro.
+        </div>
+      )}
+      <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+        {linhas.map(l => (
+          <div key={l.key} style={{
+            padding: '10px 2px', borderBottom: '1px solid var(--line)',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
+              <div style={{ flex: 1, fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{l.titulo}</div>
+              {l.chip && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
+                  background: l.chip.bg, color: l.chip.ink,
+                }}>{l.chip.label}</span>
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>{l.subs.join(' · ')}</div>
+            {l.dgs && (
+              <div style={{ display: 'flex', gap: 10, marginTop: 6 }}>
+                {['dg15', 'dg45', 'dg60'].map(k => (
+                  <span key={k} style={{
+                    fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                    background: l.dgs[k].bg, color: l.dgs[k].ink,
+                  }}>{k.toUpperCase()}: {l.dgs[k].label}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <button onClick={onClose} style={{
+        marginTop: 10, width: '100%', padding: '11px', borderRadius: 10,
+        border: '1px solid var(--line)', background: 'var(--card)',
+        color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+      }}>Fechar</button>
+    </Modal>
   );
 }
 
