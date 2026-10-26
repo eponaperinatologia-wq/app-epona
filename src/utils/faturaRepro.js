@@ -329,6 +329,15 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
         descricao: 'Coleta de Embrião',
         valor: precos.te,
       });
+    } else if (r.tipo === 'inovulacao_embriao') {
+      // Serviço "Inovulação de Embrião" é cadastrado pela usuária em
+      // Serviços. Busca por nome.
+      const svInov = servicos.find(s => /inovul/i.test(s.nome || ''));
+      procedimentosLinhas.push({
+        data: r.data, registroId: r.id, tipo: 'IE', vetId: r.vetId,
+        descricao: `Inovulação de Embrião${r.dados?.garanhao ? ' — ' + r.dados.garanhao : ''}`,
+        valor: Number(svInov?.valor) || 0,
+      });
     }
   }
   const procedimentosTotal = procedimentosLinhas.reduce((s, l) => s + l.valor, 0);
@@ -413,6 +422,53 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   }
   const resultadosTotal = resultadosLinhas.reduce((s, l) => s + l.valor, 0);
 
+  // ── 5b) Aluguel de Receptora: embrião NOSSO (coletado por nós) foi
+  // transferido para receptora de OUTRO proprietário e deu DG45+. Cobra
+  // o valorAluguelReceptora do DONO DA RECEPTORA, na fatura do dono da
+  // DOADORA. Se mesmo dono, não cobra.
+  //
+  // Fonte: inovulações do mês onde:
+  //   - A receptora (r.eguaId) existe cadastrada em outro proprietário
+  //   - DG45 positivo marcado em r.dados.dg45 (data no mês ref)
+  //   - A inovulação tem ceOrigemId apontando pra CE+ de uma doadora
+  //     deste proprietário (propId)
+  const alugueisLinhas = [];
+  for (const r of regsRepro) {
+    if (r.tipo !== 'inovulacao_embriao') continue;
+    const dg45Data = r.dados?.dg45_data;
+    if (r.dados?.dg45 !== 'positivo' || !dg45Data) continue;
+    if (!isMes(dg45Data, ref)) continue;
+    const receptoraEgua = cavalos.find(c => c.id === r.eguaId);
+    if (!receptoraEgua) continue;
+    const donosReceptora = (receptoraEgua.proprietarioIds && receptoraEgua.proprietarioIds.length > 0)
+      ? receptoraEgua.proprietarioIds
+      : (receptoraEgua.proprietarioId ? [receptoraEgua.proprietarioId] : []);
+    // Receptora precisa ser de OUTRO proprietário
+    if (donosReceptora.length === 0) continue;
+    if (donosReceptora.includes(propId)) continue;
+    // Doadora: via ceOrigemId. Precisa pertencer a este propId.
+    const ce = r.dados?.ceOrigemId ? registros.find(x => x.id === r.dados.ceOrigemId) : null;
+    if (!ce) continue;
+    const doadora = cavalos.find(c => c.id === ce.eguaId);
+    if (!doadora) continue;
+    const donosDoadora = (doadora.proprietarioIds && doadora.proprietarioIds.length > 0)
+      ? doadora.proprietarioIds
+      : (doadora.proprietarioId ? [doadora.proprietarioId] : []);
+    if (!donosDoadora.includes(propId)) continue;
+    // Valor: do dono da receptora
+    const donoRec = proprietarios.find(p => p.id === donosReceptora[0]);
+    const valor = Number(donoRec?.valorAluguelReceptora) || 0;
+    if (valor <= 0) continue;
+    alugueisLinhas.push({
+      data: dg45Data, inovulacaoId: r.id, ceId: ce.id,
+      receptoraNome: receptoraEgua.nome,
+      doadoraNome: doadora.nome,
+      donoReceptoraNome: donoRec?.nome || '—',
+      valor,
+    });
+  }
+  const alugueisTotal = alugueisLinhas.reduce((s, l) => s + l.valor, 0);
+
   // ── 6) Assessoria clínica (visitas finalizadas do mês dos contratos
   //       deste proprietário). Cada visita vira 1 linha; divisão é feita
   //       por dividirFatura com regra especial (Epona 100% se só internos;
@@ -445,7 +501,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   assessoriasLinhas.sort((a, b) => (a.data || '').localeCompare(b.data || ''));
   const assessoriasTotal = assessoriasLinhas.reduce((s, l) => s + l.valor, 0);
 
-  const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal + resultadosTotal + assessoriasTotal;
+  const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal
+    + resultadosTotal + alugueisTotal + assessoriasTotal;
 
   const insumosLinhasFinais = agruparDescartaveis
     ? agruparDescartaveisLinhas(insumosLinhas, insumos)
@@ -459,6 +516,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     procedimentosLinhas, procedimentosTotal,
     avulsosLinhas, avulsosTotal,
     resultadosLinhas, resultadosTotal,
+    alugueisLinhas, alugueisTotal,
     assessoriasLinhas, assessoriasTotal,
     total,
   };

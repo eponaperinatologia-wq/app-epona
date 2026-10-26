@@ -135,6 +135,7 @@ function ReproHome({
   updateRegistroReproducao = null, onEditarRegistro = null,
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
+  insumos = [],
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -229,6 +230,7 @@ function ReproHome({
         proprietarios={proprietarios} locaisRepro={locaisRepro}
         updateVisitaClinica={updateVisitaClinica}
         onSelectVisitaClinica={onSelectVisitaClinica}
+        insumos={insumos}
       />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
@@ -399,28 +401,34 @@ const CORES_AVISO = {
 // ─────────────────────────────────────────────────────────────
 // Painel de embriões em acompanhamento (home da Repro)
 // ─────────────────────────────────────────────────────────────
-// Lista linear de embriões coletados (CE positivos) com status
-// de DG. Um CE com qtdEmbrioes=2 vira 2 itens aqui.
+// Lista linear de embriões em acompanhamento. Duas fontes:
+//  - CE (coleta positiva de doadora nossa) — DGs D15/D45/D60
+//  - Inovulação (embrião em receptora nossa) — DGs D12/D15/D25/D45/D60
+// Deduplica: se uma inovulação tem ceOrigemId, a CE correspondente
+// NÃO entra (a inovulação é a visão "fresca" do mesmo embrião, pois
+// nós a transferimos).
 //
 // shape por item:
-//   { regId, embIdx, dataColeta, garanhao, eguaDoadora,
-//     destino: { tipo: 'central'|'egua', centralId?, eguaNome? },
-//     dgs: { dg15, dg45, dg60 }, receptora, status, concluido }
-//
-// status: 'coletado' | 'd15_pos' | 'd45_pos' | 'd60_pos' |
-//         'd15_neg' | 'd45_neg' | 'd60_neg'
-// concluido: true se status final (negativo ou d60_pos)
+//   { regId, embIdx, fonte: 'ce'|'inovulacao', dataColeta, dataInovulacao,
+//     dataIa, garanhao, eguaDoadora, destino, dgs, receptora,
+//     status, concluido, qtdTotalEmbrioes, pontosDg: [12,15,...] }
 function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
   const out = [];
+  // IDs de CE que foram vinculadas via ceOrigemId em alguma inovulação:
+  // essas CEs são suprimidas da lista (a inovulação toma o lugar delas).
+  const ceLincadas = new Set(
+    registrosRepro
+      .filter(r => r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId)
+      .map(r => r.dados.ceOrigemId),
+  );
+
   for (const r of registrosRepro) {
     if (r.tipo !== 'transferencia_embriao') continue;
     if (r.dados?.resultado !== 'positivo') continue;
+    if (ceLincadas.has(r.id)) continue; // dedup: já tem inovulação linkada
     const d = r.dados || {};
     const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
     const egua = cavalosLookup.find(c => c.id === r.eguaId);
-    // Resolve IA de origem pro garanhão (se vinculada; senão tenta
-    // inferir pela égua: última IA com destino=transferencia antes
-    // da coleta — mesma lógica do fallback do form).
     const iaOrigem = d.iaOrigemId
       ? registrosRepro.find(x => x.id === d.iaOrigemId)
       : (registrosRepro
@@ -431,7 +439,6 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
           .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null);
     const garanhao = iaOrigem?.dados?.garanhao || '';
     const dataIa = iaOrigem?.data || null;
-    // Destinos preferido: dados.destinos (novo); fallback: receptoras (texto livre, tipo egua)
     const destinosArr = Array.isArray(d.destinos) ? d.destinos :
       (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
       (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
@@ -441,14 +448,11 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
         ? { dg15: d.dg15 || null, dg30: d.dg30 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
         : (dgsArr[i] || {});
       const destino = destinosArr[i] || { tipo: 'egua', eguaNome: '' };
-      // Receptora final: no destino='egua' usa eguaNome; no destino='central' usa dgs.receptora
-      // (preenchida depois do D15); fallback pra campo texto livre antigo.
       const receptora = destino.tipo === 'egua'
         ? (destino.eguaNome || '')
         : (dgs.receptora || destino.receptoraCentral || '');
       let status = 'coletado';
       let concluido = false;
-      // Prioridade do mais recente pro mais antigo
       if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
       else if (dgs.dg60 === 'negativo') { status = 'd60_neg'; concluido = true; }
       else if (dgs.dg45 === 'negativo') { status = 'd45_neg'; concluido = true; }
@@ -456,19 +460,80 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
       else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
       out.push({
-        regId: r.id, embIdx: i, dataColeta: r.data, dataIa, garanhao,
+        regId: r.id, embIdx: i, fonte: 'ce',
+        dataColeta: r.data, dataInovulacao: null, dataIa, garanhao,
         eguaDoadora: egua?.nome || '—',
         destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
+        pontosDg: [15, 45, 60],
       });
     }
   }
+
+  // Inovulações: embrião em receptora nossa. 1 item por inovulação
+  // (sempre qtd=1). DGs em D12/D15/D25/D45/D60 contados da ovulação da
+  // receptora.
+  for (const r of registrosRepro) {
+    if (r.tipo !== 'inovulacao_embriao') continue;
+    const d = r.dados || {};
+    const receptoraEgua = cavalosLookup.find(c => c.id === r.eguaId);
+    // Se tem ceOrigemId, puxa dados da CE pra enriquecer (doadora, garanhão)
+    const ceOrigem = d.ceOrigemId ? registrosRepro.find(x => x.id === d.ceOrigemId) : null;
+    let garanhao = d.garanhao || '';
+    let eguaDoadora = d.eguaDoadoraNome || '';
+    let dataColeta = null;
+    if (ceOrigem) {
+      dataColeta = ceOrigem.data;
+      const eguaDoadoraReg = cavalosLookup.find(c => c.id === ceOrigem.eguaId);
+      if (eguaDoadoraReg?.nome) eguaDoadora = eguaDoadoraReg.nome;
+      const iaOrigemCe = ceOrigem.dados?.iaOrigemId
+        ? registrosRepro.find(x => x.id === ceOrigem.dados.iaOrigemId) : null;
+      if (iaOrigemCe?.dados?.garanhao) garanhao = iaOrigemCe.dados.garanhao;
+    }
+    const dgs = {
+      dg12: d.dg12 || null,
+      dg15: d.dg15 || null,
+      dg25: d.dg25 || null,
+      dg45: d.dg45 || null,
+      dg60: d.dg60 || null,
+    };
+    let status = 'coletado';
+    let concluido = false;
+    if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
+    else if (dgs.dg60 === 'negativo') { status = 'd60_neg'; concluido = true; }
+    else if (dgs.dg45 === 'negativo') { status = 'd45_neg'; concluido = true; }
+    else if (dgs.dg45 === 'positivo') { status = 'd45_pos'; }
+    else if (dgs.dg25 === 'negativo') { status = 'd25_neg'; concluido = true; }
+    else if (dgs.dg25 === 'positivo') { status = 'd25_pos'; }
+    else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
+    else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
+    else if (dgs.dg12 === 'negativo') { status = 'd12_neg'; concluido = true; }
+    else if (dgs.dg12 === 'positivo') { status = 'd12_pos'; }
+    out.push({
+      regId: r.id, embIdx: 0, fonte: 'inovulacao',
+      dataColeta, dataInovulacao: r.data, dataIa: null, garanhao,
+      eguaDoadora: eguaDoadora || '—',
+      destino: { tipo: 'egua', eguaNome: receptoraEgua?.nome || '', receptoraCadastradaId: r.eguaId },
+      dgs, receptora: receptoraEgua?.nome || '',
+      status, concluido, qtdTotalEmbrioes: 1,
+      pontosDg: [12, 15, 25, 45, 60],
+    });
+  }
+
   // Mais recentes primeiro
-  return out.sort((a, b) => (b.dataColeta || '').localeCompare(a.dataColeta || ''));
+  return out.sort((a, b) => {
+    const da = a.dataInovulacao || a.dataColeta || '';
+    const db = b.dataInovulacao || b.dataColeta || '';
+    return db.localeCompare(da);
+  });
 }
 
 const STATUS_META = {
   coletado: { label: 'Coletado · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
-  d15_pos:  { label: 'D15+ · aguarda D45',   bg: '#fef3c7', ink: '#78350f' },
+  d12_pos:  { label: 'D12+ · aguarda D15',   bg: '#dbeafe', ink: '#1e40af' },
+  d12_neg:  { label: 'D12 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d15_pos:  { label: 'D15+ · aguarda D25/D45', bg: '#fef3c7', ink: '#78350f' },
+  d25_pos:  { label: 'D25+ · aguarda D45',   bg: '#fef3c7', ink: '#78350f' },
+  d25_neg:  { label: 'D25 negativo',          bg: '#fee2e2', ink: '#dc2626' },
   d45_pos:  { label: 'D45+ · aguarda D60',   bg: '#fde68a', ink: '#78350f' },
   d60_pos:  { label: 'D60+ · confirmado',    bg: '#dcfce7', ink: '#15803d' },
   d15_neg:  { label: 'D15 negativo',          bg: '#fee2e2', ink: '#dc2626' },
@@ -476,13 +541,17 @@ const STATUS_META = {
   d60_neg:  { label: 'D60 negativo',          bg: '#fee2e2', ink: '#dc2626' },
 };
 
-// Aplica patch nos dgs de um embrião dentro de um registro CE.
-// Mantém o formato dgsEmbrioes[] para múltiplos; usa d.dgXX para N=1 (legado).
+// Aplica patch nos dgs de um embrião dentro de um registro CE (ou inovulação).
+// Pra inovulação, sempre grava no root (1 embrião por inovulação).
+// Pra CE: formato dgsEmbrioes[] se múltiplos; d.dgXX pra N=1 (legado).
 function patchDgEmbriao(registro, embIdx, patch) {
   const d = { ...(registro.dados || {}) };
+  if (registro.tipo === 'inovulacao_embriao') {
+    Object.assign(d, patch);
+    return { ...registro, dados: d };
+  }
   const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
   if (qtd === 1) {
-    // Legado: mantém dg15/30/45/60 no dado raiz
     Object.assign(d, patch);
   } else {
     const arr = Array.isArray(d.dgsEmbrioes) ? [...d.dgsEmbrioes] : [];
@@ -669,9 +738,12 @@ function PainelEmbrioesAcompanhamento({
               }}>Editar receptora</button>
             )}
 
-            {/* Botões de DG — sempre disponíveis (concluídos podem ser revisados/corrigidos) */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
-                {[['dg15', 'D15'], ['dg45', 'D45'], ['dg60', 'D60']].map(([campo, lbl]) => {
+            {/* Botões de DG — pontos variam por fonte: inovulação tem D12/D15/D25/D45/D60,
+                CE tem D15/D45/D60. Grid se ajusta à quantidade. */}
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${item.pontosDg.length}, 1fr)`, gap: 6 }}>
+                {item.pontosDg.map(p => {
+                  const campo = `dg${p}`;
+                  const lbl = `D${p}`;
                   const val = item.dgs?.[campo] || null;
                   return (
                     <div key={campo} style={{
@@ -986,6 +1058,7 @@ function Planner({
   // Visitas de assessoria clínica (opcional — se não vier, não mostra)
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [], locaisRepro = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
+  insumos = [],
 }) {
   // Pra achar nome da égua, usa lookup completo (não filtrado por local)
   // senão quando filtra haras os eventos de outras éguas ficam sem nome.
@@ -993,10 +1066,12 @@ function Planner({
   const hoje = new Date().toLocaleDateString('sv-SE');
 
   const eventosBase = eventosPendentes(registros, hoje);
+  // Eventos virtuais de receptora: D0-D9 pós-ovulação + DGs pós-inovulação
+  const eventosReceptora = eventosReceptorasAtivas(registros, hoje, eguasLookup, insumos);
   // Se vetBundle fornecido, adiciona eventos vet SEM filtrar por
   // "cumprido" (não faz sentido). Filtra os que caem em [hoje-30d, +30d]
   // pra não poluir a agenda horizontal.
-  let eventos = [...eventosBase];
+  let eventos = [...eventosBase, ...eventosReceptora];
   if (vetBundle) {
     const eguasIds = new Set((eguasRepro || []).map(c => c.id));
     const janelaIni = addDias(hoje, -30);
@@ -1515,6 +1590,112 @@ function nomeContratoCurto(c, proprietarios = [], locais = []) {
 // Retorna a lista de eventos que ainda estão pendentes (agendados
 // futuros ou atrasados). NÃO inclui procedimentos passados já
 // registrados — esses são história, não agenda.
+// Eventos virtuais D0-D9 das receptoras pós-ovulação, pra alimentar o
+// kanban/planner. Regras de visibilidade (acordadas com a usuária):
+//  - Mostra do D0 ao D9 após ovulação registrada (CF.ovulou + dataOvulacao)
+//  - Some do dia seguinte à inovulação (aparece como 'inovulação' no dia)
+//  - Some do dia que foi registrado Ciosin num CF (aborta o ciclo)
+// Insumos é opcional (vazio = não detecta Ciosin, mantém kanban rolando).
+// Também gera eventos de DG pós-inovulação (D12/D15/D25/D45/D60 contados
+// da ovulação) — primeiro DG não cumprido vira card do kanban.
+function eventosReceptorasAtivas(registros, hoje, cavalos = [], insumos = []) {
+  const out = [];
+  // IDs dos insumos Ciosin no catálogo (abortam ciclo)
+  const ciosinIds = new Set(
+    (insumos || []).filter(i => CIOSIN_REGEX.test(i.nome || '')).map(i => i.id),
+  );
+  // Agrupa por égua
+  const porEgua = new Map();
+  for (const r of (registros || [])) {
+    if (!r.eguaId) continue;
+    if (!porEgua.has(r.eguaId)) porEgua.set(r.eguaId, []);
+    porEgua.get(r.eguaId).push(r);
+  }
+  const addDiasLocal = (iso, n) => {
+    const d = new Date(iso + 'T12:00:00');
+    d.setDate(d.getDate() + n);
+    return d.toLocaleDateString('sv-SE');
+  };
+  const diffDias = (a, b) => Math.round((new Date(b + 'T12:00:00') - new Date(a + 'T12:00:00')) / 86400000);
+  for (const [eguaId, regs] of porEgua.entries()) {
+    const egua = cavalos.find(c => c.id === eguaId);
+    if (!ehReceptora(egua)) continue;
+    // Última ovulação da receptora
+    const ovs = regs
+      .filter(r => r.tipo === 'controle_folicular' && r.dados?.ovulou && r.dados?.dataOvulacao)
+      .sort((a, b) => (b.dados.dataOvulacao || '').localeCompare(a.dados.dataOvulacao || ''));
+    if (ovs.length === 0) continue;
+    const ov = ovs[0];
+    const dataOv = ov.dados.dataOvulacao;
+    // Inovulação depois da ovulação?
+    const inov = regs
+      .filter(r => r.tipo === 'inovulacao_embriao' && r.data && r.data >= dataOv)
+      .sort((a, b) => (a.data || '').localeCompare(b.data || ''))[0];
+    // CF com Ciosin depois da ovulação (reset do ciclo)
+    const cfCiosin = regs
+      .filter(r => r.tipo === 'controle_folicular' && r.data && r.data > dataOv
+        && (r.insumosUsados || []).some(u => ciosinIds.has(u.insumoId)))
+      .sort((a, b) => (a.data || '').localeCompare(b.data || ''))[0];
+    // Determina o limite de visibilidade: cedo entre inov+1 e ciosin
+    let limiteFim = null;
+    if (inov) limiteFim = inov.data; // último dia visível = dia da inovulação (depois some)
+    if (cfCiosin && (!limiteFim || cfCiosin.data < limiteFim)) limiteFim = addDiasLocal(cfCiosin.data, -1); // ciosin encerra imediatamente
+    // Se existe inovulação, gera eventos DG pós-inov (D12/D15/D25/D45/D60
+    // contados da ovulação). O primeiro DG não resolvido vira card.
+    if (inov) {
+      const PONTOS_DG = [12, 15, 25, 45, 60];
+      const chaveDg = { 12: 'dg12', 15: 'dg15', 25: 'dg25', 45: 'dg45', 60: 'dg60' };
+      for (const p of PONTOS_DG) {
+        const dataDg = addDiasLocal(dataOv, p);
+        if (dataDg < hoje) continue; // já passou, não é "pendente"
+        // Se já marcado positivo/negativo no inov.dados, pula
+        const chave = chaveDg[p];
+        const val = inov.dados?.[chave];
+        if (val === 'positivo' || val === 'negativo') continue;
+        out.push({
+          id: `${inov.id}:dg${p}`,
+          tipoEv: `receptora_dg${p}`,
+          dataEv: dataDg, eguaId, vetId: inov.vetId,
+          tipo: 'inovulacao_embriao', fonte: 'repro',
+          registro: inov, cumprido: false,
+          dgPonto: p,
+        });
+      }
+    }
+    // D0 a D9 (contados da ovulação) — enquanto não houver inov/ciosin
+    for (let d = 0; d <= 9; d++) {
+      const dataD = addDiasLocal(dataOv, d);
+      // Só mostra do dia de hoje em diante (passado = não é pendente)
+      if (dataD < hoje) continue;
+      if (limiteFim && dataD > limiteFim) continue;
+      // Se existe inovulação exatamente nesse dia, mostra como 'inovulação'
+      // (não como receptora D{N})
+      if (inov && inov.data === dataD) {
+        out.push({
+          id: `${inov.id}:inov`,
+          tipoEv: 'receptora_inovulacao',
+          dataEv: dataD, eguaId, vetId: inov.vetId,
+          tipo: 'inovulacao_embriao', fonte: 'repro',
+          registro: inov, cumprido: true,
+          dLabel: `D${diffDias(dataOv, dataD)}`,
+        });
+        continue;
+      }
+      // Card virtual "receptora D{N}" — não há registro associado
+      out.push({
+        id: `rc_d_${eguaId}_${dataD}`,
+        tipoEv: 'receptora_d',
+        dataEv: dataD, eguaId, vetId: ov.vetId,
+        tipo: 'controle_folicular', fonte: 'repro',
+        registro: ov,
+        cumprido: false,
+        dLabel: `D${d}`,
+      });
+    }
+  }
+  return out;
+}
+
 function eventosPendentes(registros, hoje) {
   const out = [];
   // Os chamadores já passam a lista do workspace certo (Repro Team ou
@@ -1569,6 +1750,9 @@ function rotuloEvento(ev) {
   if (ev.tipoEv === 'retorno') return 'Retorno';
   if (ev.tipoEv === 'coleta') return 'Coleta';
   if (ev.tipoEv === 'inducao') return ev.hora ? `Induzir ${ev.hora}` : 'Induzir';
+  if (ev.tipoEv === 'receptora_d') return ev.dLabel || 'D';
+  if (ev.tipoEv === 'receptora_inovulacao') return 'Inovulação';
+  if (ev.tipoEv && ev.tipoEv.startsWith('receptora_dg')) return `DG${ev.dgPonto}`;
   return (TIPO_META[ev.tipo]?.short) || '—';
 }
 
@@ -1891,7 +2075,7 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
   const [busca, setBusca] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
-  const [form, setForm] = useState({ nome: '', telefone: '', email: '', valorResultadoRepro: '' });
+  const [form, setForm] = useState({ nome: '', telefone: '', email: '', valorResultadoRepro: '', valorAluguelReceptora: '' });
 
   const lista = [...propRepro]
     .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
@@ -1899,7 +2083,7 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
 
   const abrirNovo = () => {
     setEditId(null);
-    setForm({ nome: '', telefone: '', email: '', valorResultadoRepro: '' });
+    setForm({ nome: '', telefone: '', email: '', valorResultadoRepro: '', valorAluguelReceptora: '' });
     setShowForm(true);
   };
   const abrirEditar = (p) => {
@@ -1907,15 +2091,17 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
     setForm({
       nome: p.nome, telefone: p.telefone || '', email: p.email || '',
       valorResultadoRepro: p.valorResultadoRepro ? String(p.valorResultadoRepro) : '',
+      valorAluguelReceptora: p.valorAluguelReceptora ? String(p.valorAluguelReceptora) : '',
     });
     setShowForm(true);
   };
   const salvar = () => {
     if (!form.nome.trim()) return;
     const valorRR = parseFloat(String(form.valorResultadoRepro).replace(',', '.')) || 0;
+    const valorAR = parseFloat(String(form.valorAluguelReceptora).replace(',', '.')) || 0;
     const patch = {
       nome: form.nome.trim(), telefone: form.telefone, email: form.email,
-      valorResultadoRepro: valorRR, workspaceId: 'repro',
+      valorResultadoRepro: valorRR, valorAluguelReceptora: valorAR, workspaceId: 'repro',
     };
     if (editId) {
       updateProprietario(editId, patch);
@@ -1987,6 +2173,9 @@ function ReproProprietarios({ propRepro, locaisRepro, addProprietario, updatePro
           <FormField label="Email"><input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} style={inputStyle} /></FormField>
           <FormField label="Valor do resultado reprodutivo (R$) — cobrado quando DG45+">
             <input type="number" min="0" step="0.01" value={form.valorResultadoRepro} onChange={e => setForm(f => ({ ...f, valorResultadoRepro: e.target.value }))} style={inputStyle} placeholder="0,00" />
+          </FormField>
+          <FormField label="Valor aluguel de receptora (R$) — cobrado da doadora quando inovulamos embrião nesta receptora e dá DG45+">
+            <input type="number" min="0" step="0.01" value={form.valorAluguelReceptora} onChange={e => setForm(f => ({ ...f, valorAluguelReceptora: e.target.value }))} style={inputStyle} placeholder="0,00" />
           </FormField>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             {editId && deleteProprietario && (
@@ -2353,12 +2542,28 @@ function ReproEguas({
 const TIPO_META = {
   inseminacao_artificial: { label: 'Inseminação Artificial', short: 'IA', cor: '#7c2d8c', bg: '#f5e8ff' },
   transferencia_embriao:  { label: 'Coleta de Embrião', short: 'CE', cor: '#0e7490', bg: '#cffafe' },
+  inovulacao_embriao:     { label: 'Inovulação de Embrião', short: 'IE', cor: '#9333ea', bg: '#f5e8ff' },
   controle_folicular:     { label: 'Controle Folicular', short: 'CF', cor: '#0e7490', bg: '#cffafe' },
   diagnostico_gestacao:   { label: 'Diagnóstico de Gestação', short: 'DG', cor: '#15803d', bg: '#dcfce7' },
   tratamento_uterino:     { label: 'Tratamento Uterino', short: 'TU', cor: '#b91c1c', bg: '#fee2e2' },
   diagnostico_avulso:     { label: 'Diagnóstico', short: 'DX', cor: '#0284c7', bg: '#e0f2fe' },
   servico_avulso:         { label: 'Outro serviço avulso', short: 'SV', cor: '#c2410c', bg: '#fed7aa' },
 };
+
+// Helper: égua é receptora?
+const ehReceptora = (egua) => {
+  if (!egua) return false;
+  const cats = egua.categorias || (egua.categoria ? [egua.categoria] : []);
+  return cats.includes('Receptora');
+};
+
+// Matcher pro insumo Ciosin (usado no CF — Ciosin aborta/reinicia o
+// ciclo da receptora, então ela some do kanban após essa aplicação)
+const CIOSIN_REGEX = /ciosin|cloprost|prostagland/i;
+// Matcher pro insumo Progesterona (injetável e implante são distintos
+// por nome na área de serviços de reprodução)
+const PROG_INJETAVEL_REGEX = /progester[oô]na.*(injet|hbe|50)|p4.*(injet|hbe)/i;
+const PROG_IMPLANTE_REGEX = /progester[oô]na.*(implan|cueter|cuet|crestar)|crestar|cueter|implan.*progester/i;
 
 // Matchers para serviços dos botões de Diagnóstico
 const DIAG_MATCHERS = {
@@ -3532,6 +3737,23 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
     }
   }
 
+  // 0b) Inovulação de Embrião: progesterona declarada no form.
+  // - injetável: empilha N ml do insumo matchado por PROG_INJETAVEL_REGEX
+  // - implante: empilha 1 un do insumo matchado por PROG_IMPLANTE_REGEX
+  // - nenhuma: não empilha nada
+  if (tipo === 'inovulacao_embriao') {
+    if (dados.progesteronaTipo === 'injetavel') {
+      const ml = Number(dados.progesteronaMl) || 0;
+      if (ml > 0) {
+        const insProg = resolverPorMatcher(insumos, PROG_INJETAVEL_REGEX);
+        if (insProg) empilharSomando([{ insumoId: insProg.id, qtd: ml }]);
+      }
+    } else if (dados.progesteronaTipo === 'implante') {
+      const insImp = resolverPorMatcher(insumos, PROG_IMPLANTE_REGEX);
+      if (insImp) empilharSomando([{ insumoId: insImp.id, qtd: 1 }]);
+    }
+  }
+
   // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
   if (tipo === 'controle_folicular' && dados.medRapidos) {
     for (const m of MED_RAPIDO) {
@@ -3609,6 +3831,12 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
     const svTe = servicoTeParaResultado(servicos, dados.resultado);
     if (svTe) svcsVinculados.push(svTe);
   }
+  else if (tipo === 'inovulacao_embriao') {
+    // Resolve o serviço de Inovulação por nome. Usuária cadastra em
+    // Serviços; descartáveis obrigatórios vêm dele.
+    const svInov = servicos.find(s => /inovul/i.test(s.nome || ''));
+    if (svInov) svcsVinculados.push(svInov);
+  }
   else if (tipo === 'servico_avulso' && dados.servicoId) {
     const sv = servicos.find(s => s.id === dados.servicoId);
     if (sv) svcsVinculados.push(sv);
@@ -3664,6 +3892,10 @@ function obrigatoriosDoServico(tipo, dados = {}, servicos = []) {
     // (genérico/negativo) definido em servicoTeParaResultado.
     const svTe = servicoTeParaResultado(servicos, dados.resultado);
     if (svTe) svcs.push(svTe);
+  }
+  else if (tipo === 'inovulacao_embriao') {
+    const svInov = servicos.find(s => /inovul/i.test(s.nome || ''));
+    if (svInov) svcs.push(svInov);
   }
   else if (tipo === 'servico_avulso' && dados.servicoId) {
     const sv = servicos.find(s => s.id === dados.servicoId);
@@ -4024,6 +4256,18 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     if (tipo === 'transferencia_embriao' && !dataRetorno) {
       setDataRetorno(addDias(data, 5));
     }
+    // Inovulação: primeiro DG é no D12 contado da OVULAÇÃO da receptora
+    // (não da inovulação). Busca a última ovulação registrada antes da
+    // inovulação; se não houver, cai pro fallback +12 dias da inovulação.
+    if (tipo === 'inovulacao_embriao' && !dataRetorno && eguaId) {
+      const ultOv = [...(registrosRepro || [])]
+        .filter(r => r.eguaId === eguaId && r.tipo === 'controle_folicular'
+          && r.dados?.ovulou && r.dados?.dataOvulacao
+          && (r.dados.dataOvulacao || '') <= (data || ''))
+        .sort((a, b) => (b.dados.dataOvulacao || '').localeCompare(a.dados.dataOvulacao || ''))[0];
+      const base = ultOv?.dados?.dataOvulacao || data;
+      setDataRetorno(addDias(base, 12));
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tipo, data, dados.destino]);
 
@@ -4069,17 +4313,25 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         {registro ? 'Editar registro' : 'Novo registro'}
       </div>
 
-      {/* Tipo */}
+      {/* Tipo — filtra conforme categoria da égua selecionada.
+          Receptora: oculta IA/CE, mostra Inovulação.
+          Outras éguas: mostra tudo exceto Inovulação. */}
       <FormField label="Tipo de atividade">
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {Object.entries(TIPO_META).map(([k, m]) => (
-            <button key={k} onClick={() => { setTipo(k); setDados({}); }} style={{
-              flex: '1 1 45%', minWidth: 120, padding: '10px 8px', borderRadius: 10,
-              border: `1.5px solid ${tipo === k ? m.cor : 'var(--line)'}`,
-              background: tipo === k ? m.bg : 'var(--card)', color: tipo === k ? m.cor : 'var(--ink-2)',
-              fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
-            }}>{m.label}</button>
-          ))}
+          {Object.entries(TIPO_META)
+            .filter(([k]) => {
+              const receptora = ehReceptora(eguaSel);
+              if (receptora) return k !== 'inseminacao_artificial' && k !== 'transferencia_embriao';
+              return k !== 'inovulacao_embriao';
+            })
+            .map(([k, m]) => (
+              <button key={k} onClick={() => { setTipo(k); setDados({}); }} style={{
+                flex: '1 1 45%', minWidth: 120, padding: '10px 8px', borderRadius: 10,
+                border: `1.5px solid ${tipo === k ? m.cor : 'var(--line)'}`,
+                background: tipo === k ? m.bg : 'var(--card)', color: tipo === k ? m.cor : 'var(--ink-2)',
+                fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+              }}>{m.label}</button>
+            ))}
         </div>
       </FormField>
 
@@ -4299,8 +4551,35 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
                               ))}
                             </select>
                           ) : (
-                            <input value={d.eguaNome || ''} onChange={e => setDestino(i, { eguaNome: e.target.value })}
-                              style={inputStyle} placeholder="Nome da égua receptora" />
+                            <div>
+                              {/* Dropdown de receptoras cadastradas no workspace.
+                                  Se escolhida, grava receptoraCadastradaId + nome.
+                                  Dedup com inovulação da home se marcar aqui. */}
+                              <select
+                                value={d.receptoraCadastradaId || ''}
+                                onChange={e => {
+                                  const id = e.target.value;
+                                  if (!id) {
+                                    setDestino(i, { receptoraCadastradaId: '', eguaNome: '' });
+                                  } else {
+                                    const eg = eguasRepro.find(x => x.id === id);
+                                    setDestino(i, { receptoraCadastradaId: id, eguaNome: eg?.nome || '' });
+                                  }
+                                }}
+                                style={{ ...inputStyle, marginBottom: 6 }}
+                              >
+                                <option value="">— Receptora de terceiros (digitar nome) —</option>
+                                {eguasRepro.filter(ehReceptora)
+                                  .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+                                  .map(eg => (
+                                    <option key={eg.id} value={eg.id}>{eg.nome}</option>
+                                  ))}
+                              </select>
+                              {!d.receptoraCadastradaId && (
+                                <input value={d.eguaNome || ''} onChange={e => setDestino(i, { eguaNome: e.target.value })}
+                                  style={inputStyle} placeholder="Nome da égua receptora (texto livre)" />
+                              )}
+                            </div>
                           )}
                         </div>
                       );
@@ -4363,7 +4642,177 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
 
           <BlocoInduzirOvulacao dados={dados} setDado={setDado} insumos={insumos} data={data} inputStyle={inputStyle} />
 
+          {/* Ovulação na receptora — marca D0. Alimenta kanban (D0-D9)
+              e vira referência pros DGs da inovulação. */}
+          {ehReceptora(eguaSel) && (
+            <div style={{
+              marginBottom: 10, padding: 10, borderRadius: 10,
+              border: '1px solid var(--line)', background: 'var(--card)',
+            }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13 }}>
+                <input
+                  type="checkbox"
+                  checked={!!dados.ovulou}
+                  onChange={e => {
+                    const v = e.target.checked;
+                    setDado('ovulou', v);
+                    if (v && !dados.dataOvulacao) setDado('dataOvulacao', hoje);
+                    if (!v) setDado('dataOvulacao', '');
+                  }}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+                <span style={{ fontWeight: 700, color: 'var(--ink)' }}>Ovulou</span>
+                <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>(marca D0 da receptora)</span>
+              </label>
+              {dados.ovulou && (
+                <div style={{ marginTop: 8 }}>
+                  <FormField label="Data da ovulação">
+                    <input type="date" value={dados.dataOvulacao || ''}
+                      onChange={e => setDado('dataOvulacao', e.target.value)}
+                      style={inputStyle} />
+                  </FormField>
+                </div>
+              )}
+            </div>
+          )}
+
           <FormField label="Data de retorno">
+            <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
+          </FormField>
+        </>
+      )}
+
+      {tipo === 'inovulacao_embriao' && (
+        <>
+          {/* Mostra o 'D' calculado se há ovulação registrada na receptora */}
+          {(() => {
+            if (!eguaId || !data) return null;
+            // Pega última ovulação da receptora ANTES ou NA data da inovulação
+            const ultOv = [...(registrosRepro || [])]
+              .filter(r => r.eguaId === eguaId && r.tipo === 'controle_folicular'
+                && r.dados?.ovulou && r.dados?.dataOvulacao
+                && (r.dados.dataOvulacao || '') <= (data || ''))
+              .sort((a, b) => (b.dados.dataOvulacao || '').localeCompare(a.dados.dataOvulacao || ''))[0];
+            if (!ultOv) return (
+              <div style={{
+                background: '#fef3c7', border: '1px solid #f59e0b',
+                padding: '8px 10px', borderRadius: 8, marginBottom: 10,
+                fontSize: 11, color: '#78350f',
+              }}>
+                ⚠ Nenhuma ovulação registrada antes desta data. Registre a ovulação no Controle Folicular pra calcular o 'D'.
+              </div>
+            );
+            const dOv = new Date(ultOv.dados.dataOvulacao + 'T12:00:00');
+            const dInov = new Date(data + 'T12:00:00');
+            const diasD = Math.round((dInov - dOv) / 86400000);
+            return (
+              <div style={{
+                background: '#f5e8ff', border: '1px solid #9333ea',
+                padding: '8px 10px', borderRadius: 8, marginBottom: 10,
+                display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#581c87',
+              }}>
+                <span style={{ fontWeight: 700 }}>D{diasD}</span>
+                <span>· Ovulação em {fmtDataBr(ultOv.dados.dataOvulacao)}</span>
+              </div>
+            );
+          })()}
+
+          <FormField label="Nome do garanhão">
+            <input value={dados.garanhao || ''} onChange={e => setDado('garanhao', e.target.value)} style={inputStyle} placeholder="Nome do garanhão" />
+          </FormField>
+          <FormField label="Nome da égua doadora">
+            <input value={dados.eguaDoadoraNome || ''} onChange={e => setDado('eguaDoadoraNome', e.target.value)} style={inputStyle} placeholder="Nome da doadora (livre)" />
+          </FormField>
+
+          {/* Link opcional pra CE+ nossa (quando o embrião foi coletado por nós).
+              Permite dedup na lista 'Embriões Coletados' da home. */}
+          <FormField label="Embrião de origem (CE+ nossa, opcional)">
+            <select value={dados.ceOrigemId || ''} onChange={e => setDado('ceOrigemId', e.target.value)} style={inputStyle}>
+              <option value="">— Embrião de terceiros (sem link) —</option>
+              {(registrosRepro || [])
+                .filter(r => r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
+                .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+                .slice(0, 50)
+                .map(ce => {
+                  const egua = eguasRepro.find(x => x.id === ce.eguaId);
+                  return (
+                    <option key={ce.id} value={ce.id}>
+                      {fmtDataBr(ce.data)} · {egua?.nome || '—'}{ce.dados?.qtdEmbrioes > 1 ? ` (${ce.dados.qtdEmbrioes} embr.)` : ''}
+                    </option>
+                  );
+                })}
+            </select>
+          </FormField>
+
+          <FormField label="Grau do embrião">
+            <div style={{ display: 'flex', gap: 6 }}>
+              {['I', 'II', 'III'].map(g => (
+                <button key={g} type="button" onClick={() => setDado('grauEmbriao', g)} style={{
+                  flex: 1, padding: '10px 8px', borderRadius: 10, fontSize: 13, fontWeight: 700,
+                  border: `1.5px solid ${dados.grauEmbriao === g ? '#9333ea' : 'var(--line)'}`,
+                  background: dados.grauEmbriao === g ? '#f5e8ff' : 'var(--card)',
+                  color: dados.grauEmbriao === g ? '#581c87' : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{g}</button>
+              ))}
+            </div>
+          </FormField>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <FormField label="Tônus uterino">
+              <select value={dados.tonusUterino || ''} onChange={e => setDado('tonusUterino', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </FormField>
+            <FormField label="Tônus cervical">
+              <select value={dados.tonusCervical || ''} onChange={e => setDado('tonusCervical', e.target.value)} style={inputStyle}>
+                <option value="">—</option>
+                {['-', '+', '++', '+++'].map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </FormField>
+          </div>
+          <FormField label="Edema uterino">
+            <input value={dados.edemaUterino || ''} onChange={e => setDado('edemaUterino', e.target.value)} style={inputStyle} placeholder="0, +, ++, +++" />
+          </FormField>
+
+          {/* Progesterona — 3 opções exclusivas: injetável (com qtd ml),
+              implante (1 un) ou nenhuma. */}
+          <div style={{
+            marginBottom: 10, padding: 10, borderRadius: 10,
+            border: '1px solid var(--line)', background: 'var(--card)',
+          }}>
+            <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+              Progesterona
+            </div>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              {[
+                ['nenhuma', 'Nenhuma'],
+                ['injetavel', 'Injetável'],
+                ['implante', 'Implante'],
+              ].map(([v, lbl]) => (
+                <button key={v} type="button" onClick={() => {
+                  setDado('progesteronaTipo', v);
+                  if (v !== 'injetavel') setDado('progesteronaMl', '');
+                }} style={{
+                  flex: 1, padding: '8px 6px', borderRadius: 8, fontSize: 11, fontWeight: 700,
+                  border: `1.5px solid ${(dados.progesteronaTipo || 'nenhuma') === v ? '#9333ea' : 'var(--line)'}`,
+                  background: (dados.progesteronaTipo || 'nenhuma') === v ? '#f5e8ff' : 'var(--bg)',
+                  color: (dados.progesteronaTipo || 'nenhuma') === v ? '#581c87' : 'var(--ink-2)',
+                  cursor: 'pointer', fontFamily: 'var(--sans)',
+                }}>{lbl}</button>
+              ))}
+            </div>
+            {dados.progesteronaTipo === 'injetavel' && (
+              <FormField label="Quantidade (ml)">
+                <input type="number" min="0" step="0.5" value={dados.progesteronaMl || ''}
+                  onChange={e => setDado('progesteronaMl', e.target.value)}
+                  style={inputStyle} placeholder="Ex: 2" />
+              </FormField>
+            )}
+          </div>
+
+          <FormField label="Data de retorno (padrão +12 dias, editável — primeiro DG)">
             <input type="date" value={dataRetorno} onChange={e => setDataRetorno(e.target.value)} style={inputStyle} />
           </FormField>
         </>
@@ -7244,6 +7693,7 @@ export function ReproApp({
       centraisRepro={centraisRepro}
       propRepro={propRepro}
       eguasRepro={eguasRepro}
+      insumos={insumos}
       // Lookup completo (sem filtro de local) pros planners/agenda
       // conseguirem resolver nome de égua mesmo quando filtro ativo.
       eguasReproLookup={eguasReproTodas}
