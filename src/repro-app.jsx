@@ -992,7 +992,12 @@ function DraggableEvento({
       style={{
         width: '100%', textAlign: 'left', boxSizing: 'border-box',
         cursor: canDrag ? 'grab' : (canOpen ? 'pointer' : 'default'),
-        background: ev.cumprido ? 'var(--soft)' : 'var(--card)',
+        // Boxes de receptora (D0-D9, Inovulação, DG pós-inov) usam tom
+        // pastel amarelado pra diferenciar visualmente das visitas e
+        // procedimentos normais. Cumprido mantém o cinza padrão.
+        background: ev.cumprido
+          ? 'var(--soft)'
+          : (ev.tipoEv && ev.tipoEv.startsWith('receptora_') ? '#fef9c3' : 'var(--card)'),
         border: '1px solid var(--line)',
         borderLeft: `3px solid ${cor}`,
         borderRadius: 8, padding: '6px 8px', marginTop: 4, color: 'var(--ink)',
