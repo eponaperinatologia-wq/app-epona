@@ -44,6 +44,7 @@ import {
   fromDbVetExterno, toDbVetExterno,
   fromDbLocalRepro, toDbLocalRepro,
   fromDbCentralRepro, toDbCentralRepro,
+  fromDbOrcamentoRepro, toDbOrcamentoRepro,
   fromDbVetKmLocal, toDbVetKmLocal,
   fromDbAvisoRepro, toDbAvisoRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
@@ -110,6 +111,7 @@ function AppEpona() {
   const [vetsExternos, setVetsExternos] = useState([]);
   const [locaisRepro, setLocaisRepro] = useState([]);
   const [centraisRepro, setCentraisRepro] = useState([]);
+  const [orcamentosRepro, setOrcamentosRepro] = useState([]);
   const [vetKmLocais, setVetKmLocais] = useState([]);
   const [avisosRepro, setAvisosRepro] = useState([]);
   const [notas, setNotas] = useState({});
@@ -199,7 +201,7 @@ const loadAllData = async () => {
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
-      vetsExternosData, locaisReproData, centraisReproData, vetKmLocaisData,
+      vetsExternosData, locaisReproData, centraisReproData, orcamentosReproData, vetKmLocaisData,
       avisosReproData, faturasReproData,
       contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
@@ -244,6 +246,7 @@ const loadAllData = async () => {
       fetchAll('vets_externos', fromDbVetExterno),
       fetchAll('locais_repro', fromDbLocalRepro),
       fetchAll('centrais_repro', fromDbCentralRepro).catch(() => []),
+      fetchAll('orcamentos_repro', fromDbOrcamentoRepro).catch(() => []),
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
       fetchAll('faturas_repro', fromDbFaturaRepro),
@@ -288,6 +291,7 @@ const loadAllData = async () => {
     setVetsExternos(vetsExternosData || []);
     setLocaisRepro(locaisReproData || []);
     setCentraisRepro(centraisReproData || []);
+    setOrcamentosRepro(orcamentosReproData || []);
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
     setFaturasRepro(faturasReproData || []);
@@ -1397,6 +1401,29 @@ const loadAllData = async () => {
     dbDelete('centrais_repro', id);
   };
 
+  // ── Orçamentos do Repro Team ─────────────────────────────────
+  const addOrcamentoRepro = (data) => {
+    const newId = 'orc_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = {
+      id: newId, workspaceId: 'repro',
+      criadoPor: currentUser?.nome || '',
+      criadoEm: new Date().toISOString(),
+      ...data,
+    };
+    setOrcamentosRepro(prev => [novo, ...prev]);
+    dbInsert('orcamentos_repro', toDbOrcamentoRepro(novo));
+    return newId;
+  };
+  const updateOrcamentoRepro = (id, patch) => {
+    setOrcamentosRepro(prev => prev.map(o => o.id === id ? { ...o, ...patch, atualizadoEm: new Date().toISOString() } : o));
+    const cur = orcamentosRepro.find(o => o.id === id);
+    dbUpdate('orcamentos_repro', id, toDbOrcamentoRepro({ ...cur, ...patch }));
+  };
+  const deleteOrcamentoRepro = (id) => {
+    setOrcamentosRepro(prev => prev.filter(o => o.id !== id));
+    dbDelete('orcamentos_repro', id);
+  };
+
   // ── Valor de km por vet+local (Epona Repro Team) ─────────────
   // Upsert por (vet_id, local_id) — cada vet cobra um valor próprio
   // pelo mesmo local. Se já existe registro pro par, atualiza; senão,
@@ -2133,6 +2160,7 @@ const loadAllData = async () => {
       vetsExternos={vetsExternos}
       locaisRepro={locaisRepro}
       centraisRepro={centraisRepro}
+      orcamentosRepro={orcamentosRepro}
       vetKmLocais={vetKmLocais}
       avisosRepro={avisosRepro}
       resolverAvisoRepro={resolverAvisoRepro}
@@ -2160,6 +2188,9 @@ const loadAllData = async () => {
       addCentralRepro={addCentralRepro}
       updateCentralRepro={updateCentralRepro}
       deleteCentralRepro={deleteCentralRepro}
+      addOrcamentoRepro={addOrcamentoRepro}
+      updateOrcamentoRepro={updateOrcamentoRepro}
+      deleteOrcamentoRepro={deleteOrcamentoRepro}
       upsertVetKmLocal={upsertVetKmLocal}
       addProprietario={addProprietario}
       updateProprietario={updateProprietario}

@@ -12,6 +12,7 @@ import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './u
 import { sendPush } from './utils/push';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
+import { ReproOrcamentos } from './orcamentos-repro';
 import { EguaGestanteDetalheScreen } from './gestacao';
 import { PartoDetalheScreen } from './partos';
 
@@ -6431,6 +6432,7 @@ function ReproCobrancas({
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
   vetsExternos, empresaInfo,
   centraisRepro = [],
+  orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
@@ -6438,12 +6440,13 @@ function ReproCobrancas({
   const [sub, setSub] = useState('faturas');
   const abas = [
     ['faturas', 'Faturas'],
+    ['orcamentos', 'Orçamentos'],
     ['km', 'Km por local'],
     ['divisao', 'Divisão'],
   ];
   return (
     <div>
-      <TopBar title="Cobranças" subtitle="Faturas · Km · Divisão da equipe" />
+      <TopBar title="Cobranças" subtitle="Faturas · Orçamentos · Km · Divisão" />
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
         {abas.map(([id, lbl]) => (
           <button key={id} onClick={() => setSub(id)} style={{
@@ -6501,6 +6504,22 @@ function ReproCobrancas({
           faturasRepro={faturasRepro}
           contratosAssessoria={contratosAssessoria}
           visitasClinicas={visitasClinicas}
+        />
+      )}
+      {sub === 'orcamentos' && (
+        <ReproOrcamentos
+          orcamentosRepro={orcamentosRepro}
+          propRepro={propRepro}
+          locaisRepro={locaisRepro}
+          vetKmLocais={vetKmLocais}
+          vetsExternos={vetsExternos}
+          servicos={servicos}
+          insumos={insumos}
+          empresaInfo={empresaInfo}
+          currentUser={currentUser}
+          addOrcamentoRepro={addOrcamentoRepro}
+          updateOrcamentoRepro={updateOrcamentoRepro}
+          deleteOrcamentoRepro={deleteOrcamentoRepro}
         />
       )}
     </div>
@@ -7522,6 +7541,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
   centraisRepro = [],
+  orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
@@ -8022,6 +8042,10 @@ export function ReproApp({
       vetsExternos={vetsExternos}
       empresaInfo={empresaInfo}
       centraisRepro={centraisRepro}
+      orcamentosRepro={orcamentosRepro}
+      addOrcamentoRepro={addOrcamentoRepro}
+      updateOrcamentoRepro={updateOrcamentoRepro}
+      deleteOrcamentoRepro={deleteOrcamentoRepro}
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}

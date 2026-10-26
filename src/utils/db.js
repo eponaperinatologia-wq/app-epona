@@ -108,6 +108,38 @@ export const toDbLocalRepro = l => ({
   observacoes: l.observacoes || '',
 });
 
+// ── Orçamento do Repro Team ─────────────────────────────────
+// Documento gerado pela equipe antes de executar procedimentos.
+// Só estimativa — nada é cobrado nem gera registros no sistema.
+export const fromDbOrcamentoRepro = r => ({
+  id: r.id,
+  workspaceId: r.workspace_id || 'repro',
+  proprietarioId: r.proprietario_id || null,
+  destinatarioNome: r.destinatario_nome || '',
+  localId: r.local_id || null,
+  titulo: r.titulo || '',
+  observacoes: r.observacoes || '',
+  itens: typeof r.itens === 'string' ? JSON.parse(r.itens || '[]') : (r.itens || []),
+  total: Number(r.total) || 0,
+  criadoPor: r.criado_por || '',
+  criadoEm: r.criado_em || null,
+  atualizadoEm: r.atualizado_em || null,
+});
+export const toDbOrcamentoRepro = o => ({
+  id: o.id,
+  workspace_id: o.workspaceId || 'repro',
+  proprietario_id: o.proprietarioId || null,
+  destinatario_nome: o.destinatarioNome || '',
+  local_id: o.localId || null,
+  titulo: o.titulo || '',
+  observacoes: o.observacoes || '',
+  itens: o.itens || [],
+  total: Number(o.total) || 0,
+  criado_por: o.criadoPor || '',
+  // criado_em: deixa o DB preencher na inserção; só mandamos o atualizado_em
+  atualizado_em: new Date().toISOString(),
+});
+
 // ── Central de reprodução (destino de embriões coletados) ──
 // Diferente de locais_repro: central é lugar PRA ONDE o embrião é
 // enviado (nem sempre a receptora é conhecida na hora da coleta).
