@@ -521,22 +521,65 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
   }
 
   // IA pra prenhez na própria égua (matriz). Entra na lista a partir
-  // do momento que vira "em acompanhamento" (D12+ positivo) OU já tem
-  // qualquer DG marcado. DGs usam D12/D15/D45/D60 (sem D25 que é só
-  // pra inovulação em receptora).
+  // do momento que vira "em acompanhamento". DGs usam D12/D15/D45/D60
+  // (sem D25 que é só pra inovulação em receptora).
+  //
+  // Fontes de DG, por prioridade:
+  //  1. dados.dgXX da própria IA (marcado via detalhe do registro)
+  //  2. Registros separados tipo diagnostico_gestacao da mesma égua
+  //     depois da IA — a classe (D12/D15/D45/D60) é inferida pela
+  //     diferença de dias entre a data do DG e a data da IA:
+  //       10-14 dias → D12 ·  15-30 → D15 ·  31-50 → D45 ·  51+ → D60
+  //     Se há múltiplos DGs separados pra mesma classe, pega o mais
+  //     recente.
+  const classificarDg = (diasApos) => {
+    if (diasApos < 10) return null;
+    if (diasApos <= 14) return 'dg12';
+    if (diasApos <= 30) return 'dg15';
+    if (diasApos <= 50) return 'dg45';
+    return 'dg60';
+  };
   for (const r of registrosRepro) {
     if (r.tipo !== 'inseminacao_artificial') continue;
     if (r.dados?.destino !== 'prenhez') continue;
     const d = r.dados || {};
-    const temAlgumDg = ['dg12', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo' || d[k] === 'negativo');
-    if (!temAlgumDg) continue; // só entra quando começa o acompanhamento
     const matriz = cavalosLookup.find(c => c.id === r.eguaId);
+    // DGs do próprio registro (via detalhe da IA)
     const dgs = {
       dg12: d.dg12 || null,
       dg15: d.dg15 || null,
       dg45: d.dg45 || null,
       dg60: d.dg60 || null,
     };
+    const dgDataByKey = {
+      dg12: d.dg12_data || null,
+      dg15: d.dg15_data || null,
+      dg45: d.dg45_data || null,
+      dg60: d.dg60_data || null,
+    };
+    // DGs separados tipo diagnostico_gestacao: inferência por dias
+    if (r.data) {
+      const iaDate = new Date(r.data + 'T12:00:00');
+      const dgsSeparados = registrosRepro
+        .filter(x => x.tipo === 'diagnostico_gestacao'
+          && x.eguaId === r.eguaId
+          && x.data && x.data >= r.data
+          && (x.dados?.resultado === 'positivo' || x.dados?.resultado === 'negativo'));
+      for (const dg of dgsSeparados) {
+        const dias = Math.round((new Date(dg.data + 'T12:00:00') - iaDate) / 86400000);
+        const classe = classificarDg(dias);
+        if (!classe) continue;
+        // Se classe já preenchida pela IA ou por DG separado anterior,
+        // mantém o mais recente baseado na data
+        const dataAtual = dgDataByKey[classe];
+        if (!dgs[classe] || !dataAtual || dg.data >= dataAtual) {
+          dgs[classe] = dg.dados.resultado;
+          dgDataByKey[classe] = dg.data;
+        }
+      }
+    }
+    const temAlgumDg = ['dg12', 'dg15', 'dg45', 'dg60'].some(k => dgs[k]);
+    if (!temAlgumDg) continue; // só entra quando começa o acompanhamento
     let status = 'd12_pos';
     let concluido = false;
     if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
