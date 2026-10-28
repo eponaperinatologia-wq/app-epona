@@ -8284,11 +8284,14 @@ function Modal({ onClose, children }) {
     <div onClick={onClose} style={{
       position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100,
-      padding: 20,
+      // paddingBottom extra pra garantir que o modal não encosta na TabBar
+      // (zIndex 200, altura ~76px) — botões ficam clicáveis mesmo quando
+      // o conteúdo é alto e empurra até o fim.
+      padding: '20px 20px 100px',
     }}>
       <div onClick={e => e.stopPropagation()} style={{
         background: 'var(--bg)', borderRadius: 16, padding: 24, maxWidth: 440, width: '100%',
-        maxHeight: '90vh', overflowY: 'auto',
+        maxHeight: '85vh', overflowY: 'auto',
       }}>{children}</div>
     </div>
   );

@@ -37,14 +37,16 @@ function Modal({ children, onClose }) {
         position: 'fixed', inset: 0, zIndex: 10000,
         background: 'rgba(0,0,0,0.5)',
         display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
-        padding: 0,
+        // paddingBottom reserva espaço pra TabBar (~76px) — modal nunca
+        // encosta nela, botões sempre clicáveis.
+        padding: '0 0 90px',
       }}
       onClick={onClose}
     >
       <div
         style={{
           background: 'var(--bg)', width: '100%', maxWidth: 480,
-          maxHeight: '92vh', overflowY: 'auto',
+          maxHeight: 'calc(100vh - 110px)', overflowY: 'auto',
           borderRadius: '16px 16px 0 0', padding: 20,
           boxShadow: '0 -8px 30px rgba(0,0,0,0.2)',
         }}
