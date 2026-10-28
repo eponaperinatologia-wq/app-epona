@@ -58,3 +58,22 @@ ALTER TABLE genealogicos_repro DISABLE ROW LEVEL SECURITY;
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('genealogicos', 'genealogicos', true)
 ON CONFLICT (id) DO NOTHING;
+
+-- Policies abertas no bucket (sem RLS específico) — igual aos outros
+-- buckets do app. CREATE POLICY falha se já existe, mas é a forma mais
+-- compatível entre versões do Postgres.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='genealogicos_select') THEN
+    EXECUTE 'CREATE POLICY "genealogicos_select" ON storage.objects FOR SELECT USING (bucket_id = ''genealogicos'')';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='genealogicos_insert') THEN
+    EXECUTE 'CREATE POLICY "genealogicos_insert" ON storage.objects FOR INSERT WITH CHECK (bucket_id = ''genealogicos'')';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='genealogicos_update') THEN
+    EXECUTE 'CREATE POLICY "genealogicos_update" ON storage.objects FOR UPDATE USING (bucket_id = ''genealogicos'')';
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='storage' AND tablename='objects' AND policyname='genealogicos_delete') THEN
+    EXECUTE 'CREATE POLICY "genealogicos_delete" ON storage.objects FOR DELETE USING (bucket_id = ''genealogicos'')';
+  END IF;
+END $$;
