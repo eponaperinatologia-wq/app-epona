@@ -520,10 +520,50 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     });
   }
 
+  // IA pra prenhez na própria égua (matriz). Entra na lista a partir
+  // do momento que vira "em acompanhamento" (D12+ positivo) OU já tem
+  // qualquer DG marcado. DGs usam D12/D15/D45/D60 (sem D25 que é só
+  // pra inovulação em receptora).
+  for (const r of registrosRepro) {
+    if (r.tipo !== 'inseminacao_artificial') continue;
+    if (r.dados?.destino !== 'prenhez') continue;
+    const d = r.dados || {};
+    const temAlgumDg = ['dg12', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo' || d[k] === 'negativo');
+    if (!temAlgumDg) continue; // só entra quando começa o acompanhamento
+    const matriz = cavalosLookup.find(c => c.id === r.eguaId);
+    const dgs = {
+      dg12: d.dg12 || null,
+      dg15: d.dg15 || null,
+      dg45: d.dg45 || null,
+      dg60: d.dg60 || null,
+    };
+    let status = 'd12_pos';
+    let concluido = false;
+    if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
+    else if (dgs.dg60 === 'negativo') { status = 'd60_neg'; concluido = true; }
+    else if (dgs.dg45 === 'negativo') { status = 'd45_neg'; concluido = true; }
+    else if (dgs.dg45 === 'positivo') { status = 'd45_pos'; }
+    else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
+    else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
+    else if (dgs.dg12 === 'negativo') { status = 'd12_neg'; concluido = true; }
+    else if (dgs.dg12 === 'positivo') { status = 'd12_pos'; }
+    out.push({
+      regId: r.id, embIdx: 0, fonte: 'prenhez',
+      dataColeta: null, dataInovulacao: null,
+      dataIa: r.data,
+      garanhao: d.garanhao || '',
+      eguaDoadora: matriz?.nome || '—', // na prenhez a "doadora" é a própria matriz
+      destino: { tipo: 'propria', eguaNome: matriz?.nome || '' },
+      dgs, receptora: matriz?.nome || '',
+      status, concluido, qtdTotalEmbrioes: 1,
+      pontosDg: [12, 15, 45, 60],
+    });
+  }
+
   // Mais recentes primeiro
   return out.sort((a, b) => {
-    const da = a.dataInovulacao || a.dataColeta || '';
-    const db = b.dataInovulacao || b.dataColeta || '';
+    const da = a.dataInovulacao || a.dataColeta || a.dataIa || '';
+    const db = b.dataInovulacao || b.dataColeta || b.dataIa || '';
     return db.localeCompare(da);
   });
 }
@@ -647,9 +687,11 @@ function PainelEmbrioesAcompanhamento({
       {aberto && lista.map((item) => {
         const key = `${item.regId}:${item.embIdx}`;
         const meta = STATUS_META[item.status] || STATUS_META.coletado;
-        const destinoLabel = item.destino?.tipo === 'central'
-          ? `Central: ${centralNome(item.destino.centralId)}`
-          : `Égua: ${item.destino?.eguaNome || '—'}`;
+        const destinoLabel = item.destino?.tipo === 'propria'
+          ? `Prenhez na própria matriz: ${item.destino.eguaNome || '—'}`
+          : item.destino?.tipo === 'central'
+            ? `Central: ${centralNome(item.destino.centralId)}`
+            : `Égua: ${item.destino?.eguaNome || '—'}`;
         const precisaReceptora = item.destino?.tipo === 'central'
           && item.dgs?.dg15 === 'positivo'
           && !item.dgs?.receptora;
@@ -690,7 +732,10 @@ function PainelEmbrioesAcompanhamento({
               </div>
             </div>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 6, lineHeight: 1.5 }}>
-              IA: {fmtDataBr(item.dataIa) || '—'} · Coleta: {fmtDataBr(item.dataColeta)}
+              {item.fonte === 'prenhez'
+                ? <>IA: {fmtDataBr(item.dataIa) || '—'}</>
+                : <>IA: {fmtDataBr(item.dataIa) || '—'} · Coleta: {fmtDataBr(item.dataColeta)}</>
+              }
               <br />
               {destinoLabel}
               {temReceptora && item.destino?.tipo === 'central' && (
@@ -4257,6 +4302,11 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     // IA que vira TE agenda a coleta em +9 dias (editável)
     if (tipo === 'inseminacao_artificial' && dados.destino === 'transferencia' && !dados.dataColetaAgendada) {
       setDado('dataColetaAgendada', addDias(data, 9));
+    }
+    // IA pra prenhez na própria égua: primeiro DG em +12 dias (editável).
+    // Depois do D12+, segue com D15/D45/D60 pelo painel 'Embriões Coletados'.
+    if (tipo === 'inseminacao_artificial' && dados.destino === 'prenhez' && !dataRetorno) {
+      setDataRetorno(addDias(data, 12));
     }
     // TE agenda retorno em +5 dias (editável) — só se não houver
     if (tipo === 'transferencia_embriao' && !dataRetorno) {
