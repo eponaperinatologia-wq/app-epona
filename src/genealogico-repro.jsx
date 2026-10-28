@@ -84,6 +84,7 @@ function calcularProgresso(g) {
 export function ReproGenealogico({
   genealogicosRepro = [], propRepro = [], currentUser,
   addGenealogicoRepro, updateGenealogicoRepro, deleteGenealogicoRepro,
+  sincronizarGenealogicosRetroativos = null,
 }) {
   const [filtro, setFiltro] = useState('ativos'); // 'ativos' | 'concluidos' | 'todos'
   const [busca, setBusca] = useState('');
@@ -143,6 +144,29 @@ export function ReproGenealogico({
           <Icon name="plus" size={18} color="#fff" />
         </button>
       </div>
+
+      {sincronizarGenealogicosRetroativos && (
+        <div style={{ padding: '10px 20px 0' }}>
+          <button
+            onClick={() => {
+              const criados = sincronizarGenealogicosRetroativos();
+              if (criados > 0) {
+                window.alert(`${criados} processo${criados > 1 ? 's' : ''} criado${criados > 1 ? 's' : ''} retroativamente.`);
+              } else {
+                window.alert('Nenhum DG45+ novo encontrado. Todos os processos elegíveis já existem.');
+              }
+            }}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 10,
+              border: '1px dashed var(--line)', background: 'transparent',
+              color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+              cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}
+          >
+            🔄 Sincronizar DG45+ existentes (cria processos faltantes)
+          </button>
+        </div>
+      )}
 
       <div style={{ padding: '14px 20px 0' }}>
         {lista.length === 0 && (
