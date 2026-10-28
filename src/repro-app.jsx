@@ -520,21 +520,22 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     });
   }
 
-  // IA pra prenhez na própria égua (matriz). Entra na lista a partir
-  // do momento que vira "em acompanhamento". DGs usam D12/D15/D45/D60
-  // (sem D25 que é só pra inovulação em receptora).
+  // IA pra prenhez na própria égua (matriz). Entra na lista assim que
+  // existe QUALQUER DG+ pós-IA — independentemente do dia em que foi
+  // feito (D12 é só a agenda do kanban, não classificação). Depois na
+  // lista, os botões D15/D45/D60 marcam os próximos pontos.
   //
-  // Fontes de DG, por prioridade:
-  //  1. dados.dgXX da própria IA (marcado via detalhe do registro)
+  // Fontes de DG:
+  //  1. dados.dgXX / dados.inicialResultado da própria IA
   //  2. Registros separados tipo diagnostico_gestacao da mesma égua
-  //     depois da IA — a classe (D12/D15/D45/D60) é inferida pela
-  //     diferença de dias entre a data do DG e a data da IA:
-  //       10-14 dias → D12 ·  15-30 → D15 ·  31-50 → D45 ·  51+ → D60
-  //     Se há múltiplos DGs separados pra mesma classe, pega o mais
-  //     recente.
-  const classificarDg = (diasApos) => {
+  //     após a IA. O PRIMEIRO DG+ pós-IA (qualquer dia) marca o início
+  //     do acompanhamento ("DG inicial"). DGs subsequentes são
+  //     classificados pela diferença de dias:
+  //       até 30 dias após IA → DG15 (primeiro ponto confirmatório)
+  //       31-50 dias          → DG45
+  //       51+ dias            → DG60
+  const classificarDgSubsequente = (diasApos) => {
     if (diasApos < 10) return null;
-    if (diasApos <= 14) return 'dg12';
     if (diasApos <= 30) return 'dg15';
     if (diasApos <= 50) return 'dg45';
     return 'dg60';
@@ -546,41 +547,52 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     const matriz = cavalosLookup.find(c => c.id === r.eguaId);
     // DGs do próprio registro (via detalhe da IA)
     const dgs = {
-      dg12: d.dg12 || null,
+      dgInicial: d.dgInicial || null,
       dg15: d.dg15 || null,
       dg45: d.dg45 || null,
       dg60: d.dg60 || null,
     };
     const dgDataByKey = {
-      dg12: d.dg12_data || null,
+      dgInicial: d.dgInicial_data || null,
       dg15: d.dg15_data || null,
       dg45: d.dg45_data || null,
       dg60: d.dg60_data || null,
     };
-    // DGs separados tipo diagnostico_gestacao: inferência por dias
+    // DGs separados: o primeiro define 'dgInicial'; subsequentes vão
+    // em dg15/dg45/dg60 conforme janela de dias.
     if (r.data) {
       const iaDate = new Date(r.data + 'T12:00:00');
       const dgsSeparados = registrosRepro
         .filter(x => x.tipo === 'diagnostico_gestacao'
           && x.eguaId === r.eguaId
           && x.data && x.data >= r.data
-          && (x.dados?.resultado === 'positivo' || x.dados?.resultado === 'negativo'));
-      for (const dg of dgsSeparados) {
+          && (x.dados?.resultado === 'positivo' || x.dados?.resultado === 'negativo'))
+        .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+      for (let i = 0; i < dgsSeparados.length; i++) {
+        const dg = dgsSeparados[i];
+        if (i === 0) {
+          // Primeiro DG = inicial (sempre entra)
+          if (!dgs.dgInicial || !dgDataByKey.dgInicial || dg.data >= dgDataByKey.dgInicial) {
+            dgs.dgInicial = dg.dados.resultado;
+            dgDataByKey.dgInicial = dg.data;
+          }
+          continue;
+        }
+        // Subsequentes: classifica por janela
         const dias = Math.round((new Date(dg.data + 'T12:00:00') - iaDate) / 86400000);
-        const classe = classificarDg(dias);
+        const classe = classificarDgSubsequente(dias);
         if (!classe) continue;
-        // Se classe já preenchida pela IA ou por DG separado anterior,
-        // mantém o mais recente baseado na data
-        const dataAtual = dgDataByKey[classe];
-        if (!dgs[classe] || !dataAtual || dg.data >= dataAtual) {
+        if (!dgs[classe] || !dgDataByKey[classe] || dg.data >= dgDataByKey[classe]) {
           dgs[classe] = dg.dados.resultado;
           dgDataByKey[classe] = dg.data;
         }
       }
     }
-    const temAlgumDg = ['dg12', 'dg15', 'dg45', 'dg60'].some(k => dgs[k]);
+    const temAlgumDg = ['dgInicial', 'dg15', 'dg45', 'dg60'].some(k => dgs[k]);
     if (!temAlgumDg) continue; // só entra quando começa o acompanhamento
-    let status = 'd12_pos';
+    // Status prioriza DG mais tardio. dgInicial é só pra entrar na lista;
+    // os botões de acompanhamento são DG15/DG45/DG60.
+    let status = 'inicial_pos';
     let concluido = false;
     if (dgs.dg60 === 'positivo') { status = 'd60_pos'; concluido = true; }
     else if (dgs.dg60 === 'negativo') { status = 'd60_neg'; concluido = true; }
@@ -588,8 +600,8 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     else if (dgs.dg45 === 'positivo') { status = 'd45_pos'; }
     else if (dgs.dg15 === 'negativo') { status = 'd15_neg'; concluido = true; }
     else if (dgs.dg15 === 'positivo') { status = 'd15_pos'; }
-    else if (dgs.dg12 === 'negativo') { status = 'd12_neg'; concluido = true; }
-    else if (dgs.dg12 === 'positivo') { status = 'd12_pos'; }
+    else if (dgs.dgInicial === 'negativo') { status = 'inicial_neg'; concluido = true; }
+    else if (dgs.dgInicial === 'positivo') { status = 'inicial_pos'; }
     out.push({
       regId: r.id, embIdx: 0, fonte: 'prenhez',
       dataColeta: null, dataInovulacao: null,
@@ -599,7 +611,9 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       destino: { tipo: 'propria', eguaNome: matriz?.nome || '' },
       dgs, receptora: matriz?.nome || '',
       status, concluido, qtdTotalEmbrioes: 1,
-      pontosDg: [12, 15, 45, 60],
+      // Botões de acompanhamento no painel: DG15/DG45/DG60. DG inicial
+      // já aconteceu (deu positivo pra entrar); não precisa de botão.
+      pontosDg: [15, 45, 60],
     });
   }
 
@@ -612,17 +626,19 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
 }
 
 const STATUS_META = {
-  coletado: { label: 'Coletado · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
-  d12_pos:  { label: 'D12+ · aguarda D15',   bg: '#dbeafe', ink: '#1e40af' },
-  d12_neg:  { label: 'D12 negativo',          bg: '#fee2e2', ink: '#dc2626' },
-  d15_pos:  { label: 'D15+ · aguarda D25/D45', bg: '#fef3c7', ink: '#78350f' },
-  d25_pos:  { label: 'D25+ · aguarda D45',   bg: '#fef3c7', ink: '#78350f' },
-  d25_neg:  { label: 'D25 negativo',          bg: '#fee2e2', ink: '#dc2626' },
-  d45_pos:  { label: 'D45+ · aguarda D60',   bg: '#fde68a', ink: '#78350f' },
-  d60_pos:  { label: 'D60+ · confirmado',    bg: '#dcfce7', ink: '#15803d' },
-  d15_neg:  { label: 'D15 negativo',          bg: '#fee2e2', ink: '#dc2626' },
-  d45_neg:  { label: 'D45 negativo',          bg: '#fee2e2', ink: '#dc2626' },
-  d60_neg:  { label: 'D60 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  coletado:    { label: 'Coletado · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
+  inicial_pos: { label: 'DG inicial+ · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
+  inicial_neg: { label: 'DG inicial negativo',    bg: '#fee2e2', ink: '#dc2626' },
+  d12_pos:     { label: 'D12+ · aguarda D15',   bg: '#dbeafe', ink: '#1e40af' },
+  d12_neg:     { label: 'D12 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d15_pos:     { label: 'D15+ · aguarda D45',    bg: '#fef3c7', ink: '#78350f' },
+  d25_pos:     { label: 'D25+ · aguarda D45',   bg: '#fef3c7', ink: '#78350f' },
+  d25_neg:     { label: 'D25 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d45_pos:     { label: 'D45+ · aguarda D60',   bg: '#fde68a', ink: '#78350f' },
+  d60_pos:     { label: 'D60+ · confirmado',    bg: '#dcfce7', ink: '#15803d' },
+  d15_neg:     { label: 'D15 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d45_neg:     { label: 'D45 negativo',          bg: '#fee2e2', ink: '#dc2626' },
+  d60_neg:     { label: 'D60 negativo',          bg: '#fee2e2', ink: '#dc2626' },
 };
 
 // Aplica patch nos dgs de um embrião dentro de um registro CE (ou inovulação).
@@ -713,7 +729,7 @@ function PainelEmbrioesAcompanhamento({
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>
-            Embriões Coletados
+            Embriões
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
             {todos.length} embrião{todos.length === 1 ? '' : 'ões'} na estação
@@ -4346,10 +4362,12 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     if (tipo === 'inseminacao_artificial' && dados.destino === 'transferencia' && !dados.dataColetaAgendada) {
       setDado('dataColetaAgendada', addDias(data, 9));
     }
-    // IA pra prenhez na própria égua: primeiro DG em +12 dias (editável).
-    // Depois do D12+, segue com D15/D45/D60 pelo painel 'Embriões Coletados'.
-    if (tipo === 'inseminacao_artificial' && dados.destino === 'prenhez' && !dataRetorno) {
-      setDataRetorno(addDias(data, 12));
+    // Troca transferência → prenhez: apaga coleta agendada e seta
+    // dataRetorno em +12 dias (primeiro DG). Se a data já passou, o
+    // kanban mostra em 'atrasados' pra ser marcado.
+    if (tipo === 'inseminacao_artificial' && dados.destino === 'prenhez') {
+      if (dados.dataColetaAgendada) setDado('dataColetaAgendada', '');
+      if (!dataRetorno) setDataRetorno(addDias(data, 12));
     }
     // TE agenda retorno em +5 dias (editável) — só se não houver
     if (tipo === 'transferencia_embriao' && !dataRetorno) {
@@ -4687,7 +4705,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
                 );
               })()}
               <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 10 }}>
-                DGs (D15/D45/D60) são marcados no painel "Embriões em acompanhamento" na home.
+                DGs (D15/D45/D60) são marcados no painel "Embriões" na home.
               </div>
             </>
           )}
