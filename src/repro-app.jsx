@@ -317,7 +317,6 @@ function ReproSubHomeReproducao({
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, onSelectEvento, onBack,
   updateRegistroReproducao = null,
-  onOpenGenealogico = null,
 }) {
   const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
   return (
@@ -365,23 +364,6 @@ function ReproSubHomeReproducao({
         <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
       </button>
 
-      {onOpenGenealogico && (
-        <button onClick={onOpenGenealogico} style={{
-          width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
-          borderRadius: 14, padding: '14px 16px', cursor: 'pointer', color: 'var(--ink)',
-          display: 'flex', alignItems: 'center', gap: 12, textAlign: 'left',
-          marginBottom: 12,
-        }}>
-          <div style={{ width: 40, height: 40, borderRadius: 10, background: '#f5e8ff', color: CORES_TAB_ATIVA, display: 'grid', placeItems: 'center' }}>
-            <Icon name="file" size={18} />
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 15 }}>Registros Genealógicos</div>
-            <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>Comunicados ABCCH · pré-registro · inspeção</div>
-          </div>
-          <span style={{ fontSize: 18, opacity: 0.6 }}>›</span>
-        </button>
-      )}
 
       {/* Calendário mensal — apenas reprodução */}
       <div style={{ marginBottom: 12 }}>
@@ -7983,13 +7965,12 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       onBack={() => setScreen('repro-vet')}
       updateRegistroReproducao={updateRegistroReproducao}
-      onOpenGenealogico={() => { setTab('vet'); setScreen('repro-vet-genealogico'); }}
     />;
   } else if (screen === 'repro-vet-genealogico') {
     content = (
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '14px 20px 10px' }}>
-          <button onClick={() => setScreen('repro-vet-reproducao')} style={{
+          <button onClick={() => setScreen('repro-vet')} style={{
             background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
             padding: '4px 6px 4px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
           }}>
@@ -8070,6 +8051,7 @@ export function ReproApp({
       }}
       setSelected={(idSel) => setVetSelectedId(idSel)}
       onOpenReproducao={() => { setTab('vet'); setScreen('repro-vet-reproducao'); }}
+      onOpenGenealogicos={() => { setTab('vet'); setScreen('repro-vet-genealogico'); }}
       onCadastrarGestante={abrirCadastroGestante}
       partos={filtraPorEgua(vetBundle.partos, 'eguaId').concat(filtraPorEgua(vetBundle.partos, 'potroId')).filter((v, i, a) => a.findIndex(x => x.id === v.id) === i)}
       cavalos={eguasRepro}

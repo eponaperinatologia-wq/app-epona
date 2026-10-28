@@ -593,6 +593,9 @@ export function VeterinariaScreen({
   // de abrir o ReproducaoScreen padrão. Uso: repro team abre o Caderno
   // novo (UI Repro Team) em vez do módulo antigo.
   onOpenReproducao = null,
+  // Se fornecido, mostra card "Registros Genealógicos" na grade e
+  // dispara este callback ao clicar. Uso: Repro Team (ABCCH).
+  onOpenGenealogicos = null,
   // Se fornecido, mostra botão "+" em Gestação e Partos pra abrir
   // cadastro de nova égua gestante (usado no repro team).
   onCadastrarGestante = null,
@@ -953,6 +956,11 @@ export function VeterinariaScreen({
       })(),
       badgeCor: '#7c2d8c',
     }] : []),
+    // Só no shell Repro Team: Registros Genealógicos (ABCCH)
+    ...(onOpenGenealogicos ? [{
+      id: 'genealogicos', label: 'Registros\nGenealógicos', icon: 'file', cor: '#7c2d8c', bg: '#f5e8ff',
+      badge: 'ABCCH · pré-reg. · inspeção', badgeCor: '#7c2d8c',
+    }] : []),
   ];
 
   // Filtra os cards se veio uma lista permitida (uso pelo shell do proprietário)
@@ -974,6 +982,7 @@ export function VeterinariaScreen({
               // Se veio callback custom pra reprodução (uso repro team),
               // dispara ele em vez de abrir a tela antiga
               if (card.id === 'reproducao' && onOpenReproducao) return onOpenReproducao();
+              if (card.id === 'genealogicos' && onOpenGenealogicos) return onOpenGenealogicos();
               setSecao(card.id);
             }} style={{
               background: card.emBreve ? 'var(--soft)' : 'var(--card)',
