@@ -1107,119 +1107,6 @@ const loadAllData = async () => {
     }
   };
 
-  // Varre todos os registros repro e cria processos genealógicos
-  // faltantes (dedup via origem_id). Útil pra retroagir DG45+ marcados
-  // antes da feature existir. Dedup local via Set pra evitar duplicatas
-  // em bulk (setState é async). Retorna qtd criada.
-  const sincronizarGenealogicosRetroativos = () => {
-    const jaExistem = new Set((genealogicosRepro || []).map(g => g.origemId).filter(Boolean));
-    const novos = [];
-
-    const tryCriar = (payload) => {
-      if (!payload.origemId) return;
-      if (jaExistem.has(payload.origemId)) return;
-      jaExistem.add(payload.origemId);
-      const id = 'gen_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-      const novo = {
-        id, workspaceId: 'repro',
-        criadoPor: currentUser?.nome || '',
-        criadoEm: new Date().toISOString(),
-        status: 'em_andamento',
-        ...payload,
-      };
-      novos.push(novo);
-    };
-
-    const buildPayload = ({ origemTipo, origemId, iaId, teId, inovulacaoId, matrizId, receptoraNomeHint }) => {
-      const ia = iaId ? registrosReproducao.find(r => r.id === iaId) : null;
-      const te = teId ? registrosReproducao.find(r => r.id === teId) : null;
-      const inov = inovulacaoId ? registrosReproducao.find(r => r.id === inovulacaoId) : null;
-      const doadoraId = te?.eguaId || matrizId;
-      const doadora = cavalos.find(c => c.id === doadoraId);
-      const propIds = doadora?.proprietarioIds || (doadora?.proprietarioId ? [doadora.proprietarioId] : []);
-      const prop = propIds.length > 0 ? proprietarios.find(p => p.id === propIds[0]) : null;
-      let receptoraNome = receptoraNomeHint || '';
-      if (!receptoraNome && inov) {
-        const egRec = cavalos.find(c => c.id === inov.eguaId);
-        receptoraNome = egRec?.nome || '';
-      }
-      return {
-        origemTipo, origemId,
-        garanhaoNome: ia?.dados?.garanhao || te?.dados?.garanhao || inov?.dados?.garanhao || '',
-        eguaDoadoraNome: doadora?.nome || inov?.dados?.eguaDoadoraNome || '',
-        proprietarioId: prop?.id || null,
-        proprietarioNome: prop?.nome || '',
-        receptoraNome,
-        dataIa: ia?.data || null,
-        dataTe: te?.data || null,
-      };
-    };
-
-    for (const r of (registrosReproducao || [])) {
-      if ((r.workspaceId || 'haras') !== 'repro') continue;
-      const d = r.dados || {};
-      // CE+ com dg45=positivo (legado, 1 embrião)
-      if (r.tipo === 'transferencia_embriao' && d.resultado === 'positivo') {
-        const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
-        if (qtd === 1 && d.dg45 === 'positivo') {
-          tryCriar(buildPayload({
-            origemTipo: 'ce', origemId: r.id, iaId: d.iaOrigemId, teId: r.id,
-            receptoraNomeHint: (d.destinos?.[0]?.eguaNome) || d.receptora || '',
-          }));
-        }
-        const arr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
-        for (let i = 0; i < arr.length; i++) {
-          if (arr[i]?.dg45 === 'positivo') {
-            tryCriar(buildPayload({
-              origemTipo: 'ce', origemId: `${r.id}:${i}`, iaId: d.iaOrigemId, teId: r.id,
-              receptoraNomeHint: (d.destinos?.[i]?.eguaNome) || '',
-            }));
-          }
-        }
-      }
-      // Inovulação dg45
-      if (r.tipo === 'inovulacao_embriao' && d.dg45 === 'positivo') {
-        const ceOrig = d.ceOrigemId ? registrosReproducao.find(x => x.id === d.ceOrigemId) : null;
-        const iaId = ceOrig?.dados?.iaOrigemId || null;
-        tryCriar(buildPayload({
-          origemTipo: 'inovulacao', origemId: r.id, iaId, teId: ceOrig?.id || null, inovulacaoId: r.id,
-        }));
-      }
-      // IA destino=prenhez com dg45 direto na IA
-      if (r.tipo === 'inseminacao_artificial' && d.destino === 'prenhez' && d.dg45 === 'positivo') {
-        tryCriar(buildPayload({
-          origemTipo: 'prenhez', origemId: r.id, iaId: r.id, matrizId: r.eguaId,
-        }));
-      }
-    }
-    // DG separado positivo em janela 31-50 dias após IA prenhez
-    for (const dg of (registrosReproducao || [])) {
-      if (dg.tipo !== 'diagnostico_gestacao') continue;
-      if (dg.dados?.resultado !== 'positivo') continue;
-      if ((dg.workspaceId || 'haras') !== 'repro') continue;
-      const ia = [...registrosReproducao]
-        .filter(x => x.tipo === 'inseminacao_artificial' && x.eguaId === dg.eguaId
-          && x.dados?.destino === 'prenhez' && x.data && x.data <= (dg.data || ''))
-        .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0];
-      if (!ia || !dg.data || !ia.data) continue;
-      const dias = Math.round((new Date(dg.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000);
-      if (dias >= 31 && dias <= 60) {
-        tryCriar(buildPayload({
-          origemTipo: 'prenhez', origemId: ia.id, iaId: ia.id, matrizId: ia.eguaId,
-        }));
-      }
-    }
-
-    // Insere tudo de uma vez
-    if (novos.length > 0) {
-      setGenealogicosRepro(prev => [...novos, ...prev]);
-      for (const n of novos) {
-        dbInsert('genealogicos_repro', toDbGenealogicoRepro(n));
-      }
-    }
-    return novos.length;
-  };
-
   const updateRegistroReproducao = (id, patch) => {
     // Pega o registro ANTES do patch pra detectar transições (ex: indução
     // de ovulação adicionada agora pela 1ª vez → cria aviso).
@@ -2440,7 +2327,6 @@ const loadAllData = async () => {
       addGenealogicoRepro={addGenealogicoRepro}
       updateGenealogicoRepro={updateGenealogicoRepro}
       deleteGenealogicoRepro={deleteGenealogicoRepro}
-      sincronizarGenealogicosRetroativos={sincronizarGenealogicosRetroativos}
       upsertVetKmLocal={upsertVetKmLocal}
       addProprietario={addProprietario}
       updateProprietario={updateProprietario}

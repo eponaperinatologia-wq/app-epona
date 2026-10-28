@@ -7661,7 +7661,6 @@ export function ReproApp({
   centraisRepro = [],
   orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   genealogicosRepro = [], addGenealogicoRepro, updateGenealogicoRepro, deleteGenealogicoRepro,
-  sincronizarGenealogicosRetroativos = null,
   insumos = [], servicos = [],
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
@@ -7986,7 +7985,6 @@ export function ReproApp({
           addGenealogicoRepro={addGenealogicoRepro}
           updateGenealogicoRepro={updateGenealogicoRepro}
           deleteGenealogicoRepro={deleteGenealogicoRepro}
-          sincronizarGenealogicosRetroativos={sincronizarGenealogicosRetroativos}
         />
       </div>
     );
