@@ -140,6 +140,68 @@ export const toDbOrcamentoRepro = o => ({
   atualizado_em: new Date().toISOString(),
 });
 
+// ── Processos de Registro Genealógico (ABCCH) ───────────────
+// 1 processo = 1 potro em formação (do DG45+ ao registro final).
+// Pode ser criado auto (via DG45+ dum CE/Inovulação/IA prenhez) ou
+// manual (ex: Alexandre fazendo inspeção de potros de terceiros).
+export const fromDbGenealogicoRepro = r => ({
+  id: r.id,
+  workspaceId: r.workspace_id || 'repro',
+  origemTipo: r.origem_tipo || 'manual',
+  origemId: r.origem_id || null,
+  garanhaoNome: r.garanhao_nome || '',
+  eguaDoadoraNome: r.egua_doadora_nome || '',
+  proprietarioId: r.proprietario_id || null,
+  proprietarioNome: r.proprietario_nome || '',
+  receptoraNome: r.receptora_nome || '',
+  dataIa: r.data_ia || null,
+  dataTe: r.data_te || null,
+  comunicadoCobricaoFeito: !!r.comunicado_cobricao_feito,
+  comunicadoCobricaoData: r.comunicado_cobricao_data || null,
+  nascimentoData: r.nascimento_data || null,
+  nascimentoSexo: r.nascimento_sexo || '',
+  comunicadoNascimentoFeito: !!r.comunicado_nascimento_feito,
+  comunicadoNascimentoData: r.comunicado_nascimento_data || null,
+  preRegistroUrl: r.pre_registro_url || '',
+  preRegistroNomeArquivo: r.pre_registro_nome_arquivo || '',
+  inspecaoFeita: !!r.inspecao_feita,
+  inspecaoData: r.inspecao_data || null,
+  pendencias: r.pendencias || '',
+  observacoes: r.observacoes || '',
+  status: r.status || 'em_andamento',
+  criadoPor: r.criado_por || '',
+  criadoEm: r.criado_em || null,
+  atualizadoEm: r.atualizado_em || null,
+});
+export const toDbGenealogicoRepro = g => ({
+  id: g.id,
+  workspace_id: g.workspaceId || 'repro',
+  origem_tipo: g.origemTipo || 'manual',
+  origem_id: g.origemId || null,
+  garanhao_nome: g.garanhaoNome || '',
+  egua_doadora_nome: g.eguaDoadoraNome || '',
+  proprietario_id: g.proprietarioId || null,
+  proprietario_nome: g.proprietarioNome || '',
+  receptora_nome: g.receptoraNome || '',
+  data_ia: g.dataIa || null,
+  data_te: g.dataTe || null,
+  comunicado_cobricao_feito: !!g.comunicadoCobricaoFeito,
+  comunicado_cobricao_data: g.comunicadoCobricaoData || null,
+  nascimento_data: g.nascimentoData || null,
+  nascimento_sexo: g.nascimentoSexo || '',
+  comunicado_nascimento_feito: !!g.comunicadoNascimentoFeito,
+  comunicado_nascimento_data: g.comunicadoNascimentoData || null,
+  pre_registro_url: g.preRegistroUrl || '',
+  pre_registro_nome_arquivo: g.preRegistroNomeArquivo || '',
+  inspecao_feita: !!g.inspecaoFeita,
+  inspecao_data: g.inspecaoData || null,
+  pendencias: g.pendencias || '',
+  observacoes: g.observacoes || '',
+  status: g.status || 'em_andamento',
+  criado_por: g.criadoPor || '',
+  atualizado_em: new Date().toISOString(),
+});
+
 // ── Central de reprodução (destino de embriões coletados) ──
 // Diferente de locais_repro: central é lugar PRA ONDE o embrião é
 // enviado (nem sempre a receptora é conhecida na hora da coleta).

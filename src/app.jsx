@@ -45,6 +45,7 @@ import {
   fromDbLocalRepro, toDbLocalRepro,
   fromDbCentralRepro, toDbCentralRepro,
   fromDbOrcamentoRepro, toDbOrcamentoRepro,
+  fromDbGenealogicoRepro, toDbGenealogicoRepro,
   fromDbVetKmLocal, toDbVetKmLocal,
   fromDbAvisoRepro, toDbAvisoRepro,
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
@@ -112,6 +113,7 @@ function AppEpona() {
   const [locaisRepro, setLocaisRepro] = useState([]);
   const [centraisRepro, setCentraisRepro] = useState([]);
   const [orcamentosRepro, setOrcamentosRepro] = useState([]);
+  const [genealogicosRepro, setGenealogicosRepro] = useState([]);
   const [vetKmLocais, setVetKmLocais] = useState([]);
   const [avisosRepro, setAvisosRepro] = useState([]);
   const [notas, setNotas] = useState({});
@@ -201,7 +203,7 @@ const loadAllData = async () => {
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
-      vetsExternosData, locaisReproData, centraisReproData, orcamentosReproData, vetKmLocaisData,
+      vetsExternosData, locaisReproData, centraisReproData, orcamentosReproData, genealogicosReproData, vetKmLocaisData,
       avisosReproData, faturasReproData,
       contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
@@ -247,6 +249,7 @@ const loadAllData = async () => {
       fetchAll('locais_repro', fromDbLocalRepro),
       fetchAll('centrais_repro', fromDbCentralRepro).catch(() => []),
       fetchAll('orcamentos_repro', fromDbOrcamentoRepro).catch(() => []),
+      fetchAll('genealogicos_repro', fromDbGenealogicoRepro).catch(() => []),
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
       fetchAll('faturas_repro', fromDbFaturaRepro),
@@ -292,6 +295,7 @@ const loadAllData = async () => {
     setLocaisRepro(locaisReproData || []);
     setCentraisRepro(centraisReproData || []);
     setOrcamentosRepro(orcamentosReproData || []);
+    setGenealogicosRepro(genealogicosReproData || []);
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
     setFaturasRepro(faturasReproData || []);
@@ -1000,7 +1004,109 @@ const loadAllData = async () => {
         criadoPor: r.vetId || null,
       });
     }
+    // Também dispara auto-criação de genealógico quando o novo registro
+    // já nasce com DG45+ (ex: DG separado criado com resultado positivo).
+    criarGenealogicoAutoSeNecessario(r, null);
   };
+  // Cria processo de registro genealógico automaticamente quando um
+  // DG45+ é marcado no registro `novo` (CE/Inovulação/IA prenhez).
+  // Dedup: só cria se não existe processo pra esse origem_id. Também
+  // detecta DG45 em registros separados tipo diagnostico_gestacao
+  // apontando pra IA destino=prenhez (classifica por diferença de dias).
+  const criarGenealogicoAutoSeNecessario = (novo, antes) => {
+    if (!novo || (novo.workspaceId || 'haras') !== 'repro') return;
+    const d = novo.dados || {};
+    const dAntes = antes?.dados || {};
+    // Helper: já existe processo pra essa origem?
+    const jaExiste = (origemId) => (genealogicosRepro || []).some(g => g.origemId === origemId);
+    // Helper: resolve nomes/datas e cria o processo
+    const criarPara = ({ origemTipo, origemId, iaId, teId, inovulacaoId, matrizId, receptoraNomeHint }) => {
+      if (!origemId || jaExiste(origemId)) return;
+      // IA de origem (pode vir diretamente ou via CE.iaOrigemId)
+      const ia = iaId ? registrosReproducao.find(r => r.id === iaId) : null;
+      const te = teId ? registrosReproducao.find(r => r.id === teId) : null;
+      const inov = inovulacaoId ? registrosReproducao.find(r => r.id === inovulacaoId) : null;
+      // Égua doadora: pra CE é a égua do registro CE; pra IA prenhez é a
+      // própria matriz do registro IA.
+      const doadoraId = te?.eguaId || matrizId;
+      const doadora = cavalos.find(c => c.id === doadoraId);
+      // Proprietário: pega o primeiro da doadora
+      const propIds = doadora?.proprietarioIds || (doadora?.proprietarioId ? [doadora.proprietarioId] : []);
+      const prop = propIds.length > 0 ? proprietarios.find(p => p.id === propIds[0]) : null;
+      // Receptora: hint (via destinos.eguaNome, inovulacao.eguaId etc)
+      let receptoraNome = receptoraNomeHint || '';
+      if (!receptoraNome && inov) {
+        const egRec = cavalos.find(c => c.id === inov.eguaId);
+        receptoraNome = egRec?.nome || '';
+      }
+      const payload = {
+        origemTipo, origemId,
+        garanhaoNome: ia?.dados?.garanhao || te?.dados?.garanhao || inov?.dados?.garanhao || '',
+        eguaDoadoraNome: doadora?.nome || inov?.dados?.eguaDoadoraNome || '',
+        proprietarioId: prop?.id || null,
+        proprietarioNome: prop?.nome || '',
+        receptoraNome,
+        dataIa: ia?.data || null,
+        dataTe: te?.data || null,
+        status: 'em_andamento',
+      };
+      addGenealogicoRepro(payload);
+    };
+    // Caso 1: CE positiva, dg45 marcado agora (via dgsEmbrioes OU dados.dg45 legado)
+    if (novo.tipo === 'transferencia_embriao' && d.resultado === 'positivo') {
+      const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
+      // Embrião único (legado)
+      if (qtd === 1) {
+        if (d.dg45 === 'positivo' && dAntes.dg45 !== 'positivo') {
+          criarPara({ origemTipo: 'ce', origemId: novo.id, iaId: d.iaOrigemId, teId: novo.id,
+            receptoraNomeHint: (d.destinos?.[0]?.eguaNome) || d.receptora || '' });
+        }
+      } else {
+        const arrNovo = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+        const arrAntes = Array.isArray(dAntes.dgsEmbrioes) ? dAntes.dgsEmbrioes : [];
+        for (let i = 0; i < arrNovo.length; i++) {
+          if (arrNovo[i]?.dg45 === 'positivo' && arrAntes[i]?.dg45 !== 'positivo') {
+            // Cada embrião vira um processo próprio (origem = ce.id + ':' + i)
+            const origemId = `${novo.id}:${i}`;
+            if (jaExiste(origemId)) continue;
+            criarPara({ origemTipo: 'ce', origemId, iaId: d.iaOrigemId, teId: novo.id,
+              receptoraNomeHint: (d.destinos?.[i]?.eguaNome) || '' });
+          }
+        }
+      }
+    }
+    // Caso 2: Inovulação com dg45 marcado agora
+    if (novo.tipo === 'inovulacao_embriao' && d.dg45 === 'positivo' && dAntes.dg45 !== 'positivo') {
+      // CE de origem (opcional, pra puxar doadora e IA)
+      const ceOrig = d.ceOrigemId ? registrosReproducao.find(r => r.id === d.ceOrigemId) : null;
+      const iaId = ceOrig?.dados?.iaOrigemId || null;
+      criarPara({ origemTipo: 'inovulacao', origemId: novo.id, iaId, teId: ceOrig?.id || null,
+        inovulacaoId: novo.id });
+    }
+    // Caso 3: IA destino=prenhez com dg45 marcado agora (direto na IA)
+    if (novo.tipo === 'inseminacao_artificial' && d.destino === 'prenhez'
+        && d.dg45 === 'positivo' && dAntes.dg45 !== 'positivo') {
+      criarPara({ origemTipo: 'prenhez', origemId: novo.id, iaId: novo.id, matrizId: novo.eguaId });
+    }
+    // Caso 4: DG separado (tipo=diagnostico_gestacao) positivo. Classifica
+    // por diferença de dias com a IA mais próxima da mesma égua. Se cai
+    // na janela de "DG45" (31-50 dias após IA), cria.
+    if (novo.tipo === 'diagnostico_gestacao' && d.resultado === 'positivo'
+        && dAntes.resultado !== 'positivo') {
+      // Busca a IA destino=prenhez mais recente antes do DG, pra mesma égua
+      const ia = [...registrosReproducao]
+        .filter(x => x.tipo === 'inseminacao_artificial' && x.eguaId === novo.eguaId
+          && x.dados?.destino === 'prenhez' && x.data && x.data <= (novo.data || ''))
+        .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0];
+      if (ia && novo.data && ia.data) {
+        const dias = Math.round((new Date(novo.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000);
+        if (dias >= 31 && dias <= 60) {
+          criarPara({ origemTipo: 'prenhez', origemId: ia.id, iaId: ia.id, matrizId: ia.eguaId });
+        }
+      }
+    }
+  };
+
   const updateRegistroReproducao = (id, patch) => {
     // Pega o registro ANTES do patch pra detectar transições (ex: indução
     // de ovulação adicionada agora pela 1ª vez → cria aviso).
@@ -1043,6 +1149,9 @@ const loadAllData = async () => {
         });
       }
     }
+    // Auto-criação de processo genealógico quando DG45+ é marcado em
+    // CE/Inovulação. Dedup: um processo por registro de origem.
+    criarGenealogicoAutoSeNecessario(novo, antes);
   };
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
@@ -1422,6 +1531,29 @@ const loadAllData = async () => {
   const deleteOrcamentoRepro = (id) => {
     setOrcamentosRepro(prev => prev.filter(o => o.id !== id));
     dbDelete('orcamentos_repro', id);
+  };
+
+  // ── Processos de Registro Genealógico (ABCCH) ────────────────
+  const addGenealogicoRepro = (data) => {
+    const newId = 'gen_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = {
+      id: newId, workspaceId: 'repro',
+      criadoPor: currentUser?.nome || '',
+      criadoEm: new Date().toISOString(),
+      ...data,
+    };
+    setGenealogicosRepro(prev => [novo, ...prev]);
+    dbInsert('genealogicos_repro', toDbGenealogicoRepro(novo));
+    return newId;
+  };
+  const updateGenealogicoRepro = (id, patch) => {
+    setGenealogicosRepro(prev => prev.map(g => g.id === id ? { ...g, ...patch, atualizadoEm: new Date().toISOString() } : g));
+    const cur = genealogicosRepro.find(g => g.id === id);
+    dbUpdate('genealogicos_repro', id, toDbGenealogicoRepro({ ...cur, ...patch }));
+  };
+  const deleteGenealogicoRepro = (id) => {
+    setGenealogicosRepro(prev => prev.filter(g => g.id !== id));
+    dbDelete('genealogicos_repro', id);
   };
 
   // ── Valor de km por vet+local (Epona Repro Team) ─────────────
@@ -2161,6 +2293,7 @@ const loadAllData = async () => {
       locaisRepro={locaisRepro}
       centraisRepro={centraisRepro}
       orcamentosRepro={orcamentosRepro}
+      genealogicosRepro={genealogicosRepro}
       vetKmLocais={vetKmLocais}
       avisosRepro={avisosRepro}
       resolverAvisoRepro={resolverAvisoRepro}
@@ -2191,6 +2324,9 @@ const loadAllData = async () => {
       addOrcamentoRepro={addOrcamentoRepro}
       updateOrcamentoRepro={updateOrcamentoRepro}
       deleteOrcamentoRepro={deleteOrcamentoRepro}
+      addGenealogicoRepro={addGenealogicoRepro}
+      updateGenealogicoRepro={updateGenealogicoRepro}
+      deleteGenealogicoRepro={deleteGenealogicoRepro}
       upsertVetKmLocal={upsertVetKmLocal}
       addProprietario={addProprietario}
       updateProprietario={updateProprietario}
