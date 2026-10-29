@@ -155,12 +155,7 @@ function ReproHome({
     else { setTab(s.tab); setScreen(s.screen); }
   };
 
-  // Avisos de inspetor (pegar maleta / enviar doc ABCCH) só são visíveis
-  // pro próprio inspetor. Outros avisos (reservar receptora, induzir)
-  // seguem visíveis pra todo o time.
-  const _avisosInspetor = new Set(['pegar_maleta', 'enviar_doc_abcch']);
-  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm
-    && (!_avisosInspetor.has(a.tipo) || ehUsuarioInspetor(currentUser)));
+  const avisosPend = filtrarAvisosParaMural(avisosRepro, { currentUser, genealogicosRepro });
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
@@ -323,13 +318,9 @@ function ReproSubHomeReproducao({
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, onSelectEvento, onBack,
   updateRegistroReproducao = null,
+  genealogicosRepro = [],
 }) {
-  // Avisos de inspetor (pegar maleta / enviar doc ABCCH) só são visíveis
-  // pro próprio inspetor. Outros avisos (reservar receptora, induzir)
-  // seguem visíveis pra todo o time.
-  const _avisosInspetor = new Set(['pegar_maleta', 'enviar_doc_abcch']);
-  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm
-    && (!_avisosInspetor.has(a.tipo) || ehUsuarioInspetor(currentUser)));
+  const avisosPend = filtrarAvisosParaMural(avisosRepro, { currentUser, genealogicosRepro });
   return (
     <div style={{ padding: '14px 20px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -420,6 +411,28 @@ const CORES_AVISO = {
 // Quando houver mais inspetores, viramos flag no cadastro do vet.
 const ehUsuarioInspetor = (currentUser) =>
   /alexandre/i.test(currentUser?.nome || '');
+
+// Filtra avisos pro mural seguindo as regras:
+//  - Esconde já resolvidos
+//  - Avisos de inspetor (pegar_maleta/enviar_doc_abcch) só pro Alexandre
+//  - 'pegar_maleta' só aparece a partir do dia da inspeção agendada
+//    (via genealogicosRepro.find(g => g.id === referenciaId))
+function filtrarAvisosParaMural(avisos, { currentUser, genealogicosRepro = [], hoje }) {
+  const inspetor = new Set(['pegar_maleta', 'enviar_doc_abcch']);
+  const diaHoje = hoje || new Date().toLocaleDateString('sv-SE');
+  return (avisos || []).filter(a => {
+    if (a.resolvidoEm) return false;
+    if (inspetor.has(a.tipo) && !ehUsuarioInspetor(currentUser)) return false;
+    if (a.tipo === 'pegar_maleta') {
+      const gen = genealogicosRepro.find(g => g.id === a.referenciaId);
+      const dataAgenda = gen?.inspecaoAgendadaData;
+      // Sem data agendada = aviso órfão (mantém visível); com data,
+      // só aparece a partir do dia.
+      if (dataAgenda && dataAgenda > diaHoje) return false;
+    }
+    return true;
+  });
+}
 // ─────────────────────────────────────────────────────────────
 // Painel de embriões em acompanhamento (home da Repro)
 // ─────────────────────────────────────────────────────────────
@@ -8067,6 +8080,7 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       onBack={() => setScreen('repro-vet')}
       updateRegistroReproducao={updateRegistroReproducao}
+      genealogicosRepro={genealogicosRepro}
     />;
   } else if (screen === 'repro-vet-genealogico') {
     content = (
