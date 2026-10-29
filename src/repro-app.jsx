@@ -5693,6 +5693,42 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   }
   const totalEmbrioesPos = embrioesPosLinhas.length;
 
+  // ── Embriões coletados que viraram DG15+ (sobrevivência inicial) ─
+  // Só aplica a embriões COLETADOS (CE+); IA prenhez já é contada em
+  // Embr+ via dgInicial/dg15 — a métrica aqui mede resistência do
+  // embrião entre a coleta e o primeiro DG. Fonte do dg15:
+  //  - na própria CE (dados.dg15 ou dgsEmbrioes[i].dg15), OU
+  //  - na inovulação vinculada à CE via ceOrigemId
+  const embrioesDg15Linhas = [];
+  for (const ia of iasParaTe) {
+    for (const ce of encontraCesDaIa(ia)) {
+      const d = ce.dados || {};
+      const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
+      const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+      const inovsDaCe = (registrosRepro || []).filter(r =>
+        r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId === ce.id);
+      for (let i = 0; i < qtd; i++) {
+        const emb = (qtd === 1 && dgsArr.length === 0)
+          ? { dg15: d.dg15 || null }
+          : (dgsArr[i] || {});
+        // DG15+ marcado na CE OU em alguma inovulação linkada
+        const dg15DaCe = emb.dg15 === 'positivo';
+        const dg15DaInov = inovsDaCe.some(iv => iv.dados?.dg15 === 'positivo');
+        if (dg15DaCe || dg15DaInov) {
+          embrioesDg15Linhas.push({
+            key: `${ce.id}:${i}`, tipo: 'ce',
+            regId: ce.id, cavaloId: ce.eguaId, embIdx: i, qtd,
+            data: ce.data,
+            garanhao: ia.dados?.garanhao || '',
+            iaData: ia.data,
+            vetInseminador: ia.vetId,
+          });
+        }
+      }
+    }
+  }
+  const totalEmbrioesDg15 = embrioesDg15Linhas.length;
+
   // ── Prenhezes confirmadas (DG45+) — ancoradas ao mês da IA ───
   // Pra cada IA do mês:
   //  - destino=prenhez: conta se dg45=positivo na própria IA
@@ -5831,6 +5867,12 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
           hint="Taxa de embriões positivados por inseminação"
           valorA={totalIA} labelA="IA" corA="#7c2d8c"
           valorB={totalEmbrioesPos} labelB="Embr+" corB="#be185d"
+        />
+        <GraficoComparativo
+          titulo="Embr+ × DG15+"
+          hint="Taxa de sobrevivência: embriões coletados que viraram DG15+"
+          valorA={totalEmbrioesPos} labelA="Embr+" corA="#be185d"
+          valorB={totalEmbrioesDg15} labelB="DG15+" corB="#f59e0b"
         />
         <GraficoComparativo
           titulo="Embr+ × Prenh."
