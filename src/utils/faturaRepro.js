@@ -242,6 +242,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     servicos = [], insumos = [], vetKmLocais = [], locais = [],
     // Assessoria clínica (opcional — se não vier, seção fica vazia)
     contratosAssessoria = [], visitasClinicas = [],
+    // Processos genealógicos (ABCCH) — pra cobrar inspeção realizada
+    genealogicos = [],
   } = deps;
   const { agruparDescartaveis = false } = opts;
 
@@ -501,8 +503,33 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   assessoriasLinhas.sort((a, b) => (a.data || '').localeCompare(b.data || ''));
   const assessoriasTotal = assessoriasLinhas.reduce((s, l) => s + l.valor, 0);
 
+  // ── 7) Inspeções ABCCH realizadas no mês. Linha pra cada processo
+  //       genealógico com inspecaoFeita=true e inspecao_data no mês ref.
+  //       Cobra: valor do serviço "Inspeção ABCCH" (busca por nome) +
+  //       valor de visita (km) declarado no form de registro.
+  const inspecoesLinhas = [];
+  const svcInspecao = servicos.find(s => /inspe[çc][ãa]o.*abcch|abcch.*inspe/i.test(s.nome || ''));
+  const valorInspecao = Number(svcInspecao?.valor) || 0;
+  for (const g of (genealogicos || [])) {
+    if (!g.inspecaoFeita || !g.inspecaoData) continue;
+    if (!isMes(g.inspecaoData, ref)) continue;
+    // Pra fatura normal: só entra se g.proprietarioId === propId
+    if (g.proprietarioId !== propId) continue;
+    const local = locais.find(l => l.id === g.inspecaoLocalId);
+    inspecoesLinhas.push({
+      data: g.inspecaoData, genealogicoId: g.id,
+      servicoNome: svcInspecao?.nome || 'Inspeção ABCCH',
+      valorServico: valorInspecao,
+      valorKm: Number(g.inspecaoKmValor) || 0,
+      localNome: local?.nome || '',
+      potroLabel: g.nomePotro || `${g.garanhaoNome || '—'} × ${g.eguaDoadoraNome || '—'}`,
+      valor: valorInspecao + (Number(g.inspecaoKmValor) || 0),
+    });
+  }
+  const inspecoesTotal = inspecoesLinhas.reduce((s, l) => s + l.valor, 0);
+
   const total = visitasTotal + insumosTotal + procedimentosTotal + avulsosTotal
-    + resultadosTotal + alugueisTotal + assessoriasTotal;
+    + resultadosTotal + alugueisTotal + assessoriasTotal + inspecoesTotal;
 
   const insumosLinhasFinais = agruparDescartaveis
     ? agruparDescartaveisLinhas(insumosLinhas, insumos)
@@ -518,8 +545,46 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     resultadosLinhas, resultadosTotal,
     alugueisLinhas, alugueisTotal,
     assessoriasLinhas, assessoriasTotal,
+    inspecoesLinhas, inspecoesTotal,
     total,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Fatura externa — prospects sem cadastro no app.
+//
+// Processos genealógicos com proprietarioId=null mas destinatarioNome
+// preenchido viram "faturas externas" agrupadas por nome. Cada fatura
+// externa só tem inspeções (fonte principal de cobrança pro inspetor).
+// Não gera registro na tabela de faturas; é calculada on-the-fly.
+export function calcFaturasExternas(ref, deps) {
+  const { servicos = [], locais = [], genealogicos = [] } = deps;
+  const svcInspecao = servicos.find(s => /inspe[çc][ãa]o.*abcch|abcch.*inspe/i.test(s.nome || ''));
+  const valorInspecao = Number(svcInspecao?.valor) || 0;
+  // Agrupa por destinatarioNome
+  const porDest = new Map();
+  for (const g of (genealogicos || [])) {
+    if (g.proprietarioId) continue; // só prospects
+    if (!g.inspecaoFeita || !g.inspecaoData) continue;
+    if (!isMes(g.inspecaoData, ref)) continue;
+    const nome = (g.destinatarioNome || g.proprietarioNome || '').trim();
+    if (!nome) continue;
+    if (!porDest.has(nome)) porDest.set(nome, { destinatarioNome: nome, linhas: [], total: 0 });
+    const bucket = porDest.get(nome);
+    const local = locais.find(l => l.id === g.inspecaoLocalId);
+    const linha = {
+      data: g.inspecaoData, genealogicoId: g.id,
+      servicoNome: svcInspecao?.nome || 'Inspeção ABCCH',
+      valorServico: valorInspecao,
+      valorKm: Number(g.inspecaoKmValor) || 0,
+      localNome: local?.nome || '',
+      potroLabel: g.nomePotro || `${g.garanhaoNome || '—'} × ${g.eguaDoadoraNome || '—'}`,
+      valor: valorInspecao + (Number(g.inspecaoKmValor) || 0),
+    };
+    bucket.linhas.push(linha);
+    bucket.total += linha.valor;
+  }
+  return [...porDest.values()].sort((a, b) => a.destinatarioNome.localeCompare(b.destinatarioNome, 'pt'));
 }
 
 // ─────────────────────────────────────────────────────────────

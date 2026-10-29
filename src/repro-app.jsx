@@ -6,14 +6,14 @@ import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, dividirFatura, servicosPadrao, servicoTeParaResultado } from './utils/faturaRepro';
+import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
 import { ReproOrcamentos } from './orcamentos-repro';
-import { ReproGenealogico } from './genealogico-repro';
+import { ReproGenealogico, RegistroInspecaoModal } from './genealogico-repro';
 import { EguaGestanteDetalheScreen } from './gestacao';
 import { PartoDetalheScreen } from './partos';
 
@@ -137,7 +137,7 @@ function ReproHome({
   updateRegistroReproducao = null, onEditarRegistro = null,
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
-  insumos = [],
+  insumos = [], genealogicosRepro = [],
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -155,7 +155,12 @@ function ReproHome({
     else { setTab(s.tab); setScreen(s.screen); }
   };
 
-  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
+  // Avisos de inspetor (pegar maleta / enviar doc ABCCH) só são visíveis
+  // pro próprio inspetor. Outros avisos (reservar receptora, induzir)
+  // seguem visíveis pra todo o time.
+  const _avisosInspetor = new Set(['pegar_maleta', 'enviar_doc_abcch']);
+  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm
+    && (!_avisosInspetor.has(a.tipo) || ehUsuarioInspetor(currentUser)));
 
   return (
     <div style={{ padding: '20px 20px 24px' }}>
@@ -233,6 +238,7 @@ function ReproHome({
         updateVisitaClinica={updateVisitaClinica}
         onSelectVisitaClinica={onSelectVisitaClinica}
         insumos={insumos}
+        genealogicosRepro={genealogicosRepro}
       />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
@@ -318,7 +324,12 @@ function ReproSubHomeReproducao({
   setScreen, setTab, onSelectEvento, onBack,
   updateRegistroReproducao = null,
 }) {
-  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm);
+  // Avisos de inspetor (pegar maleta / enviar doc ABCCH) só são visíveis
+  // pro próprio inspetor. Outros avisos (reservar receptora, induzir)
+  // seguem visíveis pra todo o time.
+  const _avisosInspetor = new Set(['pegar_maleta', 'enviar_doc_abcch']);
+  const avisosPend = avisosRepro.filter(a => !a.resolvidoEm
+    && (!_avisosInspetor.has(a.tipo) || ehUsuarioInspetor(currentUser)));
   return (
     <div style={{ padding: '14px 20px 20px' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
@@ -397,10 +408,18 @@ function ReproSubHomeReproducao({
 // indução de ovulação em roxo pra o vet reconhecer rápido como "hora
 // de aplicar hormônio".
 const CORES_AVISO = {
-  reservar_receptora: { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
-  inducao_ovulacao:   { bg: '#f5e8ff', border: '#9333ea', chip: '#9333ea', ink: '#581c87' },
-  _default:           { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
+  reservar_receptora:   { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
+  inducao_ovulacao:     { bg: '#f5e8ff', border: '#9333ea', chip: '#9333ea', ink: '#581c87' },
+  pegar_maleta:         { bg: '#dbeafe', border: '#1d4ed8', chip: '#1d4ed8', ink: '#1e3a8a' },
+  enviar_doc_abcch:     { bg: '#dcfce7', border: '#15803d', chip: '#15803d', ink: '#14532d' },
+  _default:             { bg: '#fef3c7', border: '#f59e0b', chip: '#f59e0b', ink: '#78350f' },
 };
+
+// Avisos de inspetor (pegar_maleta, enviar_doc_abcch) só são vistos
+// pelo próprio inspetor. Hoje é só Alexandre — identifica pelo nome.
+// Quando houver mais inspetores, viramos flag no cadastro do vet.
+const ehUsuarioInspetor = (currentUser) =>
+  /alexandre/i.test(currentUser?.nome || '');
 // ─────────────────────────────────────────────────────────────
 // Painel de embriões em acompanhamento (home da Repro)
 // ─────────────────────────────────────────────────────────────
@@ -1171,6 +1190,7 @@ function Planner({
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [], locaisRepro = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
   insumos = [],
+  genealogicosRepro = [],
 }) {
   // Pra achar nome da égua, usa lookup completo (não filtrado por local)
   // senão quando filtra haras os eventos de outras éguas ficam sem nome.
@@ -1180,10 +1200,26 @@ function Planner({
   const eventosBase = eventosPendentes(registros, hoje);
   // Eventos virtuais de receptora: D0-D9 pós-ovulação + DGs pós-inovulação
   const eventosReceptora = eventosReceptorasAtivas(registros, hoje, eguasLookup, insumos);
+  // Inspeções agendadas (ABCCH): 1 evento por processo genealógico
+  // com inspecaoAgendadaData preenchida e inspeção ainda não feita.
+  const eventosInspecao = (genealogicosRepro || [])
+    .filter(g => g.inspecaoAgendadaData && !g.inspecaoFeita)
+    .map(g => ({
+      id: `insp_${g.id}`,
+      tipoEv: 'inspecao',
+      dataEv: g.inspecaoAgendadaData,
+      eguaId: null, // potro não é égua cadastrada
+      vetId: null,
+      tipo: 'inspecao',
+      fonte: 'genealogico',
+      cumprido: false,
+      genealogico: g,
+      rotuloHaras: g.nomePotro || `${g.garanhaoNome || '—'} × ${g.eguaDoadoraNome || '—'}`,
+    }));
   // Se vetBundle fornecido, adiciona eventos vet SEM filtrar por
   // "cumprido" (não faz sentido). Filtra os que caem em [hoje-30d, +30d]
   // pra não poluir a agenda horizontal.
-  let eventos = [...eventosBase, ...eventosReceptora];
+  let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao];
   if (vetBundle) {
     const eguasIds = new Set((eguasRepro || []).map(c => c.id));
     const janelaIni = addDias(hoje, -30);
@@ -1865,6 +1901,7 @@ function rotuloEvento(ev) {
   if (ev.tipoEv === 'receptora_d') return ev.dLabel || 'D';
   if (ev.tipoEv === 'receptora_inovulacao') return 'Inovulação';
   if (ev.tipoEv && ev.tipoEv.startsWith('receptora_dg')) return `DG${ev.dgPonto}`;
+  if (ev.tipoEv === 'inspecao') return 'Inspeção';
   return (TIPO_META[ev.tipo]?.short) || '—';
 }
 
@@ -6549,7 +6586,7 @@ function ReproCobrancas({
   currentUser, locaisRepro, vetKmLocais, upsertVetKmLocal,
   proprietarios, propRepro, cavalos, registrosRepro, servicos, insumos,
   vetsExternos, empresaInfo,
-  centraisRepro = [],
+  centraisRepro = [], genealogicosRepro = [],
   orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
@@ -6594,6 +6631,7 @@ function ReproCobrancas({
           vetKmLocais={vetKmLocais}
           locais={locaisRepro}
           centraisRepro={centraisRepro}
+          genealogicos={genealogicosRepro}
           vetsExternos={vetsExternos}
           empresaInfo={empresaInfo}
           currentUser={currentUser}
@@ -6680,7 +6718,7 @@ const navBtn = {
 function ReproFaturas({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
   vetKmLocais, locais, vetsExternos, empresaInfo, currentUser,
-  centraisRepro = [],
+  centraisRepro = [], genealogicos = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
@@ -6689,7 +6727,7 @@ function ReproFaturas({
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [propAberto, setPropAberto] = useState(null);
 
-  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas };
+  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas, genealogicos };
   // Lookup de fatura persistida (fechada ou paga) por proprietário.
   // Fatura persistida vence o cálculo on-the-fly: o snapshot representa
   // o que foi efetivamente fechado — não deve recalcular depois.
@@ -6811,6 +6849,60 @@ function ReproFaturas({
             </button>
           );
         })}
+
+        {/* Faturas externas (prospects sem cadastro no app) — hoje só
+            vindas de inspeções ABCCH feitas pra terceiros. Entram na
+            mesma lista mas destacadas com badge 'Prospect'. */}
+        {(() => {
+          const externas = calcFaturasExternas(mesRef, deps);
+          if (externas.length === 0) return null;
+          return (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>
+                Faturas externas (sem cadastro no app)
+              </div>
+              {externas.map(ext => (
+                <div key={ext.destinatarioNome} style={{
+                  background: 'var(--card)', border: '1px solid var(--line)',
+                  borderLeft: '3px solid #c2410c',
+                  borderRadius: 12, padding: '12px 14px', marginBottom: 8,
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 10 }}>
+                    <div style={{ fontFamily: 'var(--serif)', fontSize: 15, flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{ext.destinatarioNome}</span>
+                      <span style={{
+                        fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+                        background: '#fed7aa', color: '#9a3412',
+                        textTransform: 'uppercase', letterSpacing: '0.04em',
+                      }}>Prospect</span>
+                    </div>
+                    <div style={{ fontFamily: 'var(--serif)', fontSize: 16 }}>{formatBRL(ext.total)}</div>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 4 }}>
+                    {ext.linhas.length} inspeç{ext.linhas.length === 1 ? 'ão' : 'ões'} ABCCH
+                  </div>
+                  {ext.linhas.map((l, i) => (
+                    <div key={i} style={{
+                      marginTop: 6, fontSize: 11, color: 'var(--ink-2)',
+                      padding: '6px 8px', background: 'var(--bg)', borderRadius: 6,
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+                        <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{l.potroLabel}</span>
+                        <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{formatBRL(l.valor)}</span>
+                      </div>
+                      <div style={{ color: 'var(--ink-3)', fontSize: 10, marginTop: 2 }}>
+                        {new Date(l.data + 'T12:00:00').toLocaleDateString('pt-BR')}
+                        {l.localNome ? ` · ${l.localNome}` : ''}
+                        {' · '}Serviço {formatBRL(l.valorServico)}
+                        {l.valorKm > 0 ? ` + Visita ${formatBRL(l.valorKm)}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -7686,6 +7778,10 @@ export function ReproApp({
   const [historicoEguaId, setHistoricoEguaId] = useState(null);
   // Pré-preenchimento do form do caderno quando vindo da agenda/calendário
   const [preFillCaderno, setPreFillCaderno] = useState(null);
+  // Id do processo genealógico cujo modal de registro de inspeção
+  // está aberto (null = fechado). Aberto quando usuário clica no
+  // evento tipo='inspecao' no planner.
+  const [genealogicoInspecaoId, setGenealogicoInspecaoId] = useState(null);
 
   // ── Scheduler de push de indução de ovulação ────────────────
   // Pra cada aviso de indução não resolvido com horário no futuro
@@ -7751,6 +7847,11 @@ export function ReproApp({
   // habilitar o botão "Cancelar retorno/coleta/indução" no form.
   const abrirCadernoDoEvento = (ev) => {
     if (!ev) return;
+    // Inspeção ABCCH: abre tela/modal específica de registro de inspeção
+    if (ev.tipoEv === 'inspecao' && ev.genealogico) {
+      setGenealogicoInspecaoId(ev.genealogico.id);
+      return;
+    }
     const hojeIso = new Date().toLocaleDateString('sv-SE');
     let tipoSugerido = 'controle_folicular';
     let dadosSugeridos = {};
@@ -7833,6 +7934,7 @@ export function ReproApp({
       propRepro={propRepro}
       eguasRepro={eguasRepro}
       insumos={insumos}
+      genealogicosRepro={genealogicosRepro}
       // Lookup completo (sem filtro de local) pros planners/agenda
       // conseguirem resolver nome de égua mesmo quando filtro ativo.
       eguasReproLookup={eguasReproTodas}
@@ -8184,6 +8286,7 @@ export function ReproApp({
       vetsExternos={vetsExternos}
       empresaInfo={empresaInfo}
       centraisRepro={centraisRepro}
+      genealogicosRepro={genealogicosRepro}
       orcamentosRepro={orcamentosRepro}
       addOrcamentoRepro={addOrcamentoRepro}
       updateOrcamentoRepro={updateOrcamentoRepro}
@@ -8247,6 +8350,25 @@ export function ReproApp({
       <div style={{ flexShrink: 0 }}>
         <TabBar tab={tab} setTab={setTab} setScreen={setScreen} />
       </div>
+
+      {/* Modal de registro da inspeção ABCCH — abre do kanban */}
+      {genealogicoInspecaoId && (() => {
+        const g = genealogicosRepro.find(x => x.id === genealogicoInspecaoId);
+        if (!g) { setGenealogicoInspecaoId(null); return null; }
+        return (
+          <RegistroInspecaoModal
+            genealogico={g}
+            locaisRepro={locaisRepro}
+            vetKmLocais={vetKmLocais}
+            currentUser={currentUser}
+            onCancel={() => setGenealogicoInspecaoId(null)}
+            onSalvar={(patch) => {
+              updateGenealogicoRepro(g.id, patch);
+              setGenealogicoInspecaoId(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

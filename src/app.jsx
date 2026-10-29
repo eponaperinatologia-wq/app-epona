@@ -1547,9 +1547,53 @@ const loadAllData = async () => {
     return newId;
   };
   const updateGenealogicoRepro = (id, patch) => {
-    setGenealogicosRepro(prev => prev.map(g => g.id === id ? { ...g, ...patch, atualizadoEm: new Date().toISOString() } : g));
     const cur = genealogicosRepro.find(g => g.id === id);
+    setGenealogicosRepro(prev => prev.map(g => g.id === id ? { ...g, ...patch, atualizadoEm: new Date().toISOString() } : g));
     dbUpdate('genealogicos_repro', id, toDbGenealogicoRepro({ ...cur, ...patch }));
+    // Agendou inspeção agora (não tinha antes)? Cria aviso 'pegar maleta'
+    // que fica no mural pro inspetor até a inspeção ser realizada.
+    // Dedup: se já existe aviso ativo pra esse processo, não cria outro.
+    const agendouAgora = patch.inspecaoAgendadaData && cur?.inspecaoAgendadaData !== patch.inspecaoAgendadaData;
+    if (agendouAgora) {
+      const avisoAtivo = (avisosRepro || []).find(a =>
+        a.tipo === 'pegar_maleta' && a.referenciaId === id && !a.resolvidoEm);
+      if (!avisoAtivo) {
+        const nomePotro = patch.nomePotro || cur?.nomePotro || '';
+        const nomeCruzamento = `${cur?.garanhaoNome || '—'} × ${cur?.eguaDoadoraNome || '—'}`;
+        const label = nomePotro || nomeCruzamento;
+        addAvisoRepro({
+          tipo: 'pegar_maleta',
+          texto: `PEGAR MALETA DE INSPEÇÃO · ${label.toUpperCase()} · ${new Date(patch.inspecaoAgendadaData + 'T12:00:00').toLocaleDateString('pt-BR')}`,
+          eguaId: null,
+          referenciaId: id,
+          criadoPor: currentUser?.id || null,
+        });
+      }
+    }
+    // Inspeção realizada agora? Resolve o aviso 'pegar maleta' (se
+    // existir) e cria aviso 'enviar documentação ABCCH'.
+    const realizadaAgora = patch.inspecaoFeita === true && !cur?.inspecaoFeita;
+    if (realizadaAgora) {
+      // Resolve o aviso de pegar maleta
+      const avisoMaleta = (avisosRepro || []).find(a =>
+        a.tipo === 'pegar_maleta' && a.referenciaId === id && !a.resolvidoEm);
+      if (avisoMaleta) resolverAvisoRepro(avisoMaleta.id, currentUser?.id);
+      // Cria aviso de documentação (não duplica)
+      const avisoDocAtivo = (avisosRepro || []).find(a =>
+        a.tipo === 'enviar_doc_abcch' && a.referenciaId === id && !a.resolvidoEm);
+      if (!avisoDocAtivo) {
+        const nomePotro = patch.nomePotro || cur?.nomePotro || '';
+        const nomeCruzamento = `${cur?.garanhaoNome || '—'} × ${cur?.eguaDoadoraNome || '—'}`;
+        const label = nomePotro || nomeCruzamento;
+        addAvisoRepro({
+          tipo: 'enviar_doc_abcch',
+          texto: `ENVIAR DOCUMENTAÇÃO ABCCH · ${label.toUpperCase()}`,
+          eguaId: null,
+          referenciaId: id,
+          criadoPor: currentUser?.id || null,
+        });
+      }
+    }
   };
   const deleteGenealogicoRepro = (id) => {
     setGenealogicosRepro(prev => prev.filter(g => g.id !== id));

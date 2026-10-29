@@ -185,6 +185,10 @@ export function ReproGenealogico({
 function CardGenealogico({ g, onAbrir }) {
   const prog = calcularProgresso(g);
   const concluido = g.status === 'concluido' || prog.pct === 100;
+  // Potro nasceu + tem nome? Destaque muda: nome do potro vira título
+  // principal e o cruzamento fica como subtítulo discreto.
+  const temPotro = !!(g.nomePotro && g.nascimentoData);
+  const sexoIcon = g.nascimentoSexo === 'macho' ? '♂' : g.nascimentoSexo === 'femea' ? '♀' : '';
   return (
     <button onClick={onAbrir} style={{
       width: '100%', textAlign: 'left',
@@ -195,14 +199,30 @@ function CardGenealogico({ g, onAbrir }) {
     }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
-            {g.garanhaoNome || '—'} × {g.eguaDoadoraNome || '—'}
-          </div>
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
-            {g.proprietarioNome || '—'}
-            {g.receptoraNome ? ` · Rec.: ${g.receptoraNome}` : ''}
-            {g.dataIa ? ` · IA ${fmtDataBr(g.dataIa)}` : ''}
-          </div>
+          {temPotro ? (
+            <>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 17, color: 'var(--ink)', display: 'flex', alignItems: 'baseline', gap: 6 }}>
+                {sexoIcon && <span style={{ color: CORES_TAB_ATIVA, fontSize: 15 }}>{sexoIcon}</span>}
+                <span>{g.nomePotro}</span>
+                <span style={{ fontSize: 12, color: 'var(--ink-3)', fontFamily: 'var(--sans)' }}>· nasc. {fmtDataBr(g.nascimentoData)}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 3 }}>
+                {g.garanhaoNome || '—'} × {g.eguaDoadoraNome || '—'} · {g.proprietarioNome || '—'}
+                {g.receptoraNome ? ` · Rec.: ${g.receptoraNome}` : ''}
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontFamily: 'var(--serif)', fontSize: 16, color: 'var(--ink)' }}>
+                {g.garanhaoNome || '—'} × {g.eguaDoadoraNome || '—'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 2 }}>
+                {g.proprietarioNome || '—'}
+                {g.receptoraNome ? ` · Rec.: ${g.receptoraNome}` : ''}
+                {g.dataIa ? ` · IA ${fmtDataBr(g.dataIa)}` : ''}
+              </div>
+            </>
+          )}
         </div>
         {g.origemTipo === 'manual' && (
           <span style={{
@@ -265,12 +285,14 @@ function GenealogicoForm({ registro, propRepro = [], currentUser, onSave, onCanc
     comunicadoCobricaoData: registro?.comunicadoCobricaoData || '',
     nascimentoData: registro?.nascimentoData || '',
     nascimentoSexo: registro?.nascimentoSexo || '',
+    nomePotro: registro?.nomePotro || '',
     comunicadoNascimentoFeito: !!registro?.comunicadoNascimentoFeito,
     comunicadoNascimentoData: registro?.comunicadoNascimentoData || '',
     preRegistroUrl: registro?.preRegistroUrl || '',
     preRegistroNomeArquivo: registro?.preRegistroNomeArquivo || '',
     inspecaoFeita: !!registro?.inspecaoFeita,
     inspecaoData: registro?.inspecaoData || '',
+    inspecaoAgendadaData: registro?.inspecaoAgendadaData || '',
     pendencias: registro?.pendencias || '',
     observacoes: registro?.observacoes || '',
     status: registro?.status || 'em_andamento',
@@ -391,10 +413,10 @@ function GenealogicoForm({ registro, propRepro = [], currentUser, onSave, onCanc
           onDataChange={(v) => set('comunicadoCobricaoData', v)}
         />
 
-        {/* Nascimento: data + sexo */}
+        {/* Nascimento: data + sexo + nome do potro */}
         <div style={{ padding: '8px 0', borderBottom: '1px solid var(--line)' }}>
-          <div style={{ fontSize: 12, color: 'var(--ink), fontWeight: 600, marginBottom: 6' }}>Nascimento do potro</div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600, marginBottom: 6 }}>Nascimento do potro</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginBottom: 6 }}>
             <input type="date" value={form.nascimentoData} onChange={e => set('nascimentoData', e.target.value)} style={inputStyleSmall} />
             <select value={form.nascimentoSexo} onChange={e => set('nascimentoSexo', e.target.value)} style={inputStyleSmall}>
               <option value="">— Sexo —</option>
@@ -402,6 +424,10 @@ function GenealogicoForm({ registro, propRepro = [], currentUser, onSave, onCanc
               <option value="femea">♀ Fêmea</option>
             </select>
           </div>
+          {form.nascimentoData && (
+            <input value={form.nomePotro} onChange={e => set('nomePotro', e.target.value)}
+              style={inputStyleSmall} placeholder="Nome do potro" />
+          )}
         </div>
 
         <ChecklistItem
@@ -411,6 +437,27 @@ function GenealogicoForm({ registro, propRepro = [], currentUser, onSave, onCanc
           onToggle={() => toggleChecklist('comunicadoNascimentoFeito', 'comunicadoNascimentoData')}
           onDataChange={(v) => set('comunicadoNascimentoData', v)}
         />
+
+        {/* Agendamento de inspeção — abre quando comunicado de nascimento
+            foi feito. Data agendada alimenta o kanban + aviso 'maleta'. */}
+        {form.comunicadoNascimentoFeito && !form.inspecaoFeita && (
+          <div style={{
+            padding: '10px 0', borderBottom: '1px solid var(--line)',
+          }}>
+            <div style={{ fontSize: 12, color: 'var(--ink)', fontWeight: 600, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="calendar" size={12} />
+              Agendar inspeção
+            </div>
+            <input type="date" value={form.inspecaoAgendadaData || ''}
+              onChange={e => set('inspecaoAgendadaData', e.target.value)}
+              style={inputStyleSmall} />
+            {form.inspecaoAgendadaData && (
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+                Aparece no kanban e dispara aviso pro inspetor levar a maleta.
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Pré-registro: upload */}
         <div style={{ padding: '10px 0', borderBottom: '1px solid var(--line)' }}>
@@ -511,6 +558,110 @@ function GenealogicoForm({ registro, propRepro = [], currentUser, onSave, onCanc
           flex: 2, padding: '11px', borderRadius: 10, border: 'none',
           background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
         }}>Salvar</button>
+      </div>
+    </Modal>
+  );
+}
+
+// Modal que abre do kanban (clique no card de inspeção) pra registrar
+// os dados da inspeção ABCCH. Já sabe nome do potro, sexo e proprietário.
+export function RegistroInspecaoModal({
+  genealogico, locaisRepro = [], vetKmLocais = [], currentUser,
+  onSalvar, onCancel,
+}) {
+  const g = genealogico;
+  const [localId, setLocalId] = useState(g?.inspecaoLocalId || '');
+  const [kmValor, setKmValor] = useState(g?.inspecaoKmValor ? String(g.inspecaoKmValor) : '');
+  const [pelagem, setPelagem] = useState(g?.inspecaoPelagem || '');
+  const [microchip, setMicrochip] = useState(g?.inspecaoMicrochip || '');
+  const [observacoes, setObservacoes] = useState(g?.inspecaoObservacoes || '');
+
+  // Valor de km sugerido: média dos vets cadastrados pro local
+  const kmSugerido = useMemo(() => {
+    if (!localId) return 0;
+    const kms = vetKmLocais.filter(k => k.localId === localId);
+    if (kms.length === 0) return 0;
+    return kms.reduce((s, k) => s + Number(k.valor || 0), 0) / kms.length;
+  }, [localId, vetKmLocais]);
+
+  const sexoLabel = g?.nascimentoSexo === 'macho' ? '♂ Macho'
+    : g?.nascimentoSexo === 'femea' ? '♀ Fêmea' : '—';
+
+  const salvar = () => {
+    const kmNum = parseFloat(String(kmValor).replace(',', '.')) || 0;
+    const hoje = new Date().toLocaleDateString('sv-SE');
+    onSalvar({
+      inspecaoFeita: true,
+      inspecaoData: hoje,
+      inspecaoLocalId: localId || null,
+      inspecaoKmValor: kmNum,
+      inspecaoPelagem: pelagem.trim(),
+      inspecaoMicrochip: microchip.trim(),
+      inspecaoObservacoes: observacoes.trim(),
+    });
+  };
+
+  return (
+    <Modal onClose={onCancel}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 6 }}>
+        Registrar inspeção
+      </div>
+      <div style={{
+        padding: 10, borderRadius: 10, background: '#f5e8ff',
+        border: '1px solid #c084fc', marginBottom: 12,
+      }}>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: '#581c87' }}>
+          {g?.nomePotro || `${g?.garanhaoNome || '—'} × ${g?.eguaDoadoraNome || '—'}`}
+        </div>
+        <div style={{ fontSize: 11, color: '#6b21a8', marginTop: 2 }}>
+          {sexoLabel}
+          {g?.proprietarioNome ? ` · ${g.proprietarioNome}` : ''}
+          {g?.nascimentoData ? ` · nasc. ${fmtDataBr(g.nascimentoData)}` : ''}
+        </div>
+      </div>
+
+      <FormField label="Local da inspeção">
+        <select value={localId} onChange={e => setLocalId(e.target.value)} style={inputStyle}>
+          <option value="">— Selecionar local —</option>
+          {[...locaisRepro].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(l => (
+            <option key={l.id} value={l.id}>{l.nome}{l.cidade ? ` · ${l.cidade}` : ''}</option>
+          ))}
+        </select>
+      </FormField>
+      <FormField label="Valor da visita / km (R$)">
+        <input type="number" min="0" step="0.01" value={kmValor}
+          onChange={e => setKmValor(e.target.value)}
+          placeholder={kmSugerido > 0 ? `Sugerido: R$ ${kmSugerido.toFixed(2)}` : '0,00'}
+          style={inputStyle} />
+        {localId && kmSugerido > 0 && !kmValor && (
+          <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 4 }}>
+            Km médio cadastrado neste local: R$ {kmSugerido.toFixed(2)}
+          </div>
+        )}
+      </FormField>
+      <FormField label="Pelagem">
+        <input value={pelagem} onChange={e => setPelagem(e.target.value)}
+          style={inputStyle} placeholder="Ex: Castanha, Tordilha…" />
+      </FormField>
+      <FormField label="Número do microchip">
+        <input value={microchip} onChange={e => setMicrochip(e.target.value)}
+          style={inputStyle} placeholder="15 dígitos" />
+      </FormField>
+      <FormField label="Observações">
+        <textarea value={observacoes} onChange={e => setObservacoes(e.target.value)}
+          style={{ ...inputStyle, minHeight: 70, resize: 'vertical' }}
+          placeholder="Resenha, características, observações da inspeção…" />
+      </FormField>
+
+      <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+        <button onClick={onCancel} style={{
+          flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)',
+          background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+        }}>Cancelar</button>
+        <button onClick={salvar} style={{
+          flex: 2, padding: '11px', borderRadius: 10, border: 'none',
+          background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+        }}>Registrar inspeção</button>
       </div>
     </Modal>
   );
