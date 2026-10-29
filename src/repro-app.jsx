@@ -5613,50 +5613,71 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
 
   // Base: tudo do mês (sem filtro de vet). Filtro de vet aplica de forma
   // diferente por métrica.
+  //
+  // REGRA CENTRAL: processos reprodutivos são atribuídos ao mês da IA
+  // de origem. IA de setembro → CE/DGs dessa IA alimentam setembro
+  // (mesmo que tenham acontecido em outubro). Assim o funil IA → Embr+
+  // → Prenh. compara coisas do mesmo lote.
+  // Exceções:
+  //  - CF: usa o mês do próprio CF (manejo pré-IA, não tem IA vinculada)
+  //  - SV: usa o mês do próprio registro
   const regsMes = (registrosRepro || []).filter(r => todosMeses || emMes(r.data));
-  // regs filtrada por vet direto (quem executou o registro) — pra CF/SV/IA
   const regs = filtroVetId ? regsMes.filter(r => r.vetId === filtroVetId) : regsMes;
 
   const semDadosMes = !todosMeses && regs.length === 0;
   const totalRegistrosGlobal = (registrosRepro || []).length;
 
-  // IAs: filtra por vet executor (que também é o inseminador)
+  // IAs do mês (filtro de vet executor = inseminador)
   const iasDoMes = regs.filter(r => r.tipo === 'inseminacao_artificial');
   const totalIA = iasDoMes.length;
-
-  // CEs: atribuídas ao vet INSEMINADOR (via IA de origem). Se não há
-  // filtro, pega todas as CEs do mês.
-  const cesDoMesTodas = regsMes.filter(r => r.tipo === 'transferencia_embriao');
-  const cesAtribuidas = filtroVetId
-    ? cesDoMesTodas.filter(ce => vetDaCe(ce) === filtroVetId)
-    : cesDoMesTodas;
-  const totalTE = cesAtribuidas.length;
 
   const cfsDoMes = regs.filter(r => r.tipo === 'controle_folicular');
   const totalCF = cfsDoMes.length;
   const svsDoMes = regs.filter(r => r.tipo === 'servico_avulso');
 
-  // IAs destino=prenhez — base pra métrica de embriões positivados
-  // (prenhez na própria matriz com DG inicial positivo).
+  // Separa IAs do mês por destino pros cálculos de Embr+ e Prenh.
   const iasPrenhez = iasDoMes.filter(r => r.dados?.destino === 'prenhez');
+  const iasParaTe = iasDoMes.filter(r => r.dados?.destino === 'transferencia');
 
-  // ── Embriões positivados ─────────────────────────────────────
-  // Regra: CE+ (coleta positiva — cada embrião recuperado conta) +
-  // IA destino=prenhez com DG inicial positivo (dgInicial OU dg15).
-  // Dedup: cada IA prenhez conta como 1 potro potencial.
+  // Encontra as CEs+ vinculadas a uma IA (iaOrigemId OU heurística:
+  // mesma égua + CE em até 15 dias depois da IA). Base COMPLETA, não
+  // só do mês — a CE pode ter caído no mês seguinte.
+  const encontraCesDaIa = (ia) => (registrosRepro || []).filter(r => {
+    if (r.tipo !== 'transferencia_embriao') return false;
+    if (r.dados?.resultado !== 'positivo') return false;
+    if (r.dados?.iaOrigemId === ia.id) return true;
+    if (r.eguaId !== ia.eguaId) return false;
+    if (!r.data || !ia.data) return false;
+    if (r.data < ia.data) return false;
+    const dd = (new Date(r.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
+    return dd >= 0 && dd <= 15;
+  });
+
+  // CE do mês atribuídas (via mês da IA de origem). Usada só pelo
+  // detalhe antigo; a métrica central é embrioesPosLinhas.
+  const cesAtribuidas = [];
+  for (const ia of iasParaTe) {
+    for (const ce of encontraCesDaIa(ia)) cesAtribuidas.push(ce);
+  }
+
+  // ── Embriões positivados — ancorados ao mês da IA ─────────────
+  // Pra cada IA do mês:
+  //  - destino=transferencia: itera CE+ vinculadas, soma qtdEmbrioes
+  //  - destino=prenhez: conta se tem DG inicial/DG15 positivo
   const embrioesPosLinhas = [];
-  for (const ce of cesAtribuidas) {
-    if (ce.dados?.resultado !== 'positivo') continue;
-    const qtd = Math.max(1, Number(ce.dados.qtdEmbrioes) || 1);
-    const iaOrig = iaDeOrigem(ce);
-    for (let i = 0; i < qtd; i++) {
-      embrioesPosLinhas.push({
-        key: `${ce.id}:${i}`, tipo: 'ce', regId: ce.id, embIdx: i, qtd,
-        cavaloId: ce.eguaId, data: ce.data,
-        garanhao: iaOrig?.dados?.garanhao || ce.dados?.garanhao || '',
-        iaData: iaOrig?.data || null,
-        vetInseminador: iaOrig?.vetId || ce.vetId,
-      });
+  for (const ia of iasParaTe) {
+    const ces = encontraCesDaIa(ia);
+    for (const ce of ces) {
+      const qtd = Math.max(1, Number(ce.dados?.qtdEmbrioes) || 1);
+      for (let i = 0; i < qtd; i++) {
+        embrioesPosLinhas.push({
+          key: `${ce.id}:${i}`, tipo: 'ce', regId: ce.id, embIdx: i, qtd,
+          cavaloId: ce.eguaId, data: ce.data,
+          garanhao: ia.dados?.garanhao || ce.dados?.garanhao || '',
+          iaData: ia.data,
+          vetInseminador: ia.vetId,
+        });
+      }
     }
   }
   for (const ia of iasPrenhez) {
@@ -5672,50 +5693,68 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   }
   const totalEmbrioesPos = embrioesPosLinhas.length;
 
-  // ── Prenhezes confirmadas (DG45+) ────────────────────────────
-  // Regra: DG45+ em receptora (inovulação ou CE+ com DG direto) OU
-  // em IA destino=prenhez (prenhez na própria matriz).
+  // ── Prenhezes confirmadas (DG45+) — ancoradas ao mês da IA ───
+  // Pra cada IA do mês:
+  //  - destino=prenhez: conta se dg45=positivo na própria IA
+  //  - destino=transferencia: itera CE+ vinculadas → verifica DG45+ em
+  //    cada embrião (via dg45 raiz ou dgsEmbrioes[]) E tbm inovulações
+  //    que linkam a essa CE (via ceOrigemId)
   const prenhezesLinhas = [];
-  const basePrenhez = filtroVetId
-    ? regsMes.filter(r => {
-        if (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez') return r.vetId === filtroVetId;
-        if (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo') return vetDaCe(r) === filtroVetId;
-        if (r.tipo === 'inovulacao_embriao') return r.vetId === filtroVetId;
-        return false;
-      })
-    : regsMes.filter(r =>
-        (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
-        || (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez')
-        || (r.tipo === 'inovulacao_embriao'),
-      );
-  for (const r of basePrenhez) {
-    const d = r.dados || {};
-    const isPrenhez = r.tipo === 'inseminacao_artificial';
-    const isInov = r.tipo === 'inovulacao_embriao';
-    const ia = isPrenhez ? r : (isInov ? null : iaDeOrigem(r));
-    const vetInseminador = ia?.vetId || r.vetId;
-    const qtd = (isPrenhez || isInov) ? 1 : Math.max(1, Number(d.qtdEmbrioes) || 1);
-    const destinosArr = Array.isArray(d.destinos) ? d.destinos :
-      (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
-      (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
-    const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
-    for (let i = 0; i < qtd; i++) {
-      const emb = (qtd === 1 && dgsArr.length === 0)
-        ? { dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
-        : (dgsArr[i] || {});
-      if (emb.dg45 !== 'positivo') continue;
-      prenhezesLinhas.push({
-        key: `${r.id}:${i}`,
-        tipo: isPrenhez ? 'prenhez' : isInov ? 'inovulacao' : 'ce',
-        regId: r.id, cavaloId: r.eguaId, embIdx: i, qtd,
-        data: r.data,
-        garanhao: ia?.dados?.garanhao || d.garanhao || '',
-        iaData: ia?.data || null,
-        destinoObj: destinosArr[i] || null,
-        receptora: emb.receptora || null,
-        dg15: emb.dg15 || null, dg45: emb.dg45 || null, dg60: emb.dg60 || null,
-        vetInseminador,
-      });
+  for (const ia of iasPrenhez) {
+    const d = ia.dados || {};
+    if (d.dg45 !== 'positivo') continue;
+    prenhezesLinhas.push({
+      key: `${ia.id}:0`, tipo: 'prenhez', regId: ia.id, embIdx: 0, qtd: 1,
+      cavaloId: ia.eguaId, data: ia.data,
+      garanhao: d.garanhao || '', iaData: ia.data,
+      destinoObj: null, receptora: null,
+      dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null,
+      vetInseminador: ia.vetId,
+    });
+  }
+  for (const ia of iasParaTe) {
+    const ces = encontraCesDaIa(ia);
+    for (const ce of ces) {
+      const d = ce.dados || {};
+      const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
+      const destinosArr = Array.isArray(d.destinos) ? d.destinos :
+        (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
+        (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
+      const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+      // DG45+ marcados diretamente na CE
+      for (let i = 0; i < qtd; i++) {
+        const emb = (qtd === 1 && dgsArr.length === 0)
+          ? { dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
+          : (dgsArr[i] || {});
+        if (emb.dg45 !== 'positivo') continue;
+        prenhezesLinhas.push({
+          key: `${ce.id}:${i}`, tipo: 'ce',
+          regId: ce.id, cavaloId: ce.eguaId, embIdx: i, qtd,
+          data: ce.data,
+          garanhao: ia.dados?.garanhao || d.garanhao || '',
+          iaData: ia.data,
+          destinoObj: destinosArr[i] || null,
+          receptora: emb.receptora || null,
+          dg15: emb.dg15 || null, dg45: emb.dg45 || null, dg60: emb.dg60 || null,
+          vetInseminador: ia.vetId,
+        });
+      }
+      // Inovulações vinculadas a essa CE (via ceOrigemId) com DG45+
+      const inovs = (registrosRepro || []).filter(r =>
+        r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId === ce.id);
+      for (const inov of inovs) {
+        if (inov.dados?.dg45 !== 'positivo') continue;
+        prenhezesLinhas.push({
+          key: `${inov.id}:0`, tipo: 'inovulacao',
+          regId: inov.id, cavaloId: inov.eguaId, embIdx: 0, qtd: 1,
+          data: inov.data,
+          garanhao: ia.dados?.garanhao || inov.dados?.garanhao || '',
+          iaData: ia.data,
+          destinoObj: null, receptora: null,
+          dg15: inov.dados?.dg15 || null, dg45: inov.dados?.dg45 || null, dg60: inov.dados?.dg60 || null,
+          vetInseminador: ia.vetId,
+        });
+      }
     }
   }
   const totalPrenhezes = prenhezesLinhas.length;
