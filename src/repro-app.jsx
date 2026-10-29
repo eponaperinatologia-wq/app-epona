@@ -1169,7 +1169,7 @@ function DraggableEvento({
         {rotulo}
       </div>
       <div style={{ fontFamily: 'var(--serif)', fontSize: 13, color: 'var(--ink)', lineHeight: 1.25, textDecoration: ev.cumprido ? 'line-through' : 'none' }}>
-        {ev.fonte === 'assessoria' ? (ev.rotuloHaras || 'haras') : (
+        {ev.fonte === 'assessoria' || ev.fonte === 'genealogico' ? (ev.rotuloHaras || '—') : (
           <>{egua?.nome || 'égua'}<span style={{ color: 'var(--ink-3)', fontFamily: 'var(--sans)', fontSize: 11, fontWeight: 500 }}>{sufixoEvento(ev)}</span></>
         )}
       </div>
