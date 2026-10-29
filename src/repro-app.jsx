@@ -5762,7 +5762,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         </div>
       )}
 
-      <div style={{ padding: '4px 20px 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      <div style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
         {cards.map(c => (
           <button
             key={c.label}
@@ -5779,6 +5779,32 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
             {c.hint && <div style={{ fontSize: 9, color: c.cor, opacity: 0.7, marginTop: 2 }}>{c.hint}</div>}
           </button>
         ))}
+      </div>
+
+      {/* Análises comparativas — 3 gráficos de barras pareadas que
+          medem taxas-chave do funil reprodutivo. */}
+      <div style={{ padding: '0 20px 20px' }}>
+        <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8, fontWeight: 700 }}>
+          Análises
+        </div>
+        <GraficoComparativo
+          titulo="IA × Embr+"
+          hint="Taxa de embriões positivados por inseminação"
+          valorA={totalIA} labelA="IA" corA="#7c2d8c"
+          valorB={totalEmbrioesPos} labelB="Embr+" corB="#be185d"
+        />
+        <GraficoComparativo
+          titulo="Embr+ × Prenh."
+          hint="Taxa de prenhez confirmada entre os embriões positivados"
+          valorA={totalEmbrioesPos} labelA="Embr+" corA="#be185d"
+          valorB={totalPrenhezes} labelB="Prenh." corB="#15803d"
+        />
+        <GraficoComparativo
+          titulo="IA × Prenh."
+          hint="Taxa geral de sucesso: prenhez confirmada por inseminação"
+          valorA={totalIA} labelA="IA" corA="#7c2d8c"
+          valorB={totalPrenhezes} labelB="Prenh." corB="#15803d"
+        />
       </div>
 
       {detalheAberto && (
@@ -5990,6 +6016,48 @@ const filtroBtn = (ativo) => ({
   background: ativo ? 'var(--card)' : 'transparent', color: ativo ? 'var(--ink)' : 'var(--ink-3)',
   fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
 });
+
+// Gráfico de duas barras pareadas pra comparar métricas A × B.
+// A barra maior tem 100% da largura; a menor é proporcional. Mostra
+// os valores absolutos + a taxa B/A em %. Útil pra visualizar funis
+// (IA → Embr+ → Prenh.).
+const GraficoComparativo = ({ titulo, hint, valorA, labelA, corA, valorB, labelB, corB }) => {
+  const max = Math.max(valorA, valorB, 1);
+  const pctA = (valorA / max) * 100;
+  const pctB = (valorB / max) * 100;
+  const taxa = valorA > 0 ? Math.round((valorB / valorA) * 100) : 0;
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginBottom: 10,
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 2 }}>
+        <span style={{ fontSize: 13, color: 'var(--ink)', fontWeight: 600 }}>{titulo}</span>
+        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+          taxa <strong style={{ color: corB }}>{taxa}%</strong>
+        </span>
+      </div>
+      {hint && (
+        <div style={{ fontSize: 10, color: 'var(--ink-3)', marginBottom: 8 }}>{hint}</div>
+      )}
+      {/* Barra A */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: corA, width: 42, textAlign: 'right', letterSpacing: '0.03em' }}>{labelA}</span>
+        <div style={{ flex: 1, height: 14, background: 'var(--soft)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ width: `${pctA}%`, height: '100%', background: corA, transition: 'width 0.3s' }} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', minWidth: 24, textAlign: 'right' }}>{valorA}</span>
+      </div>
+      {/* Barra B */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: corB, width: 42, textAlign: 'right', letterSpacing: '0.03em' }}>{labelB}</span>
+        <div style={{ flex: 1, height: 14, background: 'var(--soft)', borderRadius: 4, overflow: 'hidden', position: 'relative' }}>
+          <div style={{ width: `${pctB}%`, height: '100%', background: corB, transition: 'width 0.3s' }} />
+        </div>
+        <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', minWidth: 24, textAlign: 'right' }}>{valorB}</span>
+      </div>
+    </div>
+  );
+};
 
 const BarraPercentual = ({ titulo, valor, totalLabel, cor }) => (
   <div style={{
