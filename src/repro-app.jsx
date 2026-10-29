@@ -5632,127 +5632,99 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
     : cesDoMesTodas;
   const totalTE = cesAtribuidas.length;
 
-  const totalCF = regs.filter(r => r.tipo === 'controle_folicular').length;
+  const cfsDoMes = regs.filter(r => r.tipo === 'controle_folicular');
+  const totalCF = cfsDoMes.length;
   const svsDoMes = regs.filter(r => r.tipo === 'servico_avulso');
-  const totalSV = svsDoMes.length;
 
-  // IA que viraram CE: IAs com destino=transferencia QUE TIVERAM uma CE
-  // efetivamente cadastrada (iaOrigemId=ia.id OU heurística match). Antes
-  // o rótulo "direcionadas" era honesto mas pouco útil — você quer saber
-  // a taxa real de coleta. Busca na base COMPLETA (não limita ao mês do
-  // vetor) porque a CE pode cair no mês seguinte da IA.
-  const todasCes = (registrosRepro || []).filter(r => r.tipo === 'transferencia_embriao');
-  const iasParaCe = iasDoMes.filter(r => r.dados?.destino === 'transferencia');
-  const iasQueViraramCe = iasParaCe.filter(ia =>
-    todasCes.some(ce => {
-      // iaOrigemId explícito
-      if (ce.dados?.iaOrigemId === ia.id) return true;
-      // Heurística: mesma égua, CE depois da IA em até 15 dias
-      if (ce.eguaId !== ia.eguaId) return false;
-      if (!ce.data || !ia.data) return false;
-      if (ce.data < ia.data) return false;
-      const dd = (new Date(ce.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
-      return dd <= 15 && dd >= 0;
-    }),
-  );
-  const totalIaParaCe = iasParaCe.length;
-  const iasComCe = iasQueViraramCe.length;
-  const pctIaTe = totalIaParaCe ? Math.round((iasComCe / totalIaParaCe) * 100) : 0;
-
-  // Taxa de recuperação (CE+): CEs atribuídas com resultado positivo
-  // sobre total de CEs atribuídas. Se há CEs sem resultado, informa.
-  const tePos = cesAtribuidas.filter(ce => ce.dados?.resultado === 'positivo').length;
-  const teNeg = cesAtribuidas.filter(ce => ce.dados?.resultado === 'negativo').length;
-  const teSemResultado = totalTE - tePos - teNeg;
-  const pctTePos = totalTE ? Math.round((tePos / totalTE) * 100) : 0;
-
-  // IA pra prenhez na própria égua + taxa de confirmação (DG+ na IA).
-  // DG da prenhez fica no próprio registro da IA (dados.dg15/45/60).
-  // Confirmação = DG45 positivo (ponto de cobrança do resultado).
+  // IAs destino=prenhez — base pra métrica de embriões positivados
+  // (prenhez na própria matriz com DG inicial positivo).
   const iasPrenhez = iasDoMes.filter(r => r.dados?.destino === 'prenhez');
-  const totalIaPrenhez = iasPrenhez.length;
-  const iasPrenhezConfirmadas = iasPrenhez.filter(ia => ia.dados?.dg45 === 'positivo').length;
-  const pctPrenhezConfirmada = totalIaPrenhez ? Math.round((iasPrenhezConfirmadas / totalIaPrenhez) * 100) : 0;
 
-  // Taxa DG15/30/45 — considera dg no formato legado (dados.dgXX) e no
-  // formato novo por embrião (dados.dgsEmbrioes[i].dgXX). Múltiplos
-  // embriões contam separadamente.
-  //
-  // DGs são atribuídos ao INSEMINADOR:
-  //  - Pra CE: usa vetDaCe (via IA de origem)
-  //  - Pra IA destino=prenhez: usa o próprio vetId da IA
-  // dgDados.linhas tem 1 item POR EMBRIÃO (CE com qtdEmbrioes=2 vira 2
-  // linhas). Enriquece com dados da IA de origem (garanhão × égua,
-  // palhetas, ovulações, pré/pós) e com destino/receptora (do painel
-  // "Embriões Coletados"), pra alimentar o modal de detalhe.
-  const dgDados = (() => {
-    const linhas = [];
-    const base = filtroVetId
-      ? regsMes.filter(r => {
-          if (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez') {
-            return r.vetId === filtroVetId;
-          }
-          if (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo') {
-            return vetDaCe(r) === filtroVetId;
-          }
-          return false;
-        })
-      : regsMes.filter(r =>
-          (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
-          || (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez'),
-        );
-    for (const r of base) {
-      const d = r.dados || {};
-      const isPrenhez = r.tipo === 'inseminacao_artificial';
-      const ia = isPrenhez ? r : iaDeOrigem(r);
-      const vetInseminador = ia?.vetId || r.vetId;
-      const qtd = isPrenhez ? 1 : Math.max(1, Number(d.qtdEmbrioes) || 1);
-      const destinosArr = Array.isArray(d.destinos) ? d.destinos :
-        (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
-        (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
-      const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
-      for (let i = 0; i < qtd; i++) {
-        const emb = qtd === 1 && dgsArr.length === 0
-          ? { dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
-          : (dgsArr[i] || {});
-        const destino = destinosArr[i] || null;
-        linhas.push({
-          regId: r.id, cavaloId: r.eguaId, embIdx: i, qtd,
-          destino: isPrenhez ? 'prenhez' : 'ce',
-          destinoObj: destino,
-          receptora: emb.receptora || null,
-          dg15: emb.dg15 || null, dg45: emb.dg45 || null, dg60: emb.dg60 || null,
-          data: r.data,
-          garanhao: ia?.dados?.garanhao || '',
-          iaData: ia?.data || null,
-          vetInseminador,
-        });
-      }
+  // ── Embriões positivados ─────────────────────────────────────
+  // Regra: CE+ (coleta positiva — cada embrião recuperado conta) +
+  // IA destino=prenhez com DG inicial positivo (dgInicial OU dg15).
+  // Dedup: cada IA prenhez conta como 1 potro potencial.
+  const embrioesPosLinhas = [];
+  for (const ce of cesAtribuidas) {
+    if (ce.dados?.resultado !== 'positivo') continue;
+    const qtd = Math.max(1, Number(ce.dados.qtdEmbrioes) || 1);
+    const iaOrig = iaDeOrigem(ce);
+    for (let i = 0; i < qtd; i++) {
+      embrioesPosLinhas.push({
+        key: `${ce.id}:${i}`, tipo: 'ce', regId: ce.id, embIdx: i, qtd,
+        cavaloId: ce.eguaId, data: ce.data,
+        garanhao: iaOrig?.dados?.garanhao || ce.dados?.garanhao || '',
+        iaData: iaOrig?.data || null,
+        vetInseminador: iaOrig?.vetId || ce.vetId,
+      });
     }
-    const taxa = (chave) => {
-      const comResultado = linhas.filter(l => l[chave] === 'positivo' || l[chave] === 'negativo');
-      const pos = comResultado.filter(l => l[chave] === 'positivo').length;
-      return { total: comResultado.length, pos, pct: comResultado.length ? Math.round((pos / comResultado.length) * 100) : 0 };
-    };
-    return { linhas, dg15: taxa('dg15'), dg45: taxa('dg45'), dg60: taxa('dg60') };
-  })();
-  const dg15 = dgDados.dg15;
-  const dg45 = dgDados.dg45;
-  const dg60 = dgDados.dg60;
+  }
+  for (const ia of iasPrenhez) {
+    const d = ia.dados || {};
+    if (d.dgInicial === 'positivo' || d.dg15 === 'positivo') {
+      embrioesPosLinhas.push({
+        key: `${ia.id}:0`, tipo: 'prenhez', regId: ia.id, embIdx: 0, qtd: 1,
+        cavaloId: ia.eguaId, data: ia.data,
+        garanhao: d.garanhao || '', iaData: ia.data,
+        vetInseminador: ia.vetId,
+      });
+    }
+  }
+  const totalEmbrioesPos = embrioesPosLinhas.length;
 
-  // Card "DG": quantidade de embriões coletados em CEs positivas
-  // atribuídas (ao inseminador) no mês — cada embrião vira uma linha
-  // no modal de detalhe (com cruzamento, DGs, central, receptora).
-  const embrioesCeAtribuidas = cesAtribuidas.filter(r => r.dados?.resultado === 'positivo');
-  const totalEmbrioes = embrioesCeAtribuidas
-    .reduce((s, r) => s + Math.max(1, Number(r.dados?.qtdEmbrioes) || 1), 0);
+  // ── Prenhezes confirmadas (DG45+) ────────────────────────────
+  // Regra: DG45+ em receptora (inovulação ou CE+ com DG direto) OU
+  // em IA destino=prenhez (prenhez na própria matriz).
+  const prenhezesLinhas = [];
+  const basePrenhez = filtroVetId
+    ? regsMes.filter(r => {
+        if (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez') return r.vetId === filtroVetId;
+        if (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo') return vetDaCe(r) === filtroVetId;
+        if (r.tipo === 'inovulacao_embriao') return r.vetId === filtroVetId;
+        return false;
+      })
+    : regsMes.filter(r =>
+        (r.tipo === 'transferencia_embriao' && r.dados?.resultado === 'positivo')
+        || (r.tipo === 'inseminacao_artificial' && r.dados?.destino === 'prenhez')
+        || (r.tipo === 'inovulacao_embriao'),
+      );
+  for (const r of basePrenhez) {
+    const d = r.dados || {};
+    const isPrenhez = r.tipo === 'inseminacao_artificial';
+    const isInov = r.tipo === 'inovulacao_embriao';
+    const ia = isPrenhez ? r : (isInov ? null : iaDeOrigem(r));
+    const vetInseminador = ia?.vetId || r.vetId;
+    const qtd = (isPrenhez || isInov) ? 1 : Math.max(1, Number(d.qtdEmbrioes) || 1);
+    const destinosArr = Array.isArray(d.destinos) ? d.destinos :
+      (Array.isArray(d.receptoras) ? d.receptoras.map(nm => ({ tipo: 'egua', eguaNome: nm || '' })) :
+      (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
+    const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
+    for (let i = 0; i < qtd; i++) {
+      const emb = (qtd === 1 && dgsArr.length === 0)
+        ? { dg15: d.dg15 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
+        : (dgsArr[i] || {});
+      if (emb.dg45 !== 'positivo') continue;
+      prenhezesLinhas.push({
+        key: `${r.id}:${i}`,
+        tipo: isPrenhez ? 'prenhez' : isInov ? 'inovulacao' : 'ce',
+        regId: r.id, cavaloId: r.eguaId, embIdx: i, qtd,
+        data: r.data,
+        garanhao: ia?.dados?.garanhao || d.garanhao || '',
+        iaData: ia?.data || null,
+        destinoObj: destinosArr[i] || null,
+        receptora: emb.receptora || null,
+        dg15: emb.dg15 || null, dg45: emb.dg45 || null, dg60: emb.dg60 || null,
+        vetInseminador,
+      });
+    }
+  }
+  const totalPrenhezes = prenhezesLinhas.length;
 
   const cards = [
-    { label: 'IA', key: 'ia', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff', clicavel: true },
-    { label: 'CE', key: 'ce', valor: totalTE, cor: '#0e7490', bg: '#cffafe', clicavel: true },
-    { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: false },
-    { label: 'DG', key: 'dg', valor: totalEmbrioes, cor: '#15803d', bg: '#dcfce7', clicavel: true },
-    { label: 'SV', key: 'sv', valor: totalSV, cor: '#c2410c', bg: '#fed7aa', clicavel: true },
+    { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: true, hint: 'Controles foliculares' },
+    { label: 'IA', key: 'ia', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff', clicavel: true, hint: 'Inseminações' },
+    { label: 'Embr+', key: 'embrioes_pos', valor: totalEmbrioesPos, cor: '#be185d', bg: '#fce7f3', clicavel: true, hint: 'Embriões positivados' },
+    { label: 'Prenh.', key: 'prenhezes', valor: totalPrenhezes, cor: '#15803d', bg: '#dcfce7', clicavel: true, hint: 'Prenhezes DG45+' },
   ];
 
   return (
@@ -5790,64 +5762,23 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         </div>
       )}
 
-      <div style={{ padding: '4px 20px 8px', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 6 }}>
+      <div style={{ padding: '4px 20px 20px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
         {cards.map(c => (
           <button
             key={c.label}
             onClick={c.clicavel ? () => setDetalheAberto(c.key) : undefined}
             disabled={!c.clicavel}
+            title={c.hint || c.label}
             style={{
-              background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 10, padding: '10px 6px', textAlign: 'center',
+              background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 12,
+              padding: '12px 6px', textAlign: 'center',
               cursor: c.clicavel ? 'pointer' : 'default', fontFamily: 'inherit',
             }}>
-            <div style={{ fontFamily: 'var(--serif)', fontSize: 22, color: c.cor }}>{c.valor}</div>
-            <div style={{ fontSize: 10, color: c.cor, fontWeight: 700, letterSpacing: '0.06em' }}>{c.label}</div>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 26, color: c.cor, lineHeight: 1 }}>{c.valor}</div>
+            <div style={{ fontSize: 10, color: c.cor, fontWeight: 700, letterSpacing: '0.06em', marginTop: 4 }}>{c.label}</div>
+            {c.hint && <div style={{ fontSize: 9, color: c.cor, opacity: 0.7, marginTop: 2 }}>{c.hint}</div>}
           </button>
         ))}
-      </div>
-
-      <div style={{ padding: '10px 20px 20px' }}>
-        <BarraPercentual
-          titulo="IA que viraram CE"
-          valor={pctIaTe}
-          totalLabel={`${iasComCe}/${totalIaParaCe}`}
-          cor="#7c2d8c"
-        />
-        <BarraPercentual
-          titulo={`Taxa de recuperação (CE+)${teSemResultado > 0 ? ` · ${teSemResultado} s/ resultado` : ''}`}
-          valor={pctTePos}
-          totalLabel={`${tePos}/${totalTE}`}
-          cor="#0e7490"
-        />
-        {totalIaPrenhez > 0 && (
-          <BarraPercentual
-            titulo="IA pra prenhez · confirmadas (DG45+)"
-            valor={pctPrenhezConfirmada}
-            totalLabel={`${iasPrenhezConfirmadas}/${totalIaPrenhez}`}
-            cor="#be123c"
-          />
-        )}
-        <div style={{
-          background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, padding: 12, marginTop: 8,
-          cursor: 'pointer',
-        }}
-          onClick={() => setDetalheAberto('dg')}
-        >
-          <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 8, fontWeight: 700 }}>
-            Diagnósticos gestacionais {dgDados.linhas.length > 0 && <span style={{ color: 'var(--ink-2)', textTransform: 'none', letterSpacing: 0 }}>· tocar pra ver lista</span>}
-          </div>
-          {[['DG 15', dg15], ['DG 45', dg45], ['DG 60', dg60]].map(([lbl, d]) => (
-            <div key={lbl} style={{ marginBottom: 8 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-                <span style={{ color: 'var(--ink)' }}>{lbl}</span>
-                <span style={{ color: 'var(--ink-3)' }}>{d.pos}/{d.total} · {d.pct}%</span>
-              </div>
-              <div style={{ height: 6, background: 'var(--soft)', borderRadius: 3, overflow: 'hidden' }}>
-                <div style={{ width: `${d.pct}%`, height: '100%', background: '#15803d' }} />
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {detalheAberto && (
@@ -5855,7 +5786,9 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
           tipo={detalheAberto}
           iasDoMes={iasDoMes}
           cesAtribuidas={cesAtribuidas}
-          dgLinhas={dgDados.linhas}
+          cfsDoMes={cfsDoMes}
+          embrioesPosLinhas={embrioesPosLinhas}
+          prenhezesLinhas={prenhezesLinhas}
           svsDoMes={svsDoMes}
           eguasRepro={eguasRepro}
           vetsExternos={vetsExternos}
@@ -5873,7 +5806,9 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
 // Lista detalhada que abre ao clicar em um card do dashboard.
 // tipo: 'ia' | 'ce' | 'dg'
 function DetalhePainelLista({
-  tipo, iasDoMes = [], cesAtribuidas = [], dgLinhas = [], svsDoMes = [],
+  tipo, iasDoMes = [], cesAtribuidas = [], cfsDoMes = [],
+  embrioesPosLinhas = [], prenhezesLinhas = [],
+  svsDoMes = [],
   eguasRepro = [], vetsExternos = [], servicos = [], centraisRepro = [],
   iaDeOrigem = null, filtroVetAtivo = false, onClose,
 }) {
@@ -5884,9 +5819,11 @@ function DetalhePainelLista({
   const momentoLabel = (m) => m === 'pre_ovulacao' ? 'Pré' : m === 'pos_ovulacao' ? 'Pós' : '—';
   const nomeCentral = (id) => centraisRepro.find(c => c.id === id)?.nome || '—';
   const titulo = tipo === 'ia' ? 'Inseminações'
-    : tipo === 'ce' ? 'Coletas de embrião'
+    : tipo === 'cf' ? 'Controles foliculares'
+    : tipo === 'embrioes_pos' ? 'Embriões positivados'
+    : tipo === 'prenhezes' ? 'Prenhezes confirmadas (DG45+)'
     : tipo === 'sv' ? 'Serviços avulsos'
-    : 'Diagnósticos gestacionais';
+    : '—';
 
   // Helpers de UI reutilizados por cada tipo
   const subsIa = (dados) => [
@@ -5905,6 +5842,59 @@ function DetalhePainelLista({
         titulo: `${r.dados?.garanhao || '—'} × ${nomeEgua(r.eguaId)}`,
         subs: [fmtDataBr(r.data), ...subsIa(r.dados)],
       }));
+  } else if (tipo === 'cf') {
+    linhas = [...cfsDoMes]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(r => {
+        const d = r.dados || {};
+        const subs = [
+          fmtDataBr(r.data),
+          d.ovarEsquerdo || d.ovarioDireito ? `OE ${d.ovarEsquerdo || '—'} · OD ${d.ovarioDireito || '—'}` : null,
+          d.edemaUterino ? `Edema ${d.edemaUterino}` : null,
+          d.tonusUterino ? `TU ${d.tonusUterino}` : null,
+          d.ovulou ? '✓ Ovulou' : null,
+          d.dataInducaoOvulacao ? `Indução ${fmtDataBr(d.dataInducaoOvulacao)}${d.horaInducaoOvulacao ? ' ' + d.horaInducaoOvulacao : ''}` : null,
+        ].filter(Boolean);
+        return { key: r.id, vetId: r.vetId, titulo: nomeEgua(r.eguaId), subs };
+      });
+  } else if (tipo === 'embrioes_pos') {
+    linhas = [...embrioesPosLinhas]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(l => ({
+        key: l.key, vetId: l.vetInseminador,
+        titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
+        chip: l.tipo === 'prenhez'
+          ? { label: 'Prenhez na matriz · DG+', bg: '#fce7f3', ink: '#9d174d' }
+          : { label: '✓ Coleta positiva', bg: '#dcfce7', ink: '#15803d' },
+        subs: [
+          l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
+          l.tipo === 'ce' ? `Coleta: ${fmtDataBr(l.data)}` : `Confirmado: ${fmtDataBr(l.data)}`,
+        ].filter(Boolean),
+      }));
+  } else if (tipo === 'prenhezes') {
+    linhas = [...prenhezesLinhas]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(l => {
+        const d = l.destinoObj;
+        const destinoLabel = l.tipo === 'prenhez'
+          ? `Prenhez na matriz: ${nomeEgua(l.cavaloId)}`
+          : l.tipo === 'inovulacao'
+            ? `Receptora: ${nomeEgua(l.cavaloId)}`
+            : (d?.tipo === 'central'
+              ? `Central: ${nomeCentral(d.centralId)}${l.receptora ? ` · Rec.: ${l.receptora}` : ''}`
+              : d?.tipo === 'egua'
+                ? `Égua: ${d.eguaNome || '—'}`
+                : '—');
+        return {
+          key: l.key, vetId: l.vetInseminador,
+          titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
+          chip: { label: '✓ DG45+', bg: '#dcfce7', ink: '#15803d' },
+          subs: [
+            l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
+            destinoLabel,
+          ].filter(Boolean),
+        };
+      });
   } else if (tipo === 'sv') {
     linhas = [...svsDoMes]
       .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
@@ -5916,66 +5906,6 @@ function DetalhePainelLista({
           `Égua: ${nomeEgua(r.eguaId)}`,
         ],
       }));
-  } else if (tipo === 'ce') {
-    linhas = [...cesAtribuidas]
-      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
-      .map(r => {
-        const resultado = r.dados?.resultado;
-        const ia = iaDeOrigem ? iaDeOrigem(r) : null;
-        const dadosIa = ia?.dados || {};
-        const vetId = ia?.vetId || r.vetId;
-        // Título usa os mesmos dados da IA (garanhão × égua); se não achou
-        // IA de origem, cai pro nome da égua + aviso.
-        const titulo = ia
-          ? `${dadosIa.garanhao || '—'} × ${nomeEgua(r.eguaId)}`
-          : `${nomeEgua(r.eguaId)} · sem IA vinculada`;
-        return {
-          key: r.id, vetId,
-          titulo,
-          chip: resultado === 'positivo' ? { label: '✓ Positiva', bg: '#dcfce7', ink: '#15803d' }
-            : resultado === 'negativo' ? { label: '✗ Negativa', bg: '#fee2e2', ink: '#dc2626' }
-            : { label: 's/ resultado', bg: 'var(--soft)', ink: 'var(--ink-3)' },
-          subs: [
-            `IA: ${ia ? fmtDataBr(ia.data) : '—'} · Coleta: ${fmtDataBr(r.data)}`,
-            ...subsIa(dadosIa),
-            resultado === 'positivo' && r.dados?.qtdEmbrioes
-              ? `${r.dados.qtdEmbrioes} embrião(ões) recuperado(s)` : null,
-          ].filter(Boolean),
-        };
-      });
-  } else {
-    // DG: lista por EMBRIÃO (já pré-processada em dgDados.linhas).
-    // Mostra cruzamento (garanhão × égua), destino (central ou égua
-    // nossa), receptora quando preenchida, e badges DG15/45/60.
-    const chip = (v) => v === 'positivo' ? { label: '+', bg: '#dcfce7', ink: '#15803d' }
-      : v === 'negativo' ? { label: '−', bg: '#fee2e2', ink: '#dc2626' }
-      : { label: '·', bg: 'var(--soft)', ink: 'var(--ink-3)' };
-    linhas = [...dgLinhas]
-      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
-      .map((l, i) => {
-        const d = l.destinoObj;
-        const destinoLabel = l.destino === 'prenhez'
-          ? 'IA → prenhez'
-          : (d?.tipo === 'central'
-            ? `Central: ${nomeCentral(d.centralId)}`
-            : d?.tipo === 'egua'
-              ? `Égua: ${d.eguaNome || '—'}`
-              : '—');
-        const receptoraLabel = (l.destino === 'ce' && d?.tipo === 'central' && l.receptora)
-          ? `Receptora: ${l.receptora}` : null;
-        return {
-          key: `${l.regId}:${l.embIdx}:${i}`,
-          vetId: l.vetInseminador,
-          titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
-          subs: [
-            l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
-            l.destino === 'ce' ? `Coleta: ${fmtDataBr(l.data)}` : `Data: ${fmtDataBr(l.data)}`,
-            destinoLabel,
-            receptoraLabel,
-          ].filter(Boolean),
-          dgs: { dg15: chip(l.dg15), dg45: chip(l.dg45), dg60: chip(l.dg60) },
-        };
-      });
   }
 
   return (
