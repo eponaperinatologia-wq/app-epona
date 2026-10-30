@@ -462,6 +462,14 @@ const loadAllData = async () => {
         if (et === 'UPDATE') setFaturasFechadas(prev => prev.map(f => f.id === n.id ? fromDbFaturaFechada(n) : f));
         if (et === 'DELETE') setFaturasFechadas(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
       })
+      // Realtime da tabela configuracoes (id='global') — sincroniza
+      // empresaInfo entre dispositivos. Essencial pra antecipação de
+      // fechamento ser vista por todos os usuários sem recarregar.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'configuracoes' }, ({ eventType: et, new: n }) => {
+        if ((et === 'INSERT' || et === 'UPDATE') && n?.id === 'global') {
+          setEmpresaInfo(fromDbConfiguracao(n));
+        }
+      })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'faturas_repro' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setFaturasRepro(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFaturaRepro(n)]);
         if (et === 'UPDATE') setFaturasRepro(prev => prev.map(f => f.id === n.id ? fromDbFaturaRepro(n) : f));
