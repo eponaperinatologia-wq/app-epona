@@ -4145,24 +4145,22 @@ const AnteciparFechamentoBanner = ({ ref_, fakeHoje, onAtivar, onDesativar }) =>
   );
 };
 
-const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [], proprietariosTodos = null, cavalosTodos = null }) => {
+const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [], proprietariosTodos = null, cavalosTodos = null, empresaInfo = null, updateEmpresaInfo = null }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   const [busca, setBusca] = useState('');
   const [showDiagnostico, setShowDiagnostico] = useState(false);
-  // Override de "hoje" pra antecipar fechamento (ex: fechar outubro no
-  // dia 30 calculando como se fosse 31). Setado em window global que o
-  // _hojeDia/_hojeDate em screens.jsx consulta. Null = sem override.
-  const [fakeHoje, setFakeHoje] = useState(
-    typeof window !== 'undefined' ? (window.__eponaFakeHoje || null) : null,
-  );
+  // Antecipação de fechamento: fonte da verdade é empresaInfo.fakeHoje
+  // (persistido no banco em configuracoes). Vale pra TODOS os usuários
+  // automaticamente via realtime. Fallback pro window local se não
+  // houver updater (modo compat).
+  const fakeHoje = empresaInfo?.fakeHoje || (typeof window !== 'undefined' ? window.__eponaFakeHoje : null) || null;
   const findInsumo = (id) => insumos.find(i => i.id === id);
   const isCurrentMonth = hoje.getFullYear() === ref.ano && hoje.getMonth() + 1 === ref.mes;
 
   const getFaturaFechada = (propId) => faturasFechadas.find(f => f.proprietarioId === propId && f.ano === ref.ano && f.mes === ref.mes);
 
   const shareCount = (c) => Math.max(1, (c.proprietarioIds || []).length || 1);
-  const empresaInfo = getEmpresa();
   // Epona Stud (= proprietário próprio) não tem fatura — somos nós mesmos.
   // Memoizado — o cálculo de fatura por proprietário é caro (O(cavalos × registros × meses))
   // e antes rodava em toda re-render do app, causando travamentos no clique.
@@ -4256,19 +4254,20 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
 
       {/* Antecipar fechamento: calcula as faturas como se já fosse o dia
           escolhido (ex: fechar outubro no dia 30 com valores de 31 dias).
-          Útil pra fechar antes de feriados prolongados. Depois de fechar
-          as faturas, usuária desativa pra o app voltar ao normal. */}
-      {isCurrentMonth && (
+          Útil pra fechar antes de feriados prolongados. Persiste no
+          banco (empresaInfo.fakeHoje), então todo mundo vê ao mesmo tempo.
+          Depois de fechar as faturas, usuária desativa pra o app voltar ao normal. */}
+      {(isCurrentMonth || fakeHoje) && updateEmpresaInfo && (
         <AnteciparFechamentoBanner
           ref_={ref}
           fakeHoje={fakeHoje}
           onAtivar={(dataStr) => {
-            if (typeof window !== 'undefined') window.__eponaFakeHoje = dataStr;
-            setFakeHoje(dataStr);
+            updateEmpresaInfo({ ...(empresaInfo || {}), fakeHoje: dataStr });
           }}
           onDesativar={() => {
-            if (typeof window !== 'undefined') delete window.__eponaFakeHoje;
-            setFakeHoje(null);
+            const next = { ...(empresaInfo || {}) };
+            delete next.fakeHoje;
+            updateEmpresaInfo(next);
           }}
         />
       )}
@@ -5594,7 +5593,7 @@ const NossosCustosSubScreen = ({ proprietarios = [], cavalos = [], registros = [
   );
 };
 
-const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo, proprietariosTodos, cavalosTodos }) => {
+const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, proprietarios, cavalos, movimentacoes, faturaRef, setFaturaRef, faturasFechadas, procedimentos, servicos, lancamentos = [], addLancamento, updateLancamento, deleteLancamento, recorrencias = [], addRecorrencia, deleteRecorrencia, updateRecorrencia, estoqueCompras = [], addEstoqueCompra, deleteEstoqueCompra, currentUser, custosFixos = [], updateCustoFixo, proprietariosTodos, cavalosTodos, empresaInfo = null, updateEmpresaInfo = null }) => {
   const isAdmin = currentUser?.role === 'admin';
   const [subTab, setSubTab] = useState('faturas');
   const subTabs = isAdmin
@@ -5630,7 +5629,7 @@ const FinanceiroScreen = ({ setScreen, setSelected, registros, insumos, propriet
         )}
       </div>
       {subTab === 'faturas' && (
-        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} proprietariosTodos={proprietariosTodos} cavalosTodos={cavalosTodos} />
+        <FaturaListaScreen setScreen={setScreen} setSelected={setSelected} registros={registros} insumos={insumos} proprietarios={proprietarios} cavalos={cavalos} movimentacoes={movimentacoes} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentos} servicos={servicos} custosFixos={custosFixos} proprietariosTodos={proprietariosTodos} cavalosTodos={cavalosTodos} empresaInfo={empresaInfo} updateEmpresaInfo={updateEmpresaInfo} />
       )}
       {subTab === 'entradas' && isAdmin && (
         <LancamentosSubScreen tipo="entrada" lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} />
@@ -6246,9 +6245,17 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
   const handleFecharFatura = async () => {
     if (faturaExistente || !addFaturaFechada) return;
-    // Mês corrente não pode ser fechado: congelaria valores parciais
-    // (proporcionais até hoje) e o auto-fechar depois pularia o mês.
-    if (isCurrentMonth) { window.alert('O mês atual ainda não terminou — a fatura só pode ser fechada a partir do mês seguinte.'); return; }
+    // Mês corrente não pode ser fechado SE a antecipação não cobre o
+    // mês inteiro. Com fakeHoje ativo em 31/10, o cálculo já é dos 31
+    // dias — pode fechar.
+    const fakeAtivo = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+    const ultimoDiaMes = new Date(ref.ano, ref.mes, 0).getDate();
+    const hojeEfetivo = fakeAtivo ? new Date(fakeAtivo + 'T12:00:00') : new Date();
+    const mesmoMesEfetivo = hojeEfetivo.getFullYear() === ref.ano && hojeEfetivo.getMonth() + 1 === ref.mes;
+    if (mesmoMesEfetivo && hojeEfetivo.getDate() < ultimoDiaMes) {
+      window.alert('O mês atual ainda não terminou — a fatura só pode ser fechada a partir do mês seguinte. Dica: use "Antecipar fechamento" na lista de faturas se quer fechar antes.');
+      return;
+    }
     const linhas = montarLinhasFechamento(calc);
     const ok = await addFaturaFechada({
       id: `ff_${id}_${ref.ano}_${ref.mes}`,
@@ -6313,7 +6320,17 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
   // Navegação entre meses da fatura. Nunca deixa passar do mês atual
   // pra frente — não faz sentido faturar futuro.
-  const isCurrentMonth = ref.ano === hoje.getFullYear() && ref.mes === (hoje.getMonth() + 1);
+  // Com antecipação ativa (window.__eponaFakeHoje), considera o mês
+  // "corrente" só se fakeHoje < último dia do mês. Se já é fim do mês
+  // (ou passou), o mês conta como fechável — o override simula pular
+  // o resto dos dias.
+  const _fakeHoje = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+  const _hojeEfetivo = _fakeHoje ? new Date(_fakeHoje + 'T12:00:00') : hoje;
+  const _ultimoDiaMes = new Date(ref.ano, ref.mes, 0).getDate();
+  const _mesmoMes = _hojeEfetivo.getFullYear() === ref.ano && _hojeEfetivo.getMonth() + 1 === ref.mes;
+  const _diaEfetivo = _hojeEfetivo.getDate();
+  // Mês corrente "bloqueado" só quando ainda não chegou ao último dia
+  const isCurrentMonth = _mesmoMes && _diaEfetivo < _ultimoDiaMes;
   const navMes = (delta) => {
     if (!setFaturaRef) return;
     let m = ref.mes + delta, a = ref.ano;

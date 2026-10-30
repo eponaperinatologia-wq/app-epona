@@ -1892,6 +1892,16 @@ const loadAllData = async () => {
     dbUpsert('configuracoes', toDbConfiguracao(data));
   };
 
+  // Sincroniza empresaInfo.fakeHoje com o override global do _hojeDia
+  // em screens.jsx. Permite que admin ative antecipação de fechamento
+  // (ex: fingir que hoje é 31/10 pra fechar faturas no dia 30). Todos
+  // os usuários veem automaticamente via realtime na tabela configuracoes.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (empresaInfo?.fakeHoje) window.__eponaFakeHoje = empresaInfo.fakeHoje;
+    else delete window.__eponaFakeHoje;
+  }, [empresaInfo?.fakeHoje]);
+
   // ── Faturas fechadas ──────────────────────────────────────────
   const addFaturaFechada = async (f) => {
     const prevSnapshot = faturasFechadas;
@@ -2474,7 +2484,7 @@ const loadAllData = async () => {
   else if (screen === 'registrarProcedimento') content = <RegistrarProcedimentoScreen setScreen={goScreen} servicos={servicosHaras} cavalos={cavalosHaras} insumos={insumosHaras} addProcedimento={addProcedimento} addAtividade={addAtividade} mesDestino={mesRegistroDestino} />;
   else if (screen === 'cadMensalidades') content = <CadMensalidadesScreen setScreen={goScreen} cavalos={cavalosHaras} />;
   else if (screen === 'cadEmpresa') content = <CadEmpresaScreen setScreen={goScreen} empresaInfo={empresaInfo} onSave={updateEmpresaInfo} />;
-  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registrosH} insumos={insumos} proprietarios={proprietariosHaras} cavalos={cavalosHaras} movimentacoes={movimentacoesH} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentosH} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} proprietariosTodos={proprietarios} cavalosTodos={cavalos} />;
+  else if (screen === 'faturas') content = <FinanceiroScreen setScreen={goScreen} setSelected={setSelected} registros={registrosH} insumos={insumos} proprietarios={proprietariosHaras} cavalos={cavalosHaras} movimentacoes={movimentacoesH} faturaRef={faturaRef} setFaturaRef={setFaturaRef} faturasFechadas={faturasFechadas} procedimentos={procedimentosH} servicos={servicos} lancamentos={lancamentos} addLancamento={addLancamento} updateLancamento={updateLancamento} deleteLancamento={deleteLancamento} recorrencias={recorrencias} addRecorrencia={addRecorrencia} deleteRecorrencia={deleteRecorrencia} updateRecorrencia={updateRecorrencia} estoqueCompras={estoqueCompras} addEstoqueCompra={addEstoqueCompra} deleteEstoqueCompra={deleteEstoqueCompra} currentUser={currentUser} custosFixos={custosFixos} updateCustoFixo={updateCustoFixo} proprietariosTodos={proprietarios} cavalosTodos={cavalos} empresaInfo={empresaInfo} updateEmpresaInfo={updateEmpresaInfo} />;
   else if (screen === 'consumo') content = <ConsumoScreen setScreen={goScreen} cavalos={cavalosHaras} insumos={insumos} custosFixos={custosFixos} proprietarios={proprietariosHaras} />;
   else if (screen === 'custosFixos') content = <CustosFixosScreen custosFixos={custosFixos} funcionarios={funcionarios} cavalos={cavalosHaras} addCustoFixo={addCustoFixo} updateCustoFixo={updateCustoFixo} deleteCustoFixo={deleteCustoFixo} onBack={() => goScreen('faturas')} />;
   else if (screen === 'faturaDetalhe') content = <FaturaDetalheScreen key={`fd_${selected}_${faturaRef?.ano}_${faturaRef?.mes}`} id={selected} setScreen={goScreen} setSelected={setSelected} registros={registrosH} proprietarios={proprietariosHaras} cavalos={cavalosHaras} insumos={insumos} movimentacoes={movimentacoesH} faturaRef={faturaRef} faturasFechadas={faturasFechadas} addFaturaFechada={addFaturaFechada} removeFaturaFechada={removeFaturaFechada} currentUser={currentUser} empresaInfo={empresaInfo} procedimentos={procedimentosH} servicos={servicos} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} custosFixos={custosFixos} setMesRegistroDestino={setMesRegistroDestino} />;
