@@ -27,11 +27,28 @@ export async function gerarPdfGestacaoDoElemento(el, { cavalo }) {
     windowHeight: el.scrollHeight,
     scrollX: 0,
     scrollY: 0,
-    // Antes de desenhar, remove do clone os elementos marcados
-    // data-pdf-hide (ex: input date nativo editável, botão Salvar).
+    // Antes de desenhar, manipula o clone (não afeta o DOM real):
+    //  - Remove elementos [data-pdf-hide=true] (ex: botão Salvar)
+    //  - Troca inputs com [data-pdf-text=...] por span equivalente
+    //    (ex: input type=date → "DD/MM/AAAA" formatado)
     onclone: (clonedDoc) => {
       try {
         clonedDoc.querySelectorAll('[data-pdf-hide="true"]').forEach(n => n.remove());
+        clonedDoc.querySelectorAll('[data-pdf-text]').forEach(n => {
+          const txt = n.getAttribute('data-pdf-text') || '';
+          const span = clonedDoc.createElement('div');
+          span.textContent = txt;
+          // Copia estilo visual aproximado do input original pra não quebrar layout
+          const cs = (n.ownerDocument.defaultView || window).getComputedStyle(n);
+          span.style.cssText = `
+            display:block; box-sizing:border-box;
+            padding:${cs.padding}; border:${cs.border}; border-radius:${cs.borderRadius};
+            background:${cs.backgroundColor}; color:${cs.color};
+            font-family:${cs.fontFamily}; font-size:${cs.fontSize}; font-weight:${cs.fontWeight};
+            text-align:${cs.textAlign}; line-height:${cs.lineHeight};
+          `;
+          n.parentNode.replaceChild(span, n);
+        });
       } catch (e) {
         // Se der erro no clone, segue sem o filtro
       }

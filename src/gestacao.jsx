@@ -1152,24 +1152,12 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
         <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:12 }}>Filiação e cobrição</div>
         <div style={{ marginBottom:12 }}>
           <GestacaoLabel t="Data de cobrição" />
-          {/* Display em DD/MM/AAAA pra leitura; input nativo fica abaixo
-              (type=date pro teclado nativo). No PDF só o display aparece. */}
-          <div style={{
-            padding:'10px 12px', borderRadius:10, background:'var(--soft)',
-            border:'1px solid var(--line)',
-            fontSize:16, fontWeight:700, color:'var(--ink)', fontFamily:'var(--serif)',
-            marginBottom: readOnly ? 0 : 6,
-          }}>
-            {fmtDate(dataCobricao)}
-          </div>
-          {!readOnly && (
-            <input
-              type="date" value={dataCobricao}
-              onChange={e => setDataCobricao(e.target.value)}
-              style={{ ...inputStyle, fontSize:12, padding:'6px 10px' }}
-              data-pdf-hide="true"
-            />
-          )}
+          <input
+            type="date" value={dataCobricao}
+            onChange={e => setDataCobricao(e.target.value)}
+            disabled={readOnly} style={inputStyle}
+            data-pdf-text={fmtDate(dataCobricao)}
+          />
         </div>
         <div style={{ marginBottom:12 }}>
           <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
@@ -1192,31 +1180,13 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
             </div>
           )}
         </div>
-      </div>
-
-      {/* Previsão de parto — card dedicado em destaque. Pivot principal
-          do acompanhamento, por isso ganha espaço próprio. */}
-      {previsao && (
-        <div style={{
-          background:'linear-gradient(135deg, var(--accent-soft), #fff)',
-          border:'2px solid var(--accent)',
-          borderRadius:14, padding:'14px 16px', marginBottom:14,
-          display:'flex', alignItems:'center', gap:12,
-        }}>
-          <div style={{
-            width:44, height:44, borderRadius:12, background:'var(--accent)',
-            display:'grid', placeItems:'center', flexShrink:0, fontSize:22,
-          }}>🤰</div>
-          <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:11, fontWeight:700, color:'var(--accent)', textTransform:'uppercase', letterSpacing:'0.08em', marginBottom:2 }}>
-              Previsão de parto (330 dias)
-            </div>
-            <div style={{ fontFamily:'var(--serif)', fontSize:22, fontWeight:700, color:'var(--ink)', lineHeight:1.1 }}>
-              {fmtDate(previsao)}
-            </div>
+        {previsao && (
+          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
+            <span style={{ fontSize:12, color:'var(--ink-3)' }}>Previsão de parto (330 dias)</span>
+            <span style={{ fontSize:13, fontWeight:700, color:'var(--accent)' }}>{fmtDate(previsao)}</span>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Desenvolvimento fetal — muda só com a idade gestacional */}
       <BoxDesenvolvimentoFetal dataCobricao={dataCobricao} cavalo={c} />
