@@ -1,10 +1,10 @@
 // gestacao.jsx — Gestação e Partos: gestantes, detalhe e acompanhamento mensal
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Icon } from './icons';
 import { norm, addDescartaveis } from './data';
 import { TopBar } from './screens';
 import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
-import { gerarPdfGestacao, nomePdfGestacao } from './utils/pdfGestacao';
+import { gerarPdfGestacaoDoElemento, nomePdfGestacao } from './utils/pdfGestacao';
 
 // ── Helpers ───────────────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -894,19 +894,32 @@ export function EguaGestanteDetalheScreen({
     : dias === 0 ? 'Parto hoje!'
     : `+${Math.abs(dias)}d além`;
 
-  // Gera e salva o PDF do acompanhamento gestacional atual. Usado pelo
-  // botão de compartilhar no topo — pensado pra enviar aos proprietários
-  // sem precisar tirar print.
+  // Ref no conteúdo da aba Gestação pra o html2canvas renderizar
+  // exatamente o que está na tela (sem TopBar, sem SubTabBar).
+  const gestacaoContentRef = useRef(null);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  // Gera o PDF capturando o DOM atual da aba de Gestação. Mantém
+  // cores, boxes e tipografia idênticas à tela do app.
   const compartilharPdf = async () => {
+    // Garante que a aba Gestação está ativa (o elemento só existe quando ela
+    // está montada).
+    if (subTab !== 'gestacao') {
+      setSubTab('gestacao');
+      // Dá um tick pro React montar
+      await new Promise(r => setTimeout(r, 50));
+    }
+    if (!gestacaoContentRef.current) {
+      window.alert('Nada pra exportar nessa aba.');
+      return;
+    }
+    setGerandoPdf(true);
     try {
-      const empresa = (() => {
-        try { return JSON.parse(localStorage.getItem('epona_empresa') || '{}'); }
-        catch { return {}; }
-      })();
-      const doc = await gerarPdfGestacao({ cavalo: c, proprietario: prop, empresa });
+      const doc = await gerarPdfGestacaoDoElemento(gestacaoContentRef.current, { cavalo: c });
       doc.save(nomePdfGestacao(c));
     } catch (e) {
       window.alert('Erro ao gerar PDF: ' + (e.message || 'desconhecido'));
+    } finally {
+      setGerandoPdf(false);
     }
   };
 
@@ -930,14 +943,18 @@ export function EguaGestanteDetalheScreen({
               )}
               <button
                 onClick={compartilharPdf}
+                disabled={gerandoPdf}
                 title="Compartilhar PDF da gestação"
                 style={{
                   padding:'7px 10px', borderRadius:8, border:'none',
                   background:'var(--accent)', color:'#fff',
-                  fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+                  fontSize:11, fontWeight:700,
+                  cursor: gerandoPdf ? 'default' : 'pointer',
+                  opacity: gerandoPdf ? 0.6 : 1,
+                  fontFamily:'var(--sans)',
                   display:'flex', alignItems:'center', gap:4,
                 }}>
-                <Icon name="share" size={12} color="#fff" /> PDF
+                <Icon name="share" size={12} color="#fff" /> {gerandoPdf ? '…' : 'PDF'}
               </button>
             </div>
           }
@@ -1025,7 +1042,11 @@ export function EguaGestanteDetalheScreen({
         />
       </div>
       <div style={{ paddingBottom:90 }}>
-        {subTab === 'gestacao' && <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} partos={partos} cavalos={cavalos} setScreen={setScreen} setSelected={setSelected} />}
+        {subTab === 'gestacao' && (
+          <div ref={gestacaoContentRef}>
+            <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} partos={partos} cavalos={cavalos} setScreen={setScreen} setSelected={setSelected} />
+          </div>
+        )}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
         {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />}
         {subTab === 'vacverm' && (
