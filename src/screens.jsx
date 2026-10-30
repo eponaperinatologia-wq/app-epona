@@ -6199,7 +6199,7 @@ const ShareModal = ({ onClose, getPdf, fileName, summary, recipientEmail }) => {
 // ─────────────────────────────────────────────────────────────
 // FATURA DETALHE · pré-visualização do PDF
 // ─────────────────────────────────────────────────────────────
-const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [], setMesRegistroDestino }) => {
+const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietarios = [], cavalos = [], insumos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], addFaturaFechada, removeFaturaFechada, currentUser, procedimentos = [], servicos = [], deleteRegistro, updateRegistro, deleteProcedimento, custosFixos = [], setMesRegistroDestino, empresaInfo = null }) => {
   const isProprietarioView = currentUser?.role === 'proprietario';
   const [shareOpen, setShareOpen] = useState(false);
   const [editRegId, setEditRegId] = useState(null);

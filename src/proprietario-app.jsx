@@ -492,6 +492,7 @@ export function ProprietarioApp({
         faturaRef={faturaRefLocal} setFaturaRef={setFaturaRefLocal}
         faturasFechadas={faturasFechadas}
         addFaturaFechada={null} removeFaturaFechada={null}
+        empresaInfo={empresaInfo}
         currentUser={{ ...currentUser, role: 'proprietario' }}
         procedimentos={procedimentos} servicos={servicos}
         deleteRegistro={null} updateRegistro={null} deleteProcedimento={null}
