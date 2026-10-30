@@ -880,8 +880,8 @@ export function EguaGestanteDetalheScreen({
   const [subTab, setSubTab] = useState('gestacao');
   // PDF pro proprietário: ao tocar no botão, monta fora da tela uma cópia
   // da aba Gestação com largura de celular (cabeçalho + conteúdo, sem as
-  // abas, o botão Salvar, a tabbar e o histórico gestacional) e o
-  // html2canvas fotografa essa cópia.
+  // abas, o botão Salvar, a tabbar, as faixas de alerta e o histórico
+  // gestacional) e o html2canvas fotografa essa cópia.
   // Hooks ficam antes do return antecipado (!c).
   const pdfRef = useRef(null);
   const [gerandoPdf, setGerandoPdf] = useState(false);
@@ -913,7 +913,7 @@ export function EguaGestanteDetalheScreen({
     : dias === 0 ? 'Parto hoje!'
     : `+${Math.abs(dias)}d além`;
 
-  // Selo de dias e faixas de alerta: aparecem na tela e no PDF.
+  // Selo de dias: aparece na tela e no PDF.
   const badgeDias = diasLabel && (
     <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
       background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
@@ -924,6 +924,7 @@ export function EguaGestanteDetalheScreen({
     </span>
   );
 
+  // Faixas de alerta: só na tela (são para a equipe, não vão para o PDF).
   const alertas = (
     <>
       {temApresentacaoPosterior(c) && (
@@ -1066,12 +1067,12 @@ export function EguaGestanteDetalheScreen({
       </div>
 
       {/* Cópia do PDF, fora da tela, com largura de iPhone: mesmo
-          cabeçalho (sem voltar/PDF), alertas e aba Gestação só leitura. */}
+          cabeçalho (sem voltar/PDF) e aba Gestação só leitura. As faixas
+          de alerta ficam de fora (uso interno). */}
       {gerandoPdf && (
         <div aria-hidden="true" style={{ position:'fixed', left:-10000, top:0, width:390, pointerEvents:'none' }}>
           <div ref={pdfRef} style={{ background:'var(--bg)', padding:'12px 0 6px' }}>
             <TopBar title={c.nome} subtitle={prop?.nome || '—'} action={badgeDias} />
-            {alertas}
             <GestacaoTab c={c} mes={mes} partos={partos} cavalos={cavalos} modoPdf />
           </div>
         </div>

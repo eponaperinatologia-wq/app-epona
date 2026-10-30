@@ -2,7 +2,8 @@
 //
 // A tela da égua gestante monta, fora da área visível, uma cópia da aba
 // Gestação com largura de celular (cabeçalho + conteúdo, sem as abas, o
-// botão Salvar, a tabbar e o histórico gestacional, que é controle interno).
+// botão Salvar e a tabbar; as faixas de alerta e o histórico gestacional
+// também ficam de fora, por serem de uso interno).
 // Aqui o html2canvas fotografa essa cópia e a imagem vira um PDF formato
 // cupom (105 mm de largura, altura dinâmica), igual às faturas. Assim o PDF
 // acompanha qualquer mudança de design da tela.
