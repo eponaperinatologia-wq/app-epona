@@ -27,6 +27,15 @@ export async function gerarPdfGestacaoDoElemento(el, { cavalo }) {
     windowHeight: el.scrollHeight,
     scrollX: 0,
     scrollY: 0,
+    // Antes de desenhar, remove do clone os elementos marcados
+    // data-pdf-hide (ex: input date nativo editável, botão Salvar).
+    onclone: (clonedDoc) => {
+      try {
+        clonedDoc.querySelectorAll('[data-pdf-hide="true"]').forEach(n => n.remove());
+      } catch (e) {
+        // Se der erro no clone, segue sem o filtro
+      }
+    },
   });
 
   // Converte px do canvas pra mm no PDF, mantendo proporção
