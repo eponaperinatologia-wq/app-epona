@@ -2970,7 +2970,8 @@ const DESCARTAVEIS_IA_MATCHERS = [
 // Regra do haras: cada aplicação de insumo injetável cobra também
 // 1 agulha + 1 seringa + 1 dose de algodão com álcool. Repetido aqui.
 const DESCARTAVEIS_INJECAO_MATCHERS = [
-  { regex: /agulha/i, label: 'agulha' },
+  // Agulha comum: a "Agulha Vácuo" (coleta de sangue) não entra no kit.
+  { regex: /agulha(?!.*v[aá]cuo)/i, label: 'agulha' },
   { regex: /seringa/i, label: 'seringa' },
   { regex: /algod[aã]o.*[áa]lcool|[áa]lcool.*algod[aã]o/i, label: 'algodão com álcool' },
 ];
@@ -3528,15 +3529,15 @@ function SubMisoprostol({ tu, setTu, insumos }) {
 }
 
 // Bloco "Medicamentos rápidos" — 3 botões no CF pra registrar
-// Ciosin (mL), Ocitocina (doses de 3 mL) e Firovet (doses). Cada um
-// abre um mini-form. Quando salvar, os mL/doses são gravados em
-// dados.medRapidos.<slug> e os insumos + descartáveis de injeção
-// entram no insumosUsados. Ocitocina cobra 1 kit descartáveis POR
-// DOSE (regra do time).
+// Ciosin (mL, já abre com 1,5), Ocitocina (doses de 2,5 mL) e Firovet
+// (doses, oral). Cada um abre um mini-form. Quando salvar, os mL/doses
+// são gravados em dados.medRapidos.<slug> e os insumos + descartáveis
+// de injeção entram no insumosUsados. Ocitocina cobra 1 kit descartáveis
+// POR DOSE; Firovet é oral e não leva kit (regra do time).
 const MED_RAPIDO = [
-  { slug: 'ciosin', label: 'Ciosin', unidade: 'mL', regex: /ciosin/i, cor: '#7c2d8c', modo: 'ml' },
-  { slug: 'ocitocina', label: 'Ocitocina', unidade: 'doses', regex: /ocitocina/i, cor: '#0e7490', modo: 'doses', mlPorDose: 3, descartaveisPorDose: true },
-  { slug: 'firovet', label: 'Firovet', unidade: 'doses', regex: /firovet/i, cor: '#c2410c', modo: 'doses' },
+  { slug: 'ciosin', label: 'Ciosin', unidade: 'mL', regex: /ciosin/i, cor: '#7c2d8c', modo: 'ml', mlPadrao: 1.5 },
+  { slug: 'ocitocina', label: 'Ocitocina', unidade: 'doses', regex: /ocitocina/i, cor: '#0e7490', modo: 'doses', mlPorDose: 2.5, descartaveisPorDose: true },
+  { slug: 'firovet', label: 'Firovet', unidade: 'doses', regex: /firovet/i, cor: '#c2410c', modo: 'doses', oral: true },
 ];
 
 function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
@@ -3567,7 +3568,7 @@ function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
           return (
             <button key={m.slug} type="button" onClick={() => {
               if (ativo) return;
-              setMed(m.slug, m.modo === 'ml' ? { ml: '' } : { doses: '' });
+              setMed(m.slug, m.modo === 'ml' ? { ml: m.mlPadrao ? String(m.mlPadrao) : '' } : { doses: '' });
             }} disabled={ativo || !ins} title={!ins ? `Cadastre o insumo "${m.label}" primeiro em Cadastros → Insumos` : ''} style={{
               padding: '8px 12px', borderRadius: 20, fontSize: 12, fontWeight: 600,
               border: `1px solid ${ativo ? m.cor : 'var(--line)'}`,
@@ -3619,7 +3620,9 @@ function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
               </>
             )}
             <div style={{ fontSize: 10, color: m.cor, opacity: 0.85 }}>
-              Cobrado como insumo injetável — agulha, seringa e algodão-álcool empilhados automaticamente.
+              {m.oral
+                ? 'Oral — não leva agulha, seringa nem algodão.'
+                : 'Cobrado como insumo injetável — agulha, seringa e algodão-álcool empilhados automaticamente.'}
             </div>
           </div>
         );
@@ -3934,8 +3937,9 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
         if (nd <= 0) continue;
         const qtdInsumo = m.mlPorDose ? nd * m.mlPorDose : nd;
         empilharSomando([{ insumoId: ins.id, qtd: qtdInsumo }]);
-        // Se descartaveisPorDose=true → 1 kit por dose; senão 1 kit total
-        empilharSomando(descInj, m.descartaveisPorDose ? nd : 1);
+        // Se descartaveisPorDose=true → 1 kit por dose; senão 1 kit total.
+        // Oral (Firovet) não leva kit de injeção.
+        if (!m.oral) empilharSomando(descInj, m.descartaveisPorDose ? nd : 1);
       }
     }
   }
