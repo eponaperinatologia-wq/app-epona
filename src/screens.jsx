@@ -38,7 +38,25 @@ const _isoDia = (s) => {
   const [y, m, d] = String(s).slice(0, 10).split('-').map(Number);
   return _diaNum(y, m - 1, d);
 };
-const _hojeDia = () => { const t = new Date(); return _diaNum(t.getFullYear(), t.getMonth(), t.getDate()); };
+// Override opcional de "hoje" — usado quando a admin precisa antecipar
+// o fechamento da fatura (ex: fechar outubro no dia 30 calculando como
+// se fosse 31). Setado via window.__eponaFakeHoje = 'YYYY-MM-DD' e
+// limpo depois. Afeta todos os consumidores de _hojeDia (calcDias,
+// diasPresencaRange, _diasDecorridos no calcFaturaProprietario).
+const _hojeDia = () => {
+  const fake = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+  if (fake) {
+    const [y, m, d] = String(fake).slice(0, 10).split('-').map(Number);
+    if (y && m && d) return _diaNum(y, m - 1, d);
+  }
+  const t = new Date();
+  return _diaNum(t.getFullYear(), t.getMonth(), t.getDate());
+};
+const _hojeDate = () => {
+  const fake = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+  if (fake) return new Date(String(fake).slice(0, 10) + 'T12:00:00');
+  return new Date();
+};
 const _eventosPresenca = (cav, movimentacoes) => {
   const evs = (movimentacoes || [])
     .filter(m => m.cavaloId === cav.id && m.data && (m.tipo === 'entrada' || m.tipo === 'saida'))
@@ -147,7 +165,7 @@ const calcMensalidadeProporcional = (cav, ref, movimentacoes) => {
 const calcDosesPeriodico = (p, ref, cav, movimentacoes) => {
   const inicioMes = new Date(ref.ano, ref.mes - 1, 1);
   const fimMes = new Date(ref.ano, ref.mes, 0);
-  const today = new Date(); today.setHours(23, 59, 59, 999);
+  const today = _hojeDate(); today.setHours(23, 59, 59, 999);
   const isCurrentMonth = today.getFullYear() === ref.ano && today.getMonth() + 1 === ref.mes;
   const fimEfetivo = isCurrentMonth ? new Date(Math.min(today.getTime(), fimMes.getTime())) : new Date(fimMes);
   const dataInicioP = p.dataInicio ? new Date(p.dataInicio + 'T00:00:00') : null;
@@ -544,7 +562,7 @@ const calcFaturaProprietario = (propId, ref, deps) => {
   // o que baixava a cota e cobrava custo fixo a menos.
   // (No mês corrente a presença é medida sobre os dias já decorridos.)
   const _diasDecorridos = (() => {
-    const t = new Date();
+    const t = _hojeDate();
     const tot = new Date(ref.ano, ref.mes, 0).getDate();
     if (t.getFullYear() === ref.ano && t.getMonth() + 1 === ref.mes) return t.getDate();
     return tot;
@@ -4055,11 +4073,89 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
 // ─────────────────────────────────────────────────────────────
 // FATURAS · Lista (sub-tela interna do FinanceiroScreen)
 // ─────────────────────────────────────────────────────────────
+// Banner pra antecipar fechamento de fatura — permite calcular como se
+// hoje fosse outro dia (ex: fechar outubro no dia 30 calculando 31 dias).
+// Afeta window.__eponaFakeHoje que o _hojeDia/_hojeDate consultam.
+const AnteciparFechamentoBanner = ({ ref_, fakeHoje, onAtivar, onDesativar }) => {
+  const [aberto, setAberto] = useState(false);
+  const diasNoMes = new Date(ref_.ano, ref_.mes, 0).getDate();
+  const defaultData = `${ref_.ano}-${String(ref_.mes).padStart(2, '0')}-${String(diasNoMes).padStart(2, '0')}`;
+  const [data, setData] = useState(fakeHoje || defaultData);
+  if (fakeHoje) {
+    return (
+      <div style={{ padding: '10px 20px 0' }}>
+        <div style={{
+          padding: '10px 14px', background: '#fef3c7', border: '1px solid #f59e0b',
+          borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10,
+        }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 11, color: '#78350f', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Antecipação ativa</div>
+            <div style={{ fontSize: 12, color: '#78350f', marginTop: 2 }}>
+              Faturas calculadas como se hoje fosse <strong>{new Date(fakeHoje + 'T12:00:00').toLocaleDateString('pt-BR')}</strong>. Feche as faturas agora; depois desative pra voltar ao normal.
+            </div>
+          </div>
+          <button onClick={onDesativar} style={{
+            padding: '8px 12px', borderRadius: 8, border: '1px solid #f59e0b',
+            background: '#fff', color: '#78350f',
+            fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+          }}>Desativar</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: '10px 20px 0' }}>
+      {!aberto ? (
+        <button onClick={() => setAberto(true)} style={{
+          width: '100%', padding: '8px 12px', borderRadius: 10,
+          border: '1px dashed var(--line)', background: 'transparent',
+          color: 'var(--ink-3)', fontSize: 11, fontWeight: 600, cursor: 'pointer',
+          fontFamily: 'var(--sans)', letterSpacing: '0.02em',
+        }}>⚡ Antecipar fechamento (calcular como se já fosse fim do mês)</button>
+      ) : (
+        <div style={{
+          padding: 12, background: 'var(--card)', border: '1px solid var(--line)',
+          borderRadius: 10,
+        }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 8, lineHeight: 1.4 }}>
+            Útil pra fechar antes de feriados. O sistema vai calcular mensalidade, consumo, insumos periódicos e custo fixo como se hoje já fosse a data abaixo. Insumos cadastrados DEPOIS vão pra fatura do próximo mês.
+          </div>
+          <input type="date" value={data} onChange={e => setData(e.target.value)}
+            style={{
+              width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8,
+              border: '1px solid var(--line)', background: 'var(--bg)',
+              fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+              marginBottom: 8,
+            }} />
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setAberto(false)} style={{
+              flex: 1, padding: '8px', borderRadius: 8, border: '1px solid var(--line)',
+              background: 'transparent', color: 'var(--ink-3)',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>Cancelar</button>
+            <button onClick={() => { onAtivar(data); setAberto(false); }} style={{
+              flex: 2, padding: '8px', borderRadius: 8, border: 'none',
+              background: '#f59e0b', color: '#fff',
+              fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            }}>Ativar antecipação</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], proprietarios = [], cavalos = [], movimentacoes = [], faturaRef, setFaturaRef, faturasFechadas = [], procedimentos = [], servicos = [], custosFixos = [], proprietariosTodos = null, cavalosTodos = null }) => {
   const hoje = new Date();
   const [ref, setRef] = useState(faturaRef || { ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   const [busca, setBusca] = useState('');
   const [showDiagnostico, setShowDiagnostico] = useState(false);
+  // Override de "hoje" pra antecipar fechamento (ex: fechar outubro no
+  // dia 30 calculando como se fosse 31). Setado em window global que o
+  // _hojeDia/_hojeDate em screens.jsx consulta. Null = sem override.
+  const [fakeHoje, setFakeHoje] = useState(
+    typeof window !== 'undefined' ? (window.__eponaFakeHoje || null) : null,
+  );
   const findInsumo = (id) => insumos.find(i => i.id === id);
   const isCurrentMonth = hoje.getFullYear() === ref.ano && hoje.getMonth() + 1 === ref.mes;
 
@@ -4099,7 +4195,7 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
     // (visível pra investigar) do que ocultar.
     }).filter(f => f.fechada || f.total > 0 || (f.cavalosObj || []).length > 0);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [proprietarios, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, faturasFechadas, ref.ano, ref.mes]);
+  }, [proprietarios, cavalos, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, faturasFechadas, ref.ano, ref.mes, fakeHoje]);
 
   // Diagnóstico: por que proprietários não aparecem na lista.
   // Cobre todos os cenários (workspace errado, sem cavalos, cavalos saíram, total zerado).
@@ -4152,10 +4248,30 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
         <button onClick={() => navMes(-1)} style={{ background: 'none', border: 'none', padding: '6px 12px', fontSize: 22, color: 'var(--ink-2)', cursor: 'pointer' }}>‹</button>
         <div style={{ textAlign: 'center' }}>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>{MESES[ref.mes - 1]} · {ref.ano}</div>
-          {isCurrentMonth && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>proporcional até hoje</div>}
+          {isCurrentMonth && !fakeHoje && <div style={{ fontSize: 10, color: 'var(--ink-3)', marginTop: 1 }}>proporcional até hoje</div>}
+          {fakeHoje && <div style={{ fontSize: 10, color: '#b45309', marginTop: 1, fontWeight: 700 }}>⚡ Calculando como se fosse {new Date(fakeHoje + 'T12:00:00').toLocaleDateString('pt-BR')}</div>}
         </div>
         <button onClick={() => navMes(1)} style={{ background: 'none', border: 'none', padding: '6px 12px', fontSize: 22, color: 'var(--ink-2)', cursor: 'pointer', opacity: isCurrentMonth ? 0.25 : 1 }} disabled={isCurrentMonth}>›</button>
       </div>
+
+      {/* Antecipar fechamento: calcula as faturas como se já fosse o dia
+          escolhido (ex: fechar outubro no dia 30 com valores de 31 dias).
+          Útil pra fechar antes de feriados prolongados. Depois de fechar
+          as faturas, usuária desativa pra o app voltar ao normal. */}
+      {isCurrentMonth && (
+        <AnteciparFechamentoBanner
+          ref_={ref}
+          fakeHoje={fakeHoje}
+          onAtivar={(dataStr) => {
+            if (typeof window !== 'undefined') window.__eponaFakeHoje = dataStr;
+            setFakeHoje(dataStr);
+          }}
+          onDesativar={() => {
+            if (typeof window !== 'undefined') delete window.__eponaFakeHoje;
+            setFakeHoje(null);
+          }}
+        />
+      )}
 
       <div style={{ padding: '12px 20px 0' }}>
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 16, padding: '16px' }}>
