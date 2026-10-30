@@ -1,15 +1,9 @@
-// auth.jsx — Login screen, users config, and role definitions
-import React, { useState } from 'react';
+// auth.jsx — Login screen and role definitions
+import React, { useState, useEffect } from 'react';
 import logoEpona from './assets/logo-epona.png';
 import { loginProprietario } from './auth-proprietario';
 import { loginVetExterno } from './auth-vet-externo';
-
-export const USERS = [
-  { id: 'u1', nome: 'Carolina', role: 'admin', senha: '1234', iniciais: 'CA' },
-  { id: 'u2', nome: 'Dr. Marcos', role: 'vet', senha: '1234', iniciais: 'DM' },
-  { id: 'u3', nome: 'José', role: 'operacional', senha: '1234', iniciais: 'JT' },
-  { id: 'u4', nome: 'Ana', role: 'operacional', senha: '1234', iniciais: 'AS' },
-];
+import { entrar, listaEquipe } from './auth-conta';
 
 export const ROLE_LABELS = {
   admin: 'Administrador',
@@ -27,13 +21,24 @@ export const ROLE_COLORS = {
   repro: '#7c2d8c',
 };
 
-export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
-  const lista = (usuarios && usuarios.length > 0) ? usuarios : USERS;
+export function LoginScreen({ onLogin, onCancelAddAccount = null, aviso = '' }) {
   // Modos: 'perfil' (seleção equipe vs proprietário) | 'equipe-select' | 'equipe-senha' | 'proprietario-form'
   const [modo, setModo] = useState('perfil');
   const [selectedUser, setSelectedUser] = useState(null);
   const [senha, setSenha] = useState('');
   const [erro, setErro] = useState('');
+  // Equipe: nomes vêm do servidor (só quem tem conta); a senha é conferida lá.
+  const [lista, setLista] = useState([]);
+  const [listaStatus, setListaStatus] = useState('idle'); // idle | carregando | ok | erro
+  const [equipeLoading, setEquipeLoading] = useState(false);
+
+  useEffect(() => {
+    if (modo !== 'equipe-select' || listaStatus === 'carregando' || listaStatus === 'ok') return;
+    setListaStatus('carregando');
+    listaEquipe()
+      .then(l => { setLista(l); setListaStatus('ok'); })
+      .catch(() => setListaStatus('erro'));
+  }, [modo, listaStatus]);
   // Proprietário
   const [propLogin, setPropLogin] = useState('');
   const [propSenha, setPropSenha] = useState('');
@@ -50,11 +55,18 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
     setModo('equipe-senha');
   };
 
-  const handleLogin = () => {
-    if (selectedUser.senha === senha) {
-      onLogin(selectedUser);
-    } else {
-      setErro('Senha incorreta');
+  const handleLogin = async () => {
+    setErro('');
+    if (!senha) { setErro('Digite sua senha'); return; }
+    setEquipeLoading(true);
+    try {
+      const user = await entrar('equipe', selectedUser.id, senha);
+      if (!user) { setErro('Senha incorreta'); return; }
+      await onLogin(user);
+    } catch (e) {
+      setErro(e.message || 'Erro no login');
+    } finally {
+      setEquipeLoading(false);
     }
   };
 
@@ -63,27 +75,14 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
     if (!propLogin.trim() || !propSenha) { setErro('Preencha login e senha'); return; }
     setPropLoading(true);
     try {
-      const dados = await loginProprietario(propLogin.trim(), propSenha);
-      if (!dados) {
+      // Usuário já vem montado pelo servidor, com role='proprietario' e as
+      // flags dos gates de onboarding.
+      const user = await loginProprietario(propLogin.trim(), propSenha);
+      if (!user) {
         setErro('Login ou senha incorretos');
         return;
       }
-      // Monta objeto currentUser no mesmo formato que o app já espera,
-      // com role='proprietario' e flags dos gates de onboarding.
-      onLogin({
-        id: dados.id,
-        nome: dados.nome,
-        role: 'proprietario',
-        login: dados.login,
-        iniciais: (dados.nome || '').split(/\s+/).map(n => n[0]).slice(0, 2).join('').toUpperCase(),
-        senhaProvisoria: dados.senhaProvisoria,
-        cadastroCompleto: dados.cadastroCompleto,
-        contratoStatus: dados.contratoStatus,
-        // Senha em memória para reautenticar em chamadas server-side (Edge
-        // Functions do Assinafy). NÃO persiste em localStorage — se o user
-        // der refresh precisa logar de novo, o que é aceitável.
-        _sessionPassword: propSenha,
-      });
+      await onLogin(user);
     } catch (e) {
       setErro(e.message || 'Erro no login');
     } finally {
@@ -96,19 +95,9 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
     if (!reproLogin.trim() || !reproSenha) { setErro('Preencha login e senha'); return; }
     setReproLoading(true);
     try {
-      const dados = await loginVetExterno(reproLogin.trim(), reproSenha);
-      if (!dados) { setErro('Login ou senha incorretos'); return; }
-      onLogin({
-        id: dados.id,
-        nome: dados.nome,
-        role: 'repro',
-        login: dados.login,
-        cor: dados.cor,
-        iniciais: (dados.nome || '').split(/\s+/).map(n => n[0]).slice(0, 2).join('').toUpperCase(),
-        senhaProvisoria: dados.senhaProvisoria,
-        // Senha em memória (não persiste) — usada pra trocar_senha_rpc no gate.
-        _sessionPassword: reproSenha,
-      });
+      const user = await loginVetExterno(reproLogin.trim(), reproSenha);
+      if (!user) { setErro('Login ou senha incorretos'); return; }
+      await onLogin(user);
     } catch (e) {
       setErro(e.message || 'Erro no login');
     } finally {
@@ -134,6 +123,15 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
           Gestão equestre
         </div>
       </div>
+
+      {aviso && (
+        <div style={{
+          background: '#fef9c3', border: '1px solid #fde047', color: '#713f12',
+          borderRadius: 12, padding: '10px 14px', fontSize: 13, lineHeight: 1.4, marginBottom: 16,
+        }}>
+          {aviso}
+        </div>
+      )}
 
       {onCancelAddAccount && (
         <button
@@ -283,6 +281,18 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
           <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
             Selecione seu perfil
           </div>
+          {listaStatus === 'carregando' && (
+            <div style={{ fontSize: 13, color: 'var(--ink-3)', padding: '14px 0' }}>Carregando equipe…</div>
+          )}
+          {listaStatus === 'erro' && (
+            <div style={{ fontSize: 13, color: '#b91c1c', padding: '10px 0' }}>
+              Não foi possível carregar a equipe.{' '}
+              <button onClick={() => setListaStatus('idle')} style={{
+                background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer',
+                fontSize: 13, padding: 0, fontFamily: 'var(--sans)', textDecoration: 'underline',
+              }}>Tentar de novo</button>
+            </div>
+          )}
           {lista.map(u => (
             <button key={u.id} onClick={() => handleSelect(u)} style={{
               width: '100%', background: 'var(--card)', border: '1px solid var(--line)',
@@ -354,7 +364,7 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
               type="password"
               value={senha}
               onChange={e => { setSenha(e.target.value); setErro(''); }}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              onKeyDown={e => e.key === 'Enter' && !equipeLoading && handleLogin()}
               placeholder="Digite sua senha"
               autoFocus
               style={{
@@ -371,14 +381,14 @@ export function LoginScreen({ onLogin, usuarios, onCancelAddAccount = null }) {
           </div>
 
 
-          <button onClick={handleLogin} style={{
+          <button onClick={handleLogin} disabled={equipeLoading} style={{
             width: '100%', background: 'var(--accent)', color: '#fff',
             border: 'none', borderRadius: 14, padding: '16px',
-            fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            fontFamily: 'var(--sans)',
+            fontSize: 16, fontWeight: 700, cursor: equipeLoading ? 'default' : 'pointer',
+            fontFamily: 'var(--sans)', opacity: equipeLoading ? 0.6 : 1,
             boxShadow: '0 8px 20px rgba(61,96,67,0.25)',
           }}>
-            Entrar
+            {equipeLoading ? 'Entrando…' : 'Entrar'}
           </button>
         </div>
       )}

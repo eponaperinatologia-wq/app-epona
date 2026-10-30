@@ -8,7 +8,7 @@
 //   - Não há setScreen dentro dos gates: eles são mutuamente exclusivos.
 import React, { useState, useEffect, useRef } from 'react';
 import { trocarSenhaProprietario } from './auth-proprietario';
-import { supabase } from './utils/supabase';
+import { tokenAtual } from './auth-conta';
 import { gerarPdfContrato } from './utils/pdfContrato';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
@@ -73,8 +73,7 @@ export function TrocarSenhaScreen({ currentUser, onComplete, onLogout }) {
       if (!ok) { setErro('Senha atual incorreta'); return; }
       // Avança o gate: senhaProvisoria vira false. Nenhum redirect —
       // o App re-renderiza e o próximo if do gate assume.
-      // Também atualiza a senha em memória (usada pelas Edge Functions).
-      onComplete({ senhaProvisoria: false, _sessionPassword: nova });
+      onComplete({ senhaProvisoria: false });
     } catch (e) {
       setErro(e.message || 'Erro ao trocar senha');
     } finally {
@@ -245,8 +244,8 @@ export function CadastroCompletoScreen({ currentUser, proprietarioAtual, onCompl
 //      quando o webhook chegar e mudar pra 'assinado', o gate avança.
 //
 // Segurança:
-//   - Autenticação é feita pela senha em memória (_sessionPassword). Nunca
-//     enviamos senha por localStorage nem em query string.
+//   - A Edge Function confere o token da sessão (login no Supabase Auth) e
+//     só aceita o próprio proprietário — nenhuma senha trafega aqui.
 //   - Toda comunicação com Assinafy passa pela Edge Function; a API key
 //     nunca chega ao cliente.
 
@@ -264,8 +263,8 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
       setCarregando(true);
       setErro('');
       try {
-        const senha = currentUser?._sessionPassword;
-        if (!senha) {
+        const token = await tokenAtual();
+        if (!token) {
           setErro('Sessão expirada. Faça login novamente para assinar o contrato.');
           return;
         }
@@ -276,9 +275,9 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_KEY || ''}`,
+            'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({ proprietarioId: currentUser.id, senha, pdfBase64 }),
+          body: JSON.stringify({ proprietarioId: currentUser.id, pdfBase64 }),
         });
         const data = await res.json();
         if (cancelado) return;
@@ -307,16 +306,16 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
   // Consulta STATUS no Assinafy via Edge Function (não depende de webhook).
   // Se o Assinafy disser certificated, atualiza banco e retorna 'assinado'.
   const consultarAssinafy = async () => {
-    const senha = currentUser?._sessionPassword;
-    if (!senha) return null;
+    const token = await tokenAtual();
+    if (!token) return null;
     try {
       const res = await fetch(`${SUPABASE_URL}/functions/v1/assinafy-checar-status`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${process.env.REACT_APP_SUPABASE_KEY || ''}`,
+          'Authorization': `Bearer ${token}`,
         },
-        body: JSON.stringify({ proprietarioId: currentUser.id, senha }),
+        body: JSON.stringify({ proprietarioId: currentUser.id }),
       });
       return await res.json();
     } catch { return null; }

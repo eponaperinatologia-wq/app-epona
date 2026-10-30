@@ -3851,7 +3851,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
   const salvarCredencial = async () => {
     setCredErro('');
     if (!credLogin.trim()) { setCredErro('Login não pode ser vazio'); return; }
-    if (credSenha.length < 4) { setCredErro('Senha precisa ter ao menos 4 caracteres'); return; }
+    if (credSenha.length < 6) { setCredErro('Senha precisa ter ao menos 6 caracteres'); return; }
     setCredLoading(true);
     try {
       await criarCredencialProprietario(id, credLogin.trim(), credSenha);
@@ -4037,7 +4037,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
               </div>
               <div>
                 <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 4, fontWeight: 700 }}>Senha padrão</div>
-                <input type="text" value={credSenha} onChange={e => setCredSenha(e.target.value)} placeholder="mín. 4 caracteres"
+                <input type="text" value={credSenha} onChange={e => setCredSenha(e.target.value)} placeholder="mín. 6 caracteres"
                   style={{ width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none' }} />
               </div>
               {credErro && <div style={{ fontSize: 12, color: '#dc2626' }}>{credErro}</div>}

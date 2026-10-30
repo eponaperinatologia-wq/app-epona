@@ -43,10 +43,17 @@ export async function unsubscribeFromPush(userLogin) {
   }
 }
 
-export function sendPush(title, body, target = 'all') {
-  fetch('/api/send-push', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, body, target }),
-  }).catch(() => {});
+// O /api/send-push só aceita quem está logado como equipe/Repro: vai o token
+// da sessão. target 'all' = toda a equipe (proprietários não recebem).
+export async function sendPush(title, body, target = 'all') {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (!token) return;
+    await fetch('/api/send-push', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ title, body, target }),
+    });
+  } catch { /* notificação é melhor-esforço */ }
 }

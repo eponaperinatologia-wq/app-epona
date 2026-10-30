@@ -31,28 +31,26 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
-    const { proprietarioId, senha } = await req.json();
-    if (!proprietarioId || !senha) return json({ error: "missing_params" }, 400);
+    const { proprietarioId } = await req.json();
+    if (!proprietarioId) return json({ error: "missing_params" }, 400);
 
     const supa = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    // Só o próprio proprietário, logado (token da sessão do Supabase Auth).
+    const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+    const { data: quem } = await supa.auth.getUser(jwt);
+    if (!quem?.user) return json({ error: "unauthorized" }, 401);
+    const { data: acesso } = await supa.from("acessos").select("tipo, ref_id").eq("user_id", quem.user.id).maybeSingle();
+    if (acesso?.tipo !== "proprietario" || acesso.ref_id !== proprietarioId) return json({ error: "unauthorized" }, 401);
+
     const { data: propRow, error: propErr } = await supa
       .from("proprietarios")
       .select("id, login, contrato_status, contrato_document_id")
       .eq("id", proprietarioId)
       .maybeSingle();
     if (propErr || !propRow) return json({ error: "not_found" }, 404);
-
-    // Autentica via RPC (mesmo caminho do login)
-    const { data: verify, error: verifyErr } = await supa.rpc("verify_senha_proprietario", {
-      p_login: propRow.login,
-      p_senha: senha,
-    });
-    if (verifyErr) return json({ error: "verify_failed", detail: verifyErr.message }, 500);
-    const v = Array.isArray(verify) ? verify[0] : verify;
-    if (!v || v.id !== proprietarioId) return json({ error: "unauthorized" }, 401);
 
     if (propRow.contrato_status === "assinado") return json({ status: "assinado" });
     if (!propRow.contrato_document_id) return json({ status: "sem_documento" });

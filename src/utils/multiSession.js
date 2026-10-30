@@ -1,14 +1,17 @@
 // Camada de multi-sessão do app. A ideia é o mesmo padrão do Instagram
 // e do Gmail: várias contas persistidas em localStorage, uma delas
-// marcada como ativa; trocar de conta só muda a "activeKey" sem
-// re-autenticar. Nenhuma senha é armazenada — cada nova conta entra
-// via login normal e o objeto de usuário sanitizado é empilhado aqui.
+// marcada como ativa; trocar de conta reativa a sessão do Supabase Auth
+// guardada para ela (sem pedir senha de novo). Nenhuma senha é armazenada —
+// cada nova conta entra via login normal e o objeto de usuário sanitizado
+// é empilhado aqui junto com os tokens da sessão dela.
 //
 // Formato:
-//   localStorage.epona_sessions = [{ key, user }]
+//   localStorage.epona_sessions = [{ key, user, userId, tokens }]
 //   localStorage.epona_active_session = "<key>"
 // Onde `key` é único por conta (role + login), pra permitir a mesma
-// pessoa em dois roles diferentes (ex.: admin haras + vet repro).
+// pessoa em dois roles diferentes (ex.: admin haras + vet repro),
+// `userId` é o id da conta no Supabase Auth e `tokens` =
+// { access_token, refresh_token } (atualizados a cada renovação).
 
 const SESSIONS_KEY = 'epona_sessions';
 const ACTIVE_KEY = 'epona_active_session';
@@ -89,16 +92,27 @@ export function getActiveSession() {
   return getSessions().find(s => s.key === key) || null;
 }
 
+const tokensDe = (authSession) => authSession
+  ? { access_token: authSession.access_token, refresh_token: authSession.refresh_token }
+  : undefined;
+
 // Adiciona/atualiza uma conta e marca como ativa.
 // Se já existir uma sessão com o mesmo key (mesmo role+login), atualiza
-// o user (permite refresh dos dados sem duplicar). Retorna a key.
-export function upsertActive(user) {
+// o user (permite refresh dos dados sem duplicar). `authSession` é a
+// sessão do Supabase Auth dessa conta. Retorna a key.
+export function upsertActive(user, authSession) {
   const safe = sanitize(user);
   const key = keyFor(safe);
   const sessions = readSessionsRaw();
   const idx = sessions.findIndex(s => s.key === key);
-  if (idx >= 0) sessions[idx] = { key, user: safe };
-  else sessions.push({ key, user: safe });
+  const anterior = idx >= 0 ? sessions[idx] : {};
+  const entry = {
+    key, user: safe,
+    userId: authSession?.user?.id || anterior.userId,
+    tokens: tokensDe(authSession) || anterior.tokens,
+  };
+  if (idx >= 0) sessions[idx] = entry;
+  else sessions.push(entry);
   writeSessions(sessions);
   writeActive(key);
   return key;
@@ -110,8 +124,39 @@ export function updateActiveUser(user) {
   const active = getActiveKey();
   if (!active) return;
   const safe = sanitize(user);
-  const sessions = readSessionsRaw().map(s => s.key === active ? { key: active, user: safe } : s);
+  const sessions = readSessionsRaw().map(s => s.key === active ? { ...s, user: safe } : s);
   writeSessions(sessions);
+}
+
+// O Supabase renova os tokens de tempos em tempos; a conta dona daquela
+// sessão guarda sempre os mais novos (um token velho, se reusado, é
+// recusado e derruba a sessão).
+export function atualizarTokensDaConta(userId, authSession) {
+  if (!userId || !authSession) return;
+  const sessions = readSessionsRaw();
+  let mudou = false;
+  const novas = sessions.map(s => {
+    if (s.userId !== userId) return s;
+    mudou = true;
+    return { ...s, tokens: tokensDe(authSession) };
+  });
+  if (mudou) writeSessions(novas);
+}
+
+// Sessões de antes do login de verdade (sem tokens do Supabase Auth) não
+// valem mais: quem estava logado entra de novo. Retorna true se descartou.
+export function descartarSessoesSemToken() {
+  const sessions = readSessionsRaw();
+  const validas = sessions.filter(s => s.tokens?.refresh_token && s.userId);
+  if (validas.length === sessions.length) return false;
+  writeSessions(validas);
+  const active = getActiveKey();
+  if (active && !validas.some(s => s.key === active)) writeActive(validas[0]?.key || null);
+  return true;
+}
+
+export function getSessionByKey(key) {
+  return readSessionsRaw().find(s => s.key === key) || null;
 }
 
 // Marca outra sessão como ativa. Retorna o user dessa sessão (ou null).

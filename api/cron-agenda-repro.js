@@ -13,9 +13,13 @@ webpush.setVapidDetails(
   process.env.VAPID_PRIVATE_KEY,
 );
 
+// Lê o banco com a service role (as regras do banco não deixam a chave
+// pública ler registros/inscrições). Sem a variável na Vercel, cai na chave
+// pública — só funciona enquanto o banco está em transição.
 const supabase = createClient(
   process.env.REACT_APP_SUPABASE_URL,
-  process.env.REACT_APP_SUPABASE_KEY,
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.REACT_APP_SUPABASE_KEY,
+  { auth: { persistSession: false, autoRefreshToken: false } },
 );
 
 // Mensagens fixas pedidas pelo produto (não editar sem alinhar).

@@ -29,9 +29,10 @@ export const fromDbCavalo = r => ({
 export const fromDbProprietario = r => ({
   id: r.id, nome: r.nome, telefone: r.telefone || '', email: r.email || '',
   workspaceId: r.workspace_id || 'haras',
-  // Acesso do proprietário — nunca trafega senha_hash pro cliente
+  // Acesso do proprietário — a senha fica no Supabase Auth; login preenchido
+  // = credencial criada pelo admin.
   login: r.login || null,
-  temAcesso: !!r.login && !!r.senha_hash,
+  temAcesso: !!r.login,
   senhaProvisoria: !!r.senha_provisoria,
   // Cadastro completo
   nomeCompleto: r.nome_completo || '',
@@ -76,11 +77,11 @@ export const fromDbServico = r => ({
 });
 
 // ── Vet externo (Epona Repro Team) ──────────────────────────
-// Auth via bcrypt (nunca trafega senha_hash pro cliente).
+// Senha no Supabase Auth; login preenchido = credencial criada pelo admin.
 export const fromDbVetExterno = r => ({
   id: r.id, nome: r.nome, cor: r.cor || '#7c2d8c',
   login: r.login || null,
-  temAcesso: !!r.login && !!r.senha_hash,
+  temAcesso: !!r.login,
   senhaProvisoria: !!r.senha_provisoria,
   ativo: r.ativo !== false,
   // Flag pra regra de divisão de assessoria clínica: só internos (Alexandre,
@@ -320,7 +321,7 @@ export const toDbAvisoRepro = a => ({
 
 export const fromDbFuncionario = r => ({
   id: r.id, nome: r.nome, funcao: r.funcao, aniversario: r.aniversario || '',
-  login: r.login || '', senha: r.senha || '', escala: r.escala || {},
+  login: r.login || '', escala: r.escala || {},
   salarioBase: Number(r.salario_base) || 0,
   regimePagamento: r.regime_pagamento || 'mensal_dia_05',
   encargosPct: Number(r.encargos_pct) || 0,
@@ -516,7 +517,7 @@ export const toDbServico = s => ({
 
 export const toDbFuncionario = f => ({
   id: f.id, nome: f.nome, funcao: f.funcao, aniversario: f.aniversario || '',
-  login: f.login || null, senha: f.senha || '', escala: f.escala || {},
+  login: f.login || null, escala: f.escala || {},
   salario_base: Number(f.salarioBase) || 0,
   regime_pagamento: f.regimePagamento || 'mensal_dia_05',
   encargos_pct: Number(f.encargosPct) || 0,
@@ -1040,7 +1041,7 @@ export const toDbProgesteronaAplicacao = a => ({
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', historicoProprietarios: 'historico_proprietarios', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
-const PROPRIETARIO_MAP = { nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro', valorAluguelReceptora: 'valor_aluguel_receptora' };
+const PROPRIETARIO_MAP = { workspaceId: 'workspace_id', nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro', valorAluguelReceptora: 'valor_aluguel_receptora' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco', indutorOvulacao: 'indutor_ovulacao', workspaceId: 'workspace_id' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios', workspaceId: 'workspace_id' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
@@ -1232,8 +1233,17 @@ const _run = async (item) => {
   return true; // dado preservado na fila — será sincronizado
 };
 
+// A fila só sobe com uma conta da equipe logada: sem login o banco recusa
+// (e a fila descartaria os itens como "erro de dados").
+let _sincronizacaoLiberada = false;
+export const liberarSincronizacao = (liberada) => {
+  _sincronizacaoLiberada = !!liberada;
+  if (_sincronizacaoLiberada) setTimeout(() => { flushOutbox(); }, 500);
+};
+
 let _flushing = false;
 export const flushOutbox = async () => {
+  if (!_sincronizacaoLiberada) return;
   if (_flushing || _outbox.length === 0) return;
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
   _flushing = true;

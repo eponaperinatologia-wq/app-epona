@@ -7,5 +7,6 @@ project_id = "edqfyzlryfrgojezpwyr"
 [functions.assinafy-webhook]
 verify_jwt = false
 
-# assinafy-criar-assinatura é chamada só pelo cliente autenticado (anon key
-# + validação de senha via RPC no próprio código). Deixa o padrão verify_jwt=true.
+# assinafy-criar-assinatura, assinafy-checar-status e gerenciar-acesso são
+# chamadas pelo app com o token da sessão (Supabase Auth); o código confere
+# quem é a conta. Deixa o padrão verify_jwt=true.

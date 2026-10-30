@@ -76,7 +76,7 @@ export function CadVetsExternosScreen({
   const salvarCredencial = async () => {
     setCredErro('');
     if (!credLogin.trim()) { setCredErro('Login não pode ser vazio'); return; }
-    if (credSenha.length < 4) { setCredErro('Senha precisa ter ao menos 4 caracteres'); return; }
+    if (credSenha.length < 6) { setCredErro('Senha precisa ter ao menos 6 caracteres'); return; }
     setCredLoading(true);
     try {
       await criarCredencialVetExterno(credTargetId, credLogin.trim(), credSenha);
@@ -248,7 +248,7 @@ export function CadVetsExternosScreen({
           </div>
           <div style={{ marginBottom: 12 }}>
             <div style={{ fontSize: 11, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6, fontWeight: 700 }}>Senha padrão</div>
-            <input type="text" value={credSenha} onChange={e => setCredSenha(e.target.value)} style={inputStyle} placeholder="mín. 4 caracteres" />
+            <input type="text" value={credSenha} onChange={e => setCredSenha(e.target.value)} style={inputStyle} placeholder="mín. 6 caracteres" />
           </div>
           {credErro && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 10 }}>{credErro}</div>}
           <div style={{ display: 'flex', gap: 8 }}>

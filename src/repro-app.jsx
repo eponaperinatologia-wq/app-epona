@@ -38,7 +38,7 @@ export function TrocarSenhaVetScreen({ currentUser, onComplete, onLogout }) {
     try {
       const ok = await trocarSenhaVetExterno(currentUser.login, atual, nova);
       if (!ok) { setErro('Senha atual incorreta'); return; }
-      onComplete({ senhaProvisoria: false, _sessionPassword: nova });
+      onComplete({ senhaProvisoria: false });
     } catch (e) {
       setErro(e.message || 'Erro ao trocar senha');
     } finally { setLoading(false); }

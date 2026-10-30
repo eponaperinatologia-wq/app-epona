@@ -15,6 +15,7 @@ import { PartoDetalheScreen } from './partos';
 import { VeterinariaScreen } from './veterinaria';
 import { NutricionalScreen } from './nutricional';
 import { SwitcherContas } from './multiSessionUi';
+import { fromDbCavalo, fromDbMovimentacao } from './utils/db';
 
 // ─────────────────────────────────────────────────────────────
 // Filtro central: só cavalos que o proprietário logado possui.
@@ -352,6 +353,8 @@ export function ProprietarioApp({
   faturaRef, setFaturaRef, empresaInfo,
   avisos = [], atividades = [],
   nutricaoOrdem = [],
+  // Resumo para o custo fixo rateado (RPC dados_rateio_proprietario).
+  rateio = null,
   // Bundle de dados veterinários pra alimentar a aba "Cuidados". Repassados
   // do app.jsx pra evitar 40 props sem sentido no shell.
   vetData = {},
@@ -391,13 +394,30 @@ export function ProprietarioApp({
   // Só cavalos do haras: o mesmo universo que o admin usa na fatura (com as
   // éguas do Repro o rateio do custo fixo dava outro valor aqui).
   const cavalosHaras = useMemo(() => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalos]);
+  // O banco só entrega ao proprietário os cavalos dele. O custo fixo rateado
+  // depende do total de custos do mês e da presença de TODOS os cavalos do
+  // haras — isso vem num resumo sem nomes/donos/valores individuais (rateio)
+  // e entra só nas contas da fatura.
+  const baseFatura = useMemo(() => {
+    if (!rateio) return { cavalos: cavalosHaras, movimentacoes, custosFixos };
+    const idsCav = new Set(cavalosHaras.map(c => c.id));
+    const idsMov = new Set(movimentacoes.map(m => m.id));
+    return {
+      cavalos: [...cavalosHaras, ...(rateio.cavalos || []).map(fromDbCavalo).filter(c => !idsCav.has(c.id))],
+      movimentacoes: [...movimentacoes, ...(rateio.movimentacoes || []).map(fromDbMovimentacao).filter(m => !idsMov.has(m.id))],
+      custosFixos: (rateio.custos || []).map(c => ({
+        id: `rateio_${c.mes}`, mes: c.mes, categoria: 'extras', valor: Number(c.valor) || 0, encargosPct: 0,
+      })),
+    };
+  }, [rateio, cavalosHaras, movimentacoes, custosFixos]);
   const faturaTotalEstimada = useMemo(() => {
     if (faturaFechadaAtual) return faturaFechadaAtual.total || 0;
     const r = calcFaturaProprietario(currentUser.id, refAtual, {
-      cavalos: cavalosHaras, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos,
+      cavalos: baseFatura.cavalos, registros, procedimentos, servicos, insumos,
+      movimentacoes: baseFatura.movimentacoes, custosFixos: baseFatura.custosFixos,
     });
     return r.total || 0;
-  }, [faturaFechadaAtual, currentUser.id, cavalosHaras, registros, procedimentos, servicos, insumos, movimentacoes, custosFixos, refAtual]);
+  }, [faturaFechadaAtual, currentUser.id, baseFatura, registros, procedimentos, servicos, insumos, refAtual]);
 
   const goHome = () => { setScreen('proprietario-home'); setTab('home'); };
 
@@ -487,8 +507,8 @@ export function ProprietarioApp({
         // Dados completos: a fatura já filtra por titularidade em cada data.
         // Filtrar pelos cavalos ATUAIS escondia itens de um cavalo vendido no
         // meio do mês (o dono antigo via total ≠ soma das linhas).
-        registros={registros} proprietarios={proprietarios} cavalos={cavalosHaras}
-        insumos={insumos} movimentacoes={movimentacoes}
+        registros={registros} proprietarios={proprietarios} cavalos={baseFatura.cavalos}
+        insumos={insumos} movimentacoes={baseFatura.movimentacoes}
         faturaRef={faturaRefLocal} setFaturaRef={setFaturaRefLocal}
         faturasFechadas={faturasFechadas}
         addFaturaFechada={null} removeFaturaFechada={null}
@@ -496,7 +516,7 @@ export function ProprietarioApp({
         currentUser={{ ...currentUser, role: 'proprietario' }}
         procedimentos={procedimentos} servicos={servicos}
         deleteRegistro={null} updateRegistro={null} deleteProcedimento={null}
-        custosFixos={custosFixos} setMesRegistroDestino={null}
+        custosFixos={baseFatura.custosFixos} setMesRegistroDestino={null}
       />
     );
   } else if (screen === 'proprietario-parto') {

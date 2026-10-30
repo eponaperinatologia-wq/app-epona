@@ -13,7 +13,8 @@
 // baked no papel.
 //
 // Segurança:
-//   - Só o próprio proprietário logado pode chamar (valida senha via RPC).
+//   - Só o próprio proprietário logado pode chamar (token da sessão do
+//     Supabase Auth + tabela acessos).
 //   - A API Key do Assinafy fica APENAS aqui no servidor (secrets do Supabase).
 
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
@@ -50,6 +51,16 @@ async function assinafyFetch(path: string, opts: RequestInit = {}) {
   return { ok: res.ok, status: res.status, data };
 }
 
+// Só o próprio proprietário, logado: confere o token da sessão (Supabase
+// Auth) e a ligação conta → proprietário na tabela acessos.
+async function ehOProprietarioLogado(supa: any, req: Request, proprietarioId: string) {
+  const jwt = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
+  const { data } = await supa.auth.getUser(jwt);
+  if (!data?.user) return false;
+  const { data: acesso } = await supa.from("acessos").select("tipo, ref_id").eq("user_id", data.user.id).maybeSingle();
+  return acesso?.tipo === "proprietario" && acesso.ref_id === proprietarioId;
+}
+
 // Decodifica base64 para Uint8Array (Deno-nativo, sem Buffer)
 function base64ToBytes(b64: string): Uint8Array {
   const bin = atob(b64);
@@ -63,29 +74,22 @@ serve(async (req) => {
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
-    const { proprietarioId, senha, pdfBase64 } = await req.json();
-    if (!proprietarioId || !senha) return json({ error: "missing_params" }, 400);
+    const { proprietarioId, pdfBase64 } = await req.json();
+    if (!proprietarioId) return json({ error: "missing_params" }, 400);
     if (!pdfBase64) return json({ error: "missing_pdf" }, 400);
 
     const supa = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+    if (!(await ehOProprietarioLogado(supa, req, proprietarioId))) return json({ error: "unauthorized" }, 401);
+
     const { data: propRow, error: propErr } = await supa
       .from("proprietarios")
       .select("id, nome, login, email, nome_completo, cpf, contrato_status, contrato_document_id, contrato_url")
       .eq("id", proprietarioId)
       .maybeSingle();
     if (propErr || !propRow) return json({ error: "not_found" }, 404);
-
-    // Confere senha via RPC (mesmo caminho do login)
-    const { data: verify, error: verifyErr } = await supa.rpc("verify_senha_proprietario", {
-      p_login: propRow.login,
-      p_senha: senha,
-    });
-    if (verifyErr) return json({ error: "verify_failed", detail: verifyErr.message }, 500);
-    const verifiedRow = Array.isArray(verify) ? verify[0] : verify;
-    if (!verifiedRow || verifiedRow.id !== proprietarioId) return json({ error: "unauthorized" }, 401);
 
     if (propRow.contrato_status === "assinado") {
       return json({ status: "assinado" });

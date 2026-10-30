@@ -78,13 +78,17 @@ import {
   fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
   EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
   PROG_PROG_MAP, PROG_APL_MAP,
-  dbUpsert, notifyUploadError, outboxPendentes,
+  dbUpsert, notifyUploadError, outboxPendentes, liberarSincronizacao,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
   toDbRegistro, toDbProcedimento, toDbParto, toDbMovimentacao, toDbEvento,
-  partialToDb, CAVALO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
+  partialToDb, CAVALO_MAP, PROPRIETARIO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP,
 } from './utils/db';
 import { subscribeToPush, sendPush } from './utils/push';
-import { getActiveSession, getSessions, upsertActive, updateActiveUser, switchTo, removeSession, clearAllSessions } from './utils/multiSession';
+import {
+  getActiveSession, getSessions, upsertActive, updateActiveUser, removeSession, clearAllSessions,
+  atualizarTokensDaConta, descartarSessoesSemToken, getSessionByKey,
+} from './utils/multiSession';
+import { carregarMeuAcesso, completarCadastroProprietario, carregarDadosRateio } from './auth-conta';
 
 const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
@@ -155,6 +159,11 @@ function AppEpona() {
   const [progProgramas, setProgProgramas] = useState([]);
   const [progAplicacoes, setProgAplicacoes] = useState([]);
   const [loadError, setLoadError] = useState(null);
+  // Proprietário: base do custo fixo rateado da fatura em aberto (o banco não
+  // entrega custos nem cavalos dos outros — só este resumo, sem nomes/valores).
+  const [rateioProp, setRateioProp] = useState(null);
+  // Aviso na tela de login (ex.: sessões antigas descartadas, sessão expirada).
+  const [avisoLogin, setAvisoLogin] = useState('');
   const hoje = new Date();
   const [faturaRef, setFaturaRef] = useState({ ano: hoje.getFullYear(), mes: hoje.getMonth() + 1 });
   // Mês de destino ao registrar insumo/procedimento a partir de uma fatura ('YYYY-MM' ou null = hoje)
@@ -195,7 +204,10 @@ function AppEpona() {
   }, []);
 
  // ── Carregamento inicial ──────────────────────────────────────
-const loadAllData = async () => {
+ // Só roda com alguém logado: o banco entrega a cada conta apenas o que ela
+ // pode ver (proprietário recebe só os dados dele; tabelas da equipe vêm vazias).
+const loadAllData = async (user = currentUser) => {
+  const ehProprietario = user?.role === 'proprietario';
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
@@ -301,6 +313,12 @@ const loadAllData = async () => {
     setFaturasRepro(faturasReproData || []);
     setContratosAssessoria(contratosAssessoriaData || []);
     setVisitasClinicas(visitasClinicasData || []);
+    if (ehProprietario) {
+      try { setRateioProp(await carregarDadosRateio()); }
+      catch (e) { console.warn('dados do rateio:', e); setRateioProp(null); }
+    } else {
+      setRateioProp(null);
+    }
 
     // Migração: cria saídas para compras de estoque cujo lancamento não chegou
     // ao banco. Ignora compras marcadas semLancamento=true — nesse caso o
@@ -327,7 +345,7 @@ const loadAllData = async () => {
         _ecId: c.id, _novoId: !c.lancamentoId,
       };
     });
-    if (lansEstoque.length > 0) {
+    if (lansEstoque.length > 0 && !ehProprietario) {
       lansEstoque.forEach(({ _ecId, _novoId, ...lan }) => {
         dbInsertIgnore('financeiro_lancamentos', toDbLancamento(lan));
         if (_novoId) dbUpdate('estoque_compras', _ecId, { lancamento_id: lan.id });
@@ -356,8 +374,10 @@ const loadAllData = async () => {
     });
 
     setLancamentos([...lancamentosCorrigidos, ...novosLans, ...lansEstoqueLimpos]);
-    if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
-    lansParaDeletar.forEach(id => dbDelete('financeiro_lancamentos', id));
+    if (!ehProprietario) {
+      if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
+      lansParaDeletar.forEach(id => dbDelete('financeiro_lancamentos', id));
+    }
     setEmpresaInfo(fromDbConfiguracao(configResult?.data));
     setNutricaoOrdem(configResult?.data?.nutricao_ordem || []);
   } catch (err) {
@@ -377,12 +397,15 @@ const loadAllData = async () => {
     const initializeApp = async () => {
       try {
         setLoading(true);
-        const activeSess = getActiveSession();
-        const parsedUser = activeSess?.user || null;
-        await loadAllData();
+        // Sessões de antes do login de verdade (sem token) não valem mais.
+        if (descartarSessoesSemToken()) {
+          setAvisoLogin('Atualizamos a segurança do app. Entre de novo com a sua senha de sempre.');
+        }
+        const parsedUser = await restaurarSessao();
         if (parsedUser) {
+          await loadAllData(parsedUser);
           setCurrentUser(parsedUser);
-          subscribeToPush(parsedUser.login || parsedUser.nome, parsedUser.role);
+          aposEntrar(parsedUser);
           const savedSession = sessionStorage.getItem('epona_session');
           if (savedSession) {
             try {
@@ -414,8 +437,19 @@ const loadAllData = async () => {
     initializeApp();
   }, []);
 
-  // ── Realtime sync entre logins ────────────────────────────
+  // Tokens renovados pelo Supabase ficam guardados na conta dona da sessão
+  // (a troca de contas reusa esses tokens).
   useEffect(() => {
+    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) atualizarTokensDaConta(session.user.id, session);
+    });
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  // ── Realtime sync entre logins ────────────────────────────
+  // Só com alguém logado: cada conta recebe apenas as mudanças que pode ver.
+  useEffect(() => {
+    if (!currentUser) return undefined;
     const ch = supabase.channel('epona-realtime')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cavalos' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setCavalos(prev => prev.some(c => c.id === n.id) ? prev : [...prev, fromDbCavalo(n)]);
@@ -547,7 +581,7 @@ const loadAllData = async () => {
       })
       .subscribe();
     return () => supabase.removeChannel(ch);
-  }, []);
+  }, [currentUser?.id, currentUser?.role]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Session persistence ──────────────────────────────────
   useEffect(() => {
@@ -1257,8 +1291,9 @@ const loadAllData = async () => {
   };
 
   // ── Avisos periódicos + maternidade ──────────────────────
+  // Só a equipe gera avisos (o aparelho do proprietário não grava nada).
   useEffect(() => {
-    if (currentUser && cavalos.length > 0) {
+    if (currentUser && currentUser.role !== 'proprietario' && cavalos.length > 0) {
       gerarAvisosPeriodicos();
       gerarAvisosMaternidade();
     }
@@ -1277,45 +1312,115 @@ const loadAllData = async () => {
     const a = getActiveSession();
     setActiveKey(a ? a.key : null);
   };
-  const handleLogin = async (user) => {
-    setCurrentUser(user);
-    // NUNCA persistir _sessionPassword no localStorage — só vive em memória.
-    upsertActive(user);
-    refreshSessoes();
-    setAdicionandoConta(false);
-    await loadAllData();
-    subscribeToPush(user.login || user.nome, user.role);
-    if (user.role === 'operacional') {
-      setScreen('avisos'); setTab('avisos');
-    } else {
-      setScreen('home'); setTab('home');
+  const irParaInicio = (user) => {
+    if (user.role === 'operacional') { setScreen('avisos'); setTab('avisos'); }
+    else { setScreen('home'); setTab('home'); }
+  };
+  // Depois de entrar numa conta: fila offline só sobe com a equipe, e só a
+  // equipe recebe notificações.
+  const aposEntrar = (user) => {
+    const ehEquipe = user.role !== 'proprietario';
+    liberarSincronizacao(ehEquipe);
+    if (ehEquipe) subscribeToPush(user.login || user.nome, user.role);
+  };
+  const irParaLogin = () => {
+    setCurrentUser(null);
+    liberarSincronizacao(false);
+    setScreen('login'); setTab('home');
+  };
+
+  // Reabre a sessão guardada no aparelho e confirma NO SERVIDOR quem é a
+  // conta (o que está no localStorage não é mais confiável por si só).
+  const restaurarSessao = async () => {
+    for (let tentativa = 0; tentativa < 5; tentativa++) {
+      const ativa = getActiveSession();
+      let { data: { session } } = await supabase.auth.getSession();
+      if (ativa && (!session || session.user.id !== ativa.userId)) {
+        const { data, error } = await supabase.auth.setSession(ativa.tokens);
+        if (error && /fetch|network|load failed/i.test(error.message || '')) return ativa.user; // sem rede
+        if (error || !data?.session) { removeSession(ativa.key); continue; }
+        session = data.session;
+      }
+      if (!session) return null;
+      let acesso;
+      try {
+        acesso = await carregarMeuAcesso();
+      } catch (e) {
+        return ativa?.user || null; // sem rede: segue; o banco confere tudo de novo a cada leitura
+      }
+      if (!acesso) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        if (ativa) { removeSession(ativa.key); continue; }
+        return null;
+      }
+      upsertActive(acesso.usuario, session);
+      refreshSessoes();
+      return acesso.usuario;
     }
+    return null;
+  };
+
+  // Ativa a sessão guardada de outra conta do aparelho e recarrega os dados
+  // (cada conta vê um pedaço diferente do banco).
+  const entrarNaConta = async (entry) => {
+    const { data, error } = await supabase.auth.setSession(entry.tokens || {});
+    if (error || !data?.session) {
+      removeSession(entry.key);
+      refreshSessoes();
+      setAvisoLogin(`A sessão de ${entry.user?.nome || 'outra conta'} expirou. Entre de novo.`);
+      return false;
+    }
+    let user = entry.user;
+    try {
+      const acesso = await carregarMeuAcesso();
+      if (!acesso) {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+        removeSession(entry.key);
+        refreshSessoes();
+        return false;
+      }
+      user = acesso.usuario;
+    } catch (e) { /* sem rede: segue com o que está guardado */ }
+    upsertActive(user, data.session);
+    refreshSessoes();
+    setLoading(true);
+    await loadAllData(user);
+    setCurrentUser(user);
+    setLoading(false);
+    aposEntrar(user);
+    irParaInicio(user);
+    return true;
+  };
+
+  const handleLogin = async (user) => {
+    // A tela de login já entrou no Supabase Auth; aqui guarda a conta,
+    // carrega os dados que ela pode ver e abre o app.
+    const { data: { session } } = await supabase.auth.getSession();
+    upsertActive(user, session);
+    refreshSessoes();
+    setAvisoLogin('');
+    await loadAllData(user);
+    setCurrentUser(user);
+    setAdicionandoConta(false);
+    aposEntrar(user);
+    irParaInicio(user);
   };
   // Sai só desta conta (mantém as outras). Se sobrar 0 → tela de login.
-  const handleLogout = () => {
+  const handleLogout = async () => {
     const active = getActiveSession();
-    const nextUser = active ? removeSession(active.key) : null;
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+    if (active) removeSession(active.key);
     refreshSessoes();
     sessionStorage.removeItem('epona_session');
-    if (nextUser) {
-      setCurrentUser(nextUser);
-      subscribeToPush(nextUser.login || nextUser.nome, nextUser.role);
-      if (nextUser.role === 'operacional') { setScreen('avisos'); setTab('avisos'); }
-      else { setScreen('home'); setTab('home'); }
-    } else {
-      setCurrentUser(null);
-      setScreen('login'); setTab('home');
-    }
+    const proxima = getActiveSession();
+    if (proxima && await entrarNaConta(proxima)) return;
+    irParaLogin();
   };
-  const handleSwitchSession = (key) => {
-    const u = switchTo(key);
-    if (!u) return;
-    setCurrentUser(u);
-    refreshSessoes();
+  const handleSwitchSession = async (key) => {
+    const entry = getSessionByKey(key);
+    if (!entry) return;
     sessionStorage.removeItem('epona_session');
-    subscribeToPush(u.login || u.nome, u.role);
-    if (u.role === 'operacional') { setScreen('avisos'); setTab('avisos'); }
-    else { setScreen('home'); setTab('home'); }
+    if (!(await entrarNaConta(entry))) irParaLogin();
   };
   const handleRemoveSessao = (key) => {
     removeSession(key);
@@ -1329,13 +1434,13 @@ const loadAllData = async () => {
     setScreen('login'); setTab('home');
   };
   // eslint-disable-next-line no-unused-vars
-  const handleSairDeTodas = () => {
+  const handleSairDeTodas = async () => {
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
     clearAllSessions();
     refreshSessoes();
-    setCurrentUser(null);
     setAdicionandoConta(false);
     sessionStorage.removeItem('epona_session');
-    setScreen('login'); setTab('home');
+    irParaLogin();
   };
 
   // ── Registros ─────────────────────────────────────────────────
@@ -1376,15 +1481,20 @@ const loadAllData = async () => {
   };
 
   // ── Funcionários ──────────────────────────────────────────────
+  // A senha da equipe não fica mais na tabela: a tela define pelo servidor
+  // (Supabase Auth). Aqui só dados do cadastro.
   const addFuncionario = (data) => {
+    const { senha, ...dados } = data; // eslint-disable-line no-unused-vars
     const newId = 'fn' + Date.now();
-    const newFn = { id: newId, ...data };
+    const newFn = { id: newId, ...dados };
     setFuncionarios(prev => [...prev, newFn]);
     dbInsert('funcionarios', toDbFuncionario(newFn));
+    return newId;
   };
   const updateFuncionario = (id, data) => {
-    setFuncionarios(prev => prev.map(f => f.id === id ? { ...f, ...data } : f));
-    dbUpdate('funcionarios', id, partialToDb(data, FUNCIONARIO_MAP));
+    const { senha, ...dados } = data; // eslint-disable-line no-unused-vars
+    setFuncionarios(prev => prev.map(f => f.id === id ? { ...f, ...dados } : f));
+    dbUpdate('funcionarios', id, partialToDb(dados, FUNCIONARIO_MAP));
   };
   const deleteFuncionario = (id) => {
     setFuncionarios(prev => prev.filter(f => f.id !== id));
@@ -1438,7 +1548,9 @@ const loadAllData = async () => {
   };
   const updateProprietario = (id, updatedData) => {
     setProprietarios(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
-    dbUpdate('proprietarios', id, toDbProprietario({ ...proprietarios.find(p => p.id === id), ...updatedData }));
+    // Grava só os campos alterados: gravar a linha inteira com o estado da
+    // tela apagava o que o próprio proprietário preencheu (cadastro, contrato).
+    dbUpdate('proprietarios', id, partialToDb(updatedData, PROPRIETARIO_MAP));
   };
   // Recarrega um proprietário do banco — usado após RPC (criar credencial,
   // trocar senha) que muda campos fora do fluxo normal do setState.
@@ -2181,13 +2293,6 @@ const loadAllData = async () => {
   };
 
   // ── Derivados ─────────────────────────────────────────────────
-  const usuarios = funcionarios
-    .filter(fn => fn.login && fn.senha)
-    .map(fn => ({
-      id: fn.id, nome: fn.nome, role: fn.funcao, senha: fn.senha,
-      iniciais: fn.nome.split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase(),
-    }));
-
   // Segrega por workspace: telas do admin/vet/operacional só veem 'haras';
   // o shell do repro filtra 'repro' internamente. Garante isolamento das
   // duas contas paralelas mesmo que uma tela reutilizada esqueça de filtrar.
@@ -2269,7 +2374,7 @@ const loadAllData = async () => {
       </div>
     );
   } else if (!currentUser) {
-    content = <LoginScreen onLogin={handleLogin} usuarios={usuarios} onCancelAddAccount={adicionandoConta && sessions.length > 0 ? () => {
+    content = <LoginScreen onLogin={handleLogin} aviso={avisoLogin} onCancelAddAccount={adicionandoConta && sessions.length > 0 ? () => {
       setAdicionandoConta(false);
       const a = sessions.find(s => s.key === activeKey) || sessions[0];
       if (a) handleSwitchSession(a.key);
@@ -2305,7 +2410,9 @@ const loadAllData = async () => {
       currentUser={currentUser}
       proprietarioAtual={propAtual}
       onComplete={async (patch) => {
-        await updateProprietario(currentUser.id, patch);
+        // Grava pelo servidor (só os campos do cadastro, só da própria linha).
+        await completarCadastroProprietario(patch);
+        await refetchProprietario(currentUser.id);
         setCurrentUser(u => { const next = { ...u, cadastroCompleto: true }; updateActiveUser(next); return next; });
       }}
       onLogout={handleLogout}
@@ -2322,7 +2429,9 @@ const loadAllData = async () => {
       currentUser={currentUser}
       proprietarioAtual={propAtual}
       onComplete={async (patch) => {
-        await updateProprietario(currentUser.id, patch);
+        // O status já foi gravado pela Edge Function do Assinafy; só relê o
+        // cadastro (gravar daqui sobrescrevia o nº do documento com vazio).
+        await refetchProprietario(currentUser.id);
         setCurrentUser(u => { const next = { ...u, contratoStatus: patch.contratoStatus }; updateActiveUser(next); return next; });
       }}
       onLogout={handleLogout}
@@ -2458,6 +2567,7 @@ const loadAllData = async () => {
       avisos={avisos}
       atividades={atividades}
       nutricaoOrdem={nutricaoOrdem}
+      rateio={rateioProp}
       vetData={{
         anotacoesClinicas, medicoes, exames, registrosReproducao,
         protocolosVacinacao, vacinacoesAnimais,

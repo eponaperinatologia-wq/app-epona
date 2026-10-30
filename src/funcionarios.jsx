@@ -5,6 +5,7 @@ import { TopBar } from './screens';
 import { ESCALA_VAZIA } from './data';
 import { ROLE_COLORS, ROLE_LABELS } from './auth';
 import { SwitcherContas } from './multiSessionUi';
+import { definirSenhaAcesso, trocarMinhaSenha } from './auth-conta';
 
 const DIAS = [
   { key: 'seg', label: 'Seg', full: 'Segunda-feira' },
@@ -254,8 +255,13 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
   const [funcao, setFuncao] = useState(existing?.funcao || 'operacional');
   const [aniversario, setAniversario] = useState(existing?.aniversario || '');
   const [login, setLogin] = useState(existing?.login || '');
-  const [senha, setSenha] = useState(existing?.senha || '');
+  // Senha não fica mais no cadastro: só se digita uma NOVA, gravada no servidor.
+  const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [erroSenha, setErroSenha] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  // Se a senha falhar depois de cadastrar, o próximo "Salvar" não duplica o funcionário.
+  const [criadoId, setCriadoId] = useState(null);
   const [escala, setEscala] = useState(JSON.parse(JSON.stringify(escalaInicial)));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [salarioBase, setSalarioBase] = useState(existing?.salarioBase != null ? String(existing.salarioBase) : '');
@@ -273,17 +279,31 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
         : { trabalha: true, entrada: '07:00', saida: '17:00' },
     }));
 
-  const handleSave = () => {
-    if (!nome.trim()) return;
+  const handleSave = async () => {
+    if (!nome.trim() || salvando) return;
+    if (senha && senha.length < 6) { setErroSenha('A senha precisa ter pelo menos 6 caracteres'); return; }
     const data = {
       nome: nome.trim(), funcao, aniversario,
-      login: login.trim().toLowerCase(), senha, escala,
+      login: login.trim().toLowerCase(), escala,
       salarioBase: parseFloat(String(salarioBase).replace(',', '.')) || 0,
       regimePagamento,
       encargosPct: parseFloat(String(encargosPct).replace(',', '.')) || 0,
     };
-    if (existing) updateFuncionario(existing.id, data);
-    else addFuncionario(data);
+    let fnId = existing?.id || criadoId;
+    if (fnId) updateFuncionario(fnId, data);
+    else { fnId = addFuncionario(data); setCriadoId(fnId); }
+    if (senha) {
+      setSalvando(true);
+      setErroSenha('');
+      try {
+        await definirSenhaAcesso({ tipo: 'equipe', refId: fnId, senha });
+      } catch (e) {
+        setErroSenha(`Cadastro salvo, mas a senha não: ${e.message || 'erro'}`);
+        setSalvando(false);
+        return;
+      }
+      setSalvando(false);
+    }
     setScreen(volta);
   };
 
@@ -388,13 +408,14 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
                 />
               </div>
               <div>
-                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Senha</div>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>{existing ? 'Nova senha' : 'Senha'}</div>
                 <div style={{ position: 'relative' }}>
                   <input
                     type={mostrarSenha ? 'text' : 'password'}
                     value={senha}
-                    onChange={e => setSenha(e.target.value)}
-                    placeholder="Senha"
+                    onChange={e => { setSenha(e.target.value); setErroSenha(''); }}
+                    placeholder={existing ? 'Vazio = manter' : 'Mín. 6 caracteres'}
+                    autoComplete="new-password"
                     style={{ ...inputStyle, padding: '10px 36px 10px 12px', fontSize: 14 }}
                   />
                   <button onClick={() => setMostrarSenha(v => !v)} style={{
@@ -406,6 +427,7 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
                 </div>
               </div>
             </div>
+            {erroSenha && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 6 }}>{erroSenha}</div>}
             <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
               Acesso como <strong>{ROLE_LABELS[funcao]}</strong>. Folgas agendadas no Mensal substituem a escala nesses dias.
             </div>
@@ -459,14 +481,14 @@ export function FuncionarioDetalheScreen({ id, setScreen, backTo, funcionarios, 
           </div>
         </div>
 
-        <button onClick={handleSave} disabled={!nome.trim()} style={{
+        <button onClick={handleSave} disabled={!nome.trim() || salvando} style={{
           width: '100%', padding: '15px', borderRadius: 14, border: 'none',
           background: nome.trim() ? 'var(--accent)' : 'var(--soft)',
           color: nome.trim() ? '#fff' : 'var(--ink-3)',
           fontSize: 16, fontWeight: 700, fontFamily: 'var(--sans)', cursor: nome.trim() ? 'pointer' : 'default',
-          marginBottom: 12,
+          marginBottom: 12, opacity: salvando ? 0.6 : 1,
         }}>
-          {existing ? 'Salvar alterações' : 'Cadastrar funcionário'}
+          {salvando ? 'Salvando…' : existing ? 'Salvar alterações' : 'Cadastrar funcionário'}
         </button>
 
         {existing && (
@@ -1105,17 +1127,34 @@ export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, 
 
   const [nome, setNome] = useState(fn?.nome || currentUser.nome || '');
   const [login, setLogin] = useState(fn?.login || '');
-  const [senha, setSenha] = useState(fn?.senha || '');
+  // Só se digita uma NOVA senha; ela vai direto para o servidor (Supabase Auth).
+  const [senha, setSenha] = useState('');
   const [mostrarSenha, setMostrarSenha] = useState(false);
+  const [erroSenha, setErroSenha] = useState('');
+  const [salvando, setSalvando] = useState(false);
   const [aniversario, setAniversario] = useState(fn?.aniversario || '');
   const [saved, setSaved] = useState(false);
   const [confirmLogout, setConfirmLogout] = useState(false);
 
   const backScreen = currentUser.role === 'operacional' ? 'avisos' : 'home';
 
-  const handleSave = () => {
-    if (!nome.trim()) return;
-    onSave({ nome: nome.trim(), login: login.trim().toLowerCase(), senha, aniversario });
+  const handleSave = async () => {
+    if (!nome.trim() || salvando) return;
+    if (senha) {
+      if (senha.length < 6) { setErroSenha('A senha precisa ter pelo menos 6 caracteres'); return; }
+      setSalvando(true);
+      setErroSenha('');
+      try {
+        await trocarMinhaSenha(senha);
+        setSenha('');
+      } catch (e) {
+        setErroSenha(e.message || 'Não foi possível trocar a senha');
+        setSalvando(false);
+        return;
+      }
+      setSalvando(false);
+    }
+    onSave({ nome: nome.trim(), login: login.trim().toLowerCase(), aniversario });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -1185,13 +1224,14 @@ export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, 
               />
             </div>
             <div>
-              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Senha</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4, fontWeight: 600 }}>Nova senha</div>
               <div style={{ position: 'relative' }}>
                 <input
                   type={mostrarSenha ? 'text' : 'password'}
                   value={senha}
-                  onChange={e => setSenha(e.target.value)}
-                  placeholder="Senha"
+                  onChange={e => { setSenha(e.target.value); setErroSenha(''); }}
+                  placeholder="Vazio = manter a atual"
+                  autoComplete="new-password"
                   style={{ ...inputStyle, padding: '10px 36px 10px 12px', fontSize: 14 }}
                 />
                 <button onClick={() => setMostrarSenha(v => !v)} style={{
@@ -1201,23 +1241,24 @@ export function MinhaContaScreen({ currentUser, funcionarios, onSave, onLogout, 
                   {mostrarSenha ? '🙈' : '👁'}
                 </button>
               </div>
+              {erroSenha && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 6 }}>{erroSenha}</div>}
             </div>
           </div>
         </div>
 
         <button
           onClick={handleSave}
-          disabled={!nome.trim()}
+          disabled={!nome.trim() || salvando}
           style={{
             width: '100%', padding: '15px', borderRadius: 14, border: 'none',
             background: saved ? '#16a34a' : nome.trim() ? 'var(--accent)' : 'var(--soft)',
             color: nome.trim() ? '#fff' : 'var(--ink-3)',
             fontSize: 16, fontWeight: 700, fontFamily: 'var(--sans)',
             cursor: nome.trim() ? 'pointer' : 'default', marginBottom: 12,
-            transition: 'background 0.2s',
+            transition: 'background 0.2s', opacity: salvando ? 0.6 : 1,
           }}
         >
-          {saved ? '✓ Salvo!' : 'Salvar alterações'}
+          {salvando ? 'Salvando…' : saved ? '✓ Salvo!' : 'Salvar alterações'}
         </button>
 
         <button
