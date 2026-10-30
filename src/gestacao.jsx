@@ -4,6 +4,7 @@ import { Icon } from './icons';
 import { norm, addDescartaveis } from './data';
 import { TopBar } from './screens';
 import { calcAgendaVac, calcAgendaVerm } from './veterinaria';
+import { gerarPdfGestacao, nomePdfGestacao } from './utils/pdfGestacao';
 
 // ── Helpers ───────────────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
@@ -364,6 +365,7 @@ export function pesoSugeridoNascimento(aortaMm) {
 
 // Retorna o peso sugerido a partir do registro de aorta no 11º mês, ou
 // null. Usado no box de Desenvolvimento fetal.
+// (já estava exportado) usado no PDF de gestação também
 export function pesoSugeridoDoCavalo(cavalo) {
   const aorta11 = cavalo?.gestacao?.acompanhamento?.[11]?.aorta;
   return pesoSugeridoNascimento(aorta11);
@@ -380,7 +382,7 @@ const ImgFase = ({ src, alt }) => (
 // Definição das fases. Cada linha começa em minDia e vale até o minDia
 // da linha seguinte (inclusive maxDia calculado). Imagem em
 // public/assets/feto/diaXXX.png.
-const FASES_FETO = [
+export const FASES_FETO = [
   { minDia: 12,  maxDia: 23,  img: '/assets/feto/dia012.png',
     frase: 'O embrião é uma pequena vesícula!',
     medidas: 'Poucos milímetros',
@@ -433,7 +435,7 @@ const FASES_FETO = [
 
 // Retorna a fase atual dado a data de cobrição. Antes do minDia da 1ª
 // fase (dia 12), mostra placeholder de contagem.
-function faseDoFeto(dataCobricao) {
+export function faseDoFeto(dataCobricao) {
   if (!dataCobricao) return null;
   const inicio = new Date(dataCobricao + 'T12:00:00');
   const dias = Math.floor((new Date() - inicio) / 86400000);
@@ -892,6 +894,22 @@ export function EguaGestanteDetalheScreen({
     : dias === 0 ? 'Parto hoje!'
     : `+${Math.abs(dias)}d além`;
 
+  // Gera e salva o PDF do acompanhamento gestacional atual. Usado pelo
+  // botão de compartilhar no topo — pensado pra enviar aos proprietários
+  // sem precisar tirar print.
+  const compartilharPdf = async () => {
+    try {
+      const empresa = (() => {
+        try { return JSON.parse(localStorage.getItem('epona_empresa') || '{}'); }
+        catch { return {}; }
+      })();
+      const doc = await gerarPdfGestacao({ cavalo: c, proprietario: prop, empresa });
+      doc.save(nomePdfGestacao(c));
+    } catch (e) {
+      window.alert('Erro ao gerar PDF: ' + (e.message || 'desconhecido'));
+    }
+  };
+
   return (
     <div>
       <div style={{ position:'sticky', top:0, zIndex:10, background:'var(--bg)' }}>
@@ -899,15 +917,30 @@ export function EguaGestanteDetalheScreen({
           title={c.nome}
           subtitle={prop?.nome || '—'}
           onBack={() => setScreen('partos')}
-          action={diasLabel ? (
-            <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
-              background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
-              color: atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)',
-              border:`1px solid ${atrasada ? '#ddd6fe' : alerta ? '#fca5a5' : 'var(--accent)'}40`,
-            }}>
-              {diasLabel}
-            </span>
-          ) : null}
+          action={
+            <div style={{ display:'flex', alignItems:'center', gap:6 }}>
+              {diasLabel && (
+                <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
+                  background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
+                  color: atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)',
+                  border:`1px solid ${atrasada ? '#ddd6fe' : alerta ? '#fca5a5' : 'var(--accent)'}40`,
+                }}>
+                  {diasLabel}
+                </span>
+              )}
+              <button
+                onClick={compartilharPdf}
+                title="Compartilhar PDF da gestação"
+                style={{
+                  padding:'7px 10px', borderRadius:8, border:'none',
+                  background:'var(--accent)', color:'#fff',
+                  fontSize:11, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
+                  display:'flex', alignItems:'center', gap:4,
+                }}>
+                <Icon name="share" size={12} color="#fff" /> PDF
+              </button>
+            </div>
+          }
         />
         {temApresentacaoPosterior(c) && (
           <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
