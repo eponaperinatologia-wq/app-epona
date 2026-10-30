@@ -4155,6 +4155,13 @@ const FaturaListaScreen = ({ setScreen, setSelected, registros, insumos = [], pr
   // automaticamente via realtime. Fallback pro window local se não
   // houver updater (modo compat).
   const fakeHoje = empresaInfo?.fakeHoje || (typeof window !== 'undefined' ? window.__eponaFakeHoje : null) || null;
+  // Sincroniza window SINCRONAMENTE (não em useEffect) pra garantir que
+  // calcFaturaProprietario mais abaixo use o override correto no mesmo
+  // render. Sem isso, cálculo roda com valor desatualizado.
+  if (typeof window !== 'undefined') {
+    if (empresaInfo?.fakeHoje) window.__eponaFakeHoje = empresaInfo.fakeHoje;
+    else if (empresaInfo && !empresaInfo.fakeHoje && window.__eponaFakeHoje) delete window.__eponaFakeHoje;
+  }
   const findInsumo = (id) => insumos.find(i => i.id === id);
   const isCurrentMonth = hoje.getFullYear() === ref.ano && hoje.getMonth() + 1 === ref.mes;
 
@@ -6248,7 +6255,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
     // Mês corrente não pode ser fechado SE a antecipação não cobre o
     // mês inteiro. Com fakeHoje ativo em 31/10, o cálculo já é dos 31
     // dias — pode fechar.
-    const fakeAtivo = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+    const fakeAtivo = empresaInfo?.fakeHoje || (typeof window !== 'undefined' ? window.__eponaFakeHoje : null);
     const ultimoDiaMes = new Date(ref.ano, ref.mes, 0).getDate();
     const hojeEfetivo = fakeAtivo ? new Date(fakeAtivo + 'T12:00:00') : new Date();
     const mesmoMesEfetivo = hojeEfetivo.getFullYear() === ref.ano && hojeEfetivo.getMonth() + 1 === ref.mes;
@@ -6320,11 +6327,18 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
 
   // Navegação entre meses da fatura. Nunca deixa passar do mês atual
   // pra frente — não faz sentido faturar futuro.
-  // Com antecipação ativa (window.__eponaFakeHoje), considera o mês
+  // Com antecipação ativa (empresaInfo.fakeHoje), considera o mês
   // "corrente" só se fakeHoje < último dia do mês. Se já é fim do mês
   // (ou passou), o mês conta como fechável — o override simula pular
   // o resto dos dias.
-  const _fakeHoje = typeof window !== 'undefined' ? window.__eponaFakeHoje : null;
+  // Prioridade empresaInfo.fakeHoje (vem do banco, muda causam re-render)
+  // > window.__eponaFakeHoje (fallback local). Sincroniza window
+  // sincronamente pra calcFaturaProprietario usar o override correto.
+  const _fakeHoje = empresaInfo?.fakeHoje || (typeof window !== 'undefined' ? window.__eponaFakeHoje : null) || null;
+  if (typeof window !== 'undefined') {
+    if (empresaInfo?.fakeHoje) window.__eponaFakeHoje = empresaInfo.fakeHoje;
+    else if (empresaInfo && !empresaInfo.fakeHoje && window.__eponaFakeHoje) delete window.__eponaFakeHoje;
+  }
   const _hojeEfetivo = _fakeHoje ? new Date(_fakeHoje + 'T12:00:00') : hoje;
   const _ultimoDiaMes = new Date(ref.ano, ref.mes, 0).getDate();
   const _mesmoMes = _hojeEfetivo.getFullYear() === ref.ano && _hojeEfetivo.getMonth() + 1 === ref.mes;
