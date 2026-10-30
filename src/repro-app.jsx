@@ -3533,14 +3533,18 @@ function SubMisoprostol({ tu, setTu, insumos }) {
 // (doses, oral). Cada um abre um mini-form. Quando salvar, os mL/doses
 // são gravados em dados.medRapidos.<slug> e os insumos + descartáveis
 // de injeção entram no insumosUsados. Ocitocina cobra 1 kit descartáveis
-// POR DOSE; Firovet é oral e não leva kit (regra do time).
+// POR DOSE; Firovet é oral e não leva kit (regra do time). A Ocitocina
+// (foraDoCF) também aparece nos outros procedimentos (IA, CE, TU…),
+// sempre em doses.
 const MED_RAPIDO = [
   { slug: 'ciosin', label: 'Ciosin', unidade: 'mL', regex: /ciosin/i, cor: '#7c2d8c', modo: 'ml', mlPadrao: 1.5 },
-  { slug: 'ocitocina', label: 'Ocitocina', unidade: 'doses', regex: /ocitocina/i, cor: '#0e7490', modo: 'doses', mlPorDose: 2.5, descartaveisPorDose: true },
+  { slug: 'ocitocina', label: 'Ocitocina', unidade: 'doses', regex: /ocitocina/i, cor: '#0e7490', modo: 'doses', mlPorDose: 2.5, descartaveisPorDose: true, foraDoCF: true },
   { slug: 'firovet', label: 'Firovet', unidade: 'doses', regex: /firovet/i, cor: '#c2410c', modo: 'doses', oral: true },
 ];
 
-function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
+function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle, foraDoCF = false }) {
+  // Fora do CF só aparecem os marcados foraDoCF (Ocitocina).
+  const meds = foraDoCF ? MED_RAPIDO.filter(m => m.foraDoCF) : MED_RAPIDO;
   const medRapidos = dados.medRapidos || {};
   const setMed = (slug, valor) => setDado('medRapidos', { ...medRapidos, [slug]: valor });
   const remover = (slug) => {
@@ -3562,7 +3566,7 @@ function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
 
       {/* Botões inline pra abrir cada medicamento */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-        {MED_RAPIDO.map(m => {
+        {meds.map(m => {
           const ativo = medRapidos[m.slug] !== undefined;
           const ins = resolverInsumo(m.regex);
           return (
@@ -3583,7 +3587,7 @@ function BlocoMedicamentosRapidos({ dados, setDado, insumos, inputStyle }) {
       </div>
 
       {/* Formulários abertos */}
-      {MED_RAPIDO.filter(m => medRapidos[m.slug] !== undefined).map(m => {
+      {meds.filter(m => medRapidos[m.slug] !== undefined).map(m => {
         const v = medRapidos[m.slug];
         const ins = resolverInsumo(m.regex);
         return (
@@ -3842,6 +3846,11 @@ function BlocoInsumosRepro({ insumos, insumosUsados, setInsumosUsados, obrigator
                 <span>Vem do cadastro do serviço — edite ou remova se não usou nessa.</span>
               </div>
             )}
+            {MED_RAPIDO.find(m => m.slug === 'ocitocina').regex.test(insumos.find(x => x.id === u.insumoId)?.nome || '') && (
+              <div style={{ fontSize: 10, color: '#0e7490', marginTop: 2 }}>
+                💉 Para cobrar agulha, seringa e algodão por dose, lance a Ocitocina pelo botão de doses acima.
+              </div>
+            )}
           </div>
         );
       })}
@@ -3919,9 +3928,11 @@ function montarInsumosFinais({ manuais, tipo, dados, insumos = [], servicos = []
     }
   }
 
-  // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet)
-  if (tipo === 'controle_folicular' && dados.medRapidos) {
+  // 0b) Medicamentos rápidos do CF (Ciosin, Ocitocina, Firovet); fora do
+  //     CF só os marcados foraDoCF (Ocitocina em doses, 1 kit por dose).
+  if (dados.medRapidos) {
     for (const m of MED_RAPIDO) {
+      if (tipo !== 'controle_folicular' && !m.foraDoCF) continue;
       const v = dados.medRapidos[m.slug];
       if (!v) continue;
       const ins = (insumos.filter(i => i.workspaceId === 'repro' && m.regex.test(i.nome || ''))[0])
@@ -4187,6 +4198,10 @@ function UltimaAnotacaoEgua({ eguaId, eguasRepro = [], propRepro = [], locaisRep
     const dx = d.dx || {};
     if (dx.biopsia) linhas.push(['Dx', 'Biópsia endometrial']);
     if (dx.cultura) linhas.push(['Dx', 'Cultura + antibiograma']);
+  }
+  // Ocitocina em doses também fora do CF.
+  if (ultimo.tipo !== 'controle_folicular' && d.medRapidos?.ocitocina?.doses) {
+    linhas.push(['Medicação', `ocitocina ${d.medRapidos.ocitocina.doses}d`]);
   }
 
   // Insumos usados: lista compacta
@@ -5043,6 +5058,11 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         </>
       )}
 
+      {/* Fora do CF a Ocitocina também é lançada em doses (1 kit por dose). */}
+      {tipo !== 'controle_folicular' && (
+        <BlocoMedicamentosRapidos dados={dados} setDado={setDado} insumos={insumos} inputStyle={inputStyle} foraDoCF />
+      )}
+
       {/* Insumos utilizados — bloco compartilhado por todos os tipos.
           Adicionar um insumo injetável auto-empilha agulha + seringa +
           algodão-álcool na hora de salvar (regra do haras).
@@ -5206,14 +5226,6 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
             <DetalheLinha label="Presença líquido" valor={d.presencaLiquido} />
             <DetalheLinha label="Tônus uterino" valor={d.tonusUterino} />
             <DetalheLinha label="Tônus cervical" valor={d.tonusCervical} />
-            {d.medRapidos && Object.entries(d.medRapidos).map(([slug, v]) => {
-              const m = MED_RAPIDO.find(x => x.slug === slug);
-              if (!m || !v) return null;
-              const desc = m.modo === 'ml'
-                ? `${v.ml} mL`
-                : `${v.doses} dose(s)${m.mlPorDose ? ` = ${Number(v.doses) * m.mlPorDose} mL` : ''}`;
-              return <DetalheLinha key={slug} label={m.label} valor={desc} />;
-            })}
             {d.dataInducaoOvulacao && (
               <DetalheLinha label="Indução ovulação" valor={
                 `${fmtDataBr(d.dataInducaoOvulacao)}${d.horaInducaoOvulacao ? ` · ${d.horaInducaoOvulacao}` : ''}`
@@ -5227,6 +5239,15 @@ function DetalheRegistroRepro({ registro, eguasRepro, propRepro, locaisRepro, ve
             <DetalheLinha label="Vesícula" valor={d.tamanhoVesicula} />
           </>
         )}
+        {/* Medicamentos aplicados (no CF todos; fora dele, a Ocitocina) */}
+        {d.medRapidos && Object.entries(d.medRapidos).map(([slug, v]) => {
+          const m = MED_RAPIDO.find(x => x.slug === slug);
+          if (!m || !v || (registro.tipo !== 'controle_folicular' && !m.foraDoCF)) return null;
+          const desc = m.modo === 'ml'
+            ? `${v.ml} mL`
+            : `${v.doses} dose(s)${m.mlPorDose ? ` = ${Number(v.doses) * m.mlPorDose} mL` : ''}`;
+          return <DetalheLinha key={slug} label={m.label} valor={desc} />;
+        })}
         {registro.dataRetorno && <DetalheLinha label="Retorno" valor={fmtDataBr(registro.dataRetorno)} />}
         {d.observacoes && (
           <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
