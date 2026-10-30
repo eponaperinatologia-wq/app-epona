@@ -349,7 +349,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   // Matchers pra pegar preço dos serviços de Tratamento Uterino do catálogo
   const svcTratamento = servicos.find(s => /tratamento.*uter/i.test(norm(s.nome || '')));
   const svcOzonio = servicos.find(s => /ozonio/i.test(norm(s.nome || '')));
-  const svcPrp = servicos.find(s => /(prp).*(intra|uter)/i.test(norm(s.nome || '')));
+  // Mesmo critério do TU_MATCHERS.servPrp (serviço cadastrado como "PRP").
+  const svcPrp = servicos.find(s => /\bprp\b/i.test(norm(s.nome || '')));
 
   for (const r of regsMesProp) {
     if (r.tipo === 'servico_avulso') {
