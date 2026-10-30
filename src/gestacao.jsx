@@ -9,7 +9,10 @@ import { gerarPdfGestacaoDoElemento, nomePdfGestacao } from './utils/pdfGestacao
 // ── Helpers ───────────────────────────────────────────────────
 const pad2 = n => String(n).padStart(2, '0');
 const toDateStr = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())}`;
-const fmtDate = ds => { if (!ds) return '—'; const [y,m,d] = ds.split('-'); return `${parseInt(d)}/${parseInt(m)}/${y}`; };
+const fmtDate = ds => { if (!ds) return '—'; const [y,m,d] = ds.split('-'); return `${pad2(parseInt(d))}/${pad2(parseInt(m))}/${y}`; };
+const NOMES_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+// Data por extenso, usada na previsão de parto em destaque: "03 de Setembro de 2026"
+const fmtDataExtenso = ds => { if (!ds) return '—'; const [y,m,d] = ds.split('-'); return `${pad2(parseInt(d))} de ${NOMES_MESES[parseInt(m) - 1]} de ${y}`; };
 const fmtCurrency = v => `R$ ${Number(v||0).toLocaleString('pt-BR',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
 
 export const previsaoParto = dataCobricao => {
@@ -875,6 +878,22 @@ export function EguaGestanteDetalheScreen({
 }) {
   const c = cavalos.find(cv => cv.id === id);
   const [subTab, setSubTab] = useState('gestacao');
+  // PDF pro proprietário: ao tocar no botão, monta fora da tela uma cópia
+  // da aba Gestação com largura de celular (cabeçalho + conteúdo, sem as
+  // abas, o botão Salvar, a tabbar e o histórico gestacional) e o
+  // html2canvas fotografa essa cópia.
+  // Hooks ficam antes do return antecipado (!c).
+  const pdfRef = useRef(null);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
+  useEffect(() => {
+    if (!gerandoPdf) return;
+    let ativo = true;
+    gerarPdfGestacaoDoElemento(pdfRef.current)
+      .then(doc => { if (ativo) doc.save(nomePdfGestacao(c)); })
+      .catch(e => window.alert('Erro ao gerar PDF: ' + (e.message || 'desconhecido')))
+      .finally(() => { if (ativo) setGerandoPdf(false); });
+    return () => { ativo = false; };
+  }, [gerandoPdf]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!c) return (
     <div style={{ paddingBottom:90 }}>
@@ -894,34 +913,92 @@ export function EguaGestanteDetalheScreen({
     : dias === 0 ? 'Parto hoje!'
     : `+${Math.abs(dias)}d além`;
 
-  // Ref no conteúdo da aba Gestação pra o html2canvas renderizar
-  // exatamente o que está na tela (sem TopBar, sem SubTabBar).
-  const gestacaoContentRef = useRef(null);
-  const [gerandoPdf, setGerandoPdf] = useState(false);
-  // Gera o PDF capturando o DOM atual da aba de Gestação. Mantém
-  // cores, boxes e tipografia idênticas à tela do app.
-  const compartilharPdf = async () => {
-    // Garante que a aba Gestação está ativa (o elemento só existe quando ela
-    // está montada).
-    if (subTab !== 'gestacao') {
-      setSubTab('gestacao');
-      // Dá um tick pro React montar
-      await new Promise(r => setTimeout(r, 50));
-    }
-    if (!gestacaoContentRef.current) {
-      window.alert('Nada pra exportar nessa aba.');
-      return;
-    }
-    setGerandoPdf(true);
-    try {
-      const doc = await gerarPdfGestacaoDoElemento(gestacaoContentRef.current, { cavalo: c });
-      doc.save(nomePdfGestacao(c));
-    } catch (e) {
-      window.alert('Erro ao gerar PDF: ' + (e.message || 'desconhecido'));
-    } finally {
-      setGerandoPdf(false);
-    }
-  };
+  // Selo de dias e faixas de alerta: aparecem na tela e no PDF.
+  const badgeDias = diasLabel && (
+    <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
+      background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
+      color: atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)',
+      border:`1px solid ${atrasada ? '#ddd6fe' : alerta ? '#fca5a5' : 'var(--accent)'}40`,
+    }}>
+      {diasLabel}
+    </span>
+  );
+
+  const alertas = (
+    <>
+      {temApresentacaoPosterior(c) && (
+        <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+          ⚠️ Feto em apresentação posterior — acompanhar
+        </div>
+      )}
+      {(() => {
+        const jup = analisarJupCavalo(c);
+        if (!jup) return null;
+        if (jup.status === 'insuficiencia') {
+          return (
+            <div style={{ background:'#b45309', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              ⚠️ Suspeita de Placenta Insuficiente — acompanhar (JUP {jup.valor} mm)
+            </div>
+          );
+        }
+        if (jup.status === 'placentite') {
+          return (
+            <div style={{ background:'#be123c', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              ⚠️ Suspeita de Placentite — acompanhar (JUP {jup.valor} mm)
+            </div>
+          );
+        }
+        return null;
+      })()}
+      {(() => {
+        const fc = analisarFcCritico(c);
+        if (!fc || !fc.critico) return null;
+        if (fc.critico === 'bradicardia') {
+          return (
+            <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              ⚠️ Bradicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
+            </div>
+          );
+        }
+        if (fc.critico === 'taquicardia') {
+          return (
+            <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+              ⚠️ Taquicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
+            </div>
+          );
+        }
+        return null;
+      })()}
+      {(() => {
+        const of = analisarOfCritico(c);
+        const aorta = analisarAortaCritica(c);
+        const bp = analisarBiparietalCritico(c);
+        const ofCrit = of && of.classe === 'critico';
+        const aortaCritico = aorta && aorta.status === 'critico';
+        const bpCritico = bp && bp.status === 'critico';
+        if (!ofCrit && !aortaCritico && !bpCritico) return null;
+        const detalhes = [];
+        if (ofCrit) detalhes.push(`OF ${of.valor} ${of.unidade}`);
+        if (aortaCritico) detalhes.push(`Aorta ${aorta.valor} mm`);
+        if (bpCritico) detalhes.push(`BP ${bp.valor} mm`);
+        return (
+          <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
+            ⚠️ Restrição de Crescimento Intrauterino! ({detalhes.join(' · ')})
+          </div>
+        );
+      })()}
+      {atrasada && (
+        <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
+          ⚠️ Gestação além da previsão · +{Math.abs(dias)} dias
+        </div>
+      )}
+      {alerta && !atrasada && (
+        <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
+          🏥 Migrar para o piquete maternidade
+        </div>
+      )}
+    </>
+  );
 
   return (
     <div>
@@ -932,17 +1009,9 @@ export function EguaGestanteDetalheScreen({
           onBack={() => setScreen('partos')}
           action={
             <div style={{ display:'flex', alignItems:'center', gap:6 }}>
-              {diasLabel && (
-                <span style={{ fontSize:11, fontWeight:700, padding:'4px 10px', borderRadius:8,
-                  background: atrasada ? '#f5f3ff' : alerta ? '#fef2f2' : 'var(--accent-soft)',
-                  color: atrasada ? '#7c3aed' : alerta ? '#dc2626' : 'var(--accent)',
-                  border:`1px solid ${atrasada ? '#ddd6fe' : alerta ? '#fca5a5' : 'var(--accent)'}40`,
-                }}>
-                  {diasLabel}
-                </span>
-              )}
+              {badgeDias}
               <button
-                onClick={compartilharPdf}
+                onClick={() => setGerandoPdf(true)}
                 disabled={gerandoPdf}
                 title="Compartilhar PDF da gestação"
                 style={{
@@ -959,77 +1028,7 @@ export function EguaGestanteDetalheScreen({
             </div>
           }
         />
-        {temApresentacaoPosterior(c) && (
-          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-            ⚠️ Feto em apresentação posterior — acompanhar
-          </div>
-        )}
-        {(() => {
-          const jup = analisarJupCavalo(c);
-          if (!jup) return null;
-          if (jup.status === 'insuficiencia') {
-            return (
-              <div style={{ background:'#b45309', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-                ⚠️ Suspeita de Placenta Insuficiente — acompanhar (JUP {jup.valor} mm)
-              </div>
-            );
-          }
-          if (jup.status === 'placentite') {
-            return (
-              <div style={{ background:'#be123c', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-                ⚠️ Suspeita de Placentite — acompanhar (JUP {jup.valor} mm)
-              </div>
-            );
-          }
-          return null;
-        })()}
-        {(() => {
-          const fc = analisarFcCritico(c);
-          if (!fc || !fc.critico) return null;
-          if (fc.critico === 'bradicardia') {
-            return (
-              <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-                ⚠️ Bradicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
-              </div>
-            );
-          }
-          if (fc.critico === 'taquicardia') {
-            return (
-              <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-                ⚠️ Taquicardia muito acentuada! Checar urgente (FC {fc.valor} bpm)
-              </div>
-            );
-          }
-          return null;
-        })()}
-        {(() => {
-          const of = analisarOfCritico(c);
-          const aorta = analisarAortaCritica(c);
-          const bp = analisarBiparietalCritico(c);
-          const ofCrit = of && of.classe === 'critico';
-          const aortaCritico = aorta && aorta.status === 'critico';
-          const bpCritico = bp && bp.status === 'critico';
-          if (!ofCrit && !aortaCritico && !bpCritico) return null;
-          const detalhes = [];
-          if (ofCrit) detalhes.push(`OF ${of.valor} ${of.unidade}`);
-          if (aortaCritico) detalhes.push(`Aorta ${aorta.valor} mm`);
-          if (bpCritico) detalhes.push(`BP ${bp.valor} mm`);
-          return (
-            <div style={{ background:'#7f1d1d', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700, display:'flex', alignItems:'center', gap:6 }}>
-              ⚠️ Restrição de Crescimento Intrauterino! ({detalhes.join(' · ')})
-            </div>
-          );
-        })()}
-        {atrasada && (
-          <div style={{ background:'#7c3aed', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
-            ⚠️ Gestação além da previsão · +{Math.abs(dias)} dias
-          </div>
-        )}
-        {alerta && !atrasada && (
-          <div style={{ background:'#dc2626', color:'#fff', padding:'8px 16px', fontSize:12, fontWeight:700 }}>
-            🏥 Migrar para o piquete maternidade
-          </div>
-        )}
+        {alertas}
         <SubTabBar
           tabs={[
             { id:'gestacao', label:'Gestação' },
@@ -1043,9 +1042,7 @@ export function EguaGestanteDetalheScreen({
       </div>
       <div style={{ paddingBottom:90 }}>
         {subTab === 'gestacao' && (
-          <div ref={gestacaoContentRef}>
-            <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} partos={partos} cavalos={cavalos} setScreen={setScreen} setSelected={setSelected} />
-          </div>
+          <GestacaoTab c={c} updateCavalo={updateCavalo} mes={mes} partos={partos} cavalos={cavalos} setScreen={setScreen} setSelected={setSelected} />
         )}
         {subTab === 'alimentacao' && <AlimentacaoTab c={c} insumos={insumos} />}
         {subTab === 'acompanhamento' && <AcompanhamentoTab c={c} updateCavalo={updateCavalo} mesAtual={mes} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} />}
@@ -1067,6 +1064,18 @@ export function EguaGestanteDetalheScreen({
           />
         )}
       </div>
+
+      {/* Cópia do PDF, fora da tela, com largura de iPhone: mesmo
+          cabeçalho (sem voltar/PDF), alertas e aba Gestação só leitura. */}
+      {gerandoPdf && (
+        <div aria-hidden="true" style={{ position:'fixed', left:-10000, top:0, width:390, pointerEvents:'none' }}>
+          <div ref={pdfRef} style={{ background:'var(--bg)', padding:'12px 0 6px' }}>
+            <TopBar title={c.nome} subtitle={prop?.nome || '—'} action={badgeDias} />
+            {alertas}
+            <GestacaoTab c={c} mes={mes} partos={partos} cavalos={cavalos} modoPdf />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1084,7 +1093,7 @@ const AlimentacaoRow = ({ label, value, sub }) => (
 );
 
 // ── Aba Gestação ──────────────────────────────────────────────
-function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScreen, setSelected }) {
+function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScreen, setSelected, modoPdf = false }) {
   const g = c.gestacao || {};
   const [dataCobricao, setDataCobricao] = useState(g.dataCobricao || '');
   const [pai, setPai] = useState(g.pai || '');
@@ -1147,23 +1156,24 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
         </div>
       )}
 
-      {/* Dados editáveis */}
+      {/* Filiação e cobrição. A previsão de parto (o que o proprietário
+          quer saber) fica em destaque no topo; a data de cobrição vai pra
+          linha de baixo e continua editável tocando nela. */}
       <div style={{ background:'var(--card)', border:'1px solid var(--line)', borderRadius:14, padding:'14px', marginBottom:14 }}>
         <div style={{ fontSize:12, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:12 }}>Filiação e cobrição</div>
         <div style={{ marginBottom:12 }}>
-          <GestacaoLabel t="Data de cobrição" />
-          <input
-            type="date" value={dataCobricao}
-            onChange={e => setDataCobricao(e.target.value)}
-            disabled={readOnly} style={inputStyle}
-            data-pdf-text={fmtDate(dataCobricao)}
-          />
+          <GestacaoLabel t="Previsão de parto (330 dias)" />
+          <div style={{ ...inputStyle, fontWeight:700 }}>{fmtDataExtenso(previsao)}</div>
         </div>
         <div style={{ marginBottom:12 }}>
           <div style={{ display:'flex', alignItems:'flex-start', gap:8 }}>
             <div style={{ flex:1 }}>
               <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:4, textAlign:'center' }}>Garanhão (pai)</div>
-              <input value={pai} onChange={e => setPai(e.target.value)} disabled={readOnly} placeholder="Nome do garanhão…" style={{ ...inputStyle, textAlign:'center' }} />
+              {modoPdf ? (
+                <div style={{ ...inputStyle, textAlign:'center' }}>{pai || '—'}</div>
+              ) : (
+                <input value={pai} onChange={e => setPai(e.target.value)} disabled={readOnly} placeholder="Nome do garanhão…" style={{ ...inputStyle, textAlign:'center' }} />
+              )}
             </div>
             <div style={{ fontSize:22, fontWeight:900, color:'var(--ink-3)', flexShrink:0, marginTop:24 }}>×</div>
             <div style={{ flex:1 }}>
@@ -1180,19 +1190,34 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
             </div>
           )}
         </div>
-        {previsao && (
-          <div style={{ display:'flex', justifyContent:'space-between', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
-            <span style={{ fontSize:12, color:'var(--ink-3)' }}>Previsão de parto (330 dias)</span>
-            <span style={{ fontSize:13, fontWeight:700, color:'var(--accent)' }}>{fmtDate(previsao)}</span>
-          </div>
-        )}
+        <div style={{ position:'relative', overflow:'hidden', display:'flex', justifyContent:'space-between', alignItems:'center', padding:'8px 0', borderTop:'1px solid var(--line)' }}>
+          <span style={{ fontSize:12, color:'var(--ink-3)' }}>Data de cobrição</span>
+          <span style={{ display:'flex', alignItems:'center', gap:5, fontSize:13, fontWeight:700, color:'var(--accent)' }}>
+            {fmtDate(dataCobricao)}
+            {!readOnly && <Icon name="calendar" size={13} color="var(--accent)" />}
+          </span>
+          {/* Input nativo invisível cobrindo a linha: o toque abre o
+              calendário do aparelho e a data continua sempre em DD/MM/AAAA. */}
+          {!readOnly && (
+            <input
+              type="date" value={dataCobricao} aria-label="Data de cobrição"
+              onChange={e => setDataCobricao(e.target.value)}
+              onClick={e => { try { e.currentTarget.showPicker(); } catch (err) { /* sem showPicker: o toque já abre */ } }}
+              style={{
+                position:'absolute', inset:0, width:'100%', height:'100%', minWidth:0,
+                margin:0, padding:0, border:'none', opacity:0, cursor:'pointer',
+                WebkitAppearance:'none', appearance:'none', fontSize:16,
+              }}
+            />
+          )}
+        </div>
       </div>
 
       {/* Desenvolvimento fetal — muda só com a idade gestacional */}
       <BoxDesenvolvimentoFetal dataCobricao={dataCobricao} cavalo={c} />
 
       {!readOnly && (
-        <button onClick={handleSave} data-pdf-hide="true" style={{
+        <button onClick={handleSave} style={{
           width:'100%', padding:'13px', borderRadius:12, border:'none',
           background: saved ? '#16a34a' : 'var(--accent)',
           color:'#fff', fontSize:14, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)',
@@ -1202,8 +1227,9 @@ function GestacaoTab({ c, updateCavalo, mes, partos = [], cavalos = [], setScree
         </button>
       )}
 
-      {/* Histórico gestacional — cada card expande com acompanhamento + parto */}
-      {c.historicoGestacional?.length > 0 && (
+      {/* Histórico gestacional — cada card expande com acompanhamento + parto.
+          Fica fora do PDF: é controle veterinário interno. */}
+      {!modoPdf && c.historicoGestacional?.length > 0 && (
         <div style={{ marginBottom:14 }}>
           <div style={{ fontSize:11, fontWeight:700, color:'var(--ink-3)', textTransform:'uppercase', letterSpacing:'0.07em', marginBottom:8 }}>Histórico gestacional</div>
           {c.historicoGestacional.map((h, i) => {
