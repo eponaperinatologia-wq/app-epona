@@ -89,6 +89,7 @@ import {
   atualizarTokensDaConta, descartarSessoesSemToken, getSessionByKey,
 } from './utils/multiSession';
 import { carregarMeuAcesso, completarCadastroProprietario, carregarDadosRateio } from './auth-conta';
+import { DecoracaoHalloween } from './halloween';
 
 const TWEAKS_DEFAULTS = /*EDITMODE-BEGIN*/{
   "density": "comfortable",
@@ -2708,6 +2709,7 @@ const loadAllData = async (user = currentUser) => {
         display: 'flex', flexDirection: 'column',
         maxWidth: 480, margin: '0 auto',
       }}>
+          <DecoracaoHalloween />
           {currentUser && !loading && !isProprietario && !isRepro && (
             <div style={{
               display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
