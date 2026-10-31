@@ -2409,7 +2409,9 @@ const loadAllData = async (user = currentUser) => {
     if (s === 'avisos') setTab('avisos');
     if (s === 'nutricional') setTab('nutricional');
     if (s === 'compras') setTab('compras');
-    if (s === 'planner' || s === 'funcionarios' || s === 'funcionarioDetalhe') setTab('equipe');
+    // Funcionários (em Cadastros) e a ficha ficam na aba atual: a aba Equipe
+    // sempre volta para a escala, que não mostra os administradores.
+    if (s === 'planner') setTab('equipe');
     if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe') setTab('partos');
   };
 
