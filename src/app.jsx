@@ -221,7 +221,13 @@ const loadAllData = async (user = currentUser) => {
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
       fetchAll('proprietarios', fromDbProprietario),
-      fetchAll('insumos', fromDbInsumo),
+      // Proprietário não lê a tabela (custo de compra, markup, fornecedor):
+      // recebe o catálogo só com preço de venda.
+      ehProprietario
+        ? supabase.rpc('catalogo_insumos').then(({ data, error }) => (
+          error ? fetchAll('insumos', fromDbInsumo) : (data || []).map(fromDbInsumo)
+        ))
+        : fetchAll('insumos', fromDbInsumo),
       fetchAll('servicos', fromDbServico),
       fetchAll('funcionarios', fromDbFuncionario),
       fetchAll('registros', fromDbRegistro),

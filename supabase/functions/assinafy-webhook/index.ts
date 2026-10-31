@@ -1,15 +1,17 @@
 // Edge Function: recebe callbacks do Assinafy quando o documento é assinado.
 //
 // Segurança:
-//  - Valida o header X-Assinafy-Signature (HMAC-SHA256 do corpo com o
-//    ASSINAFY_WEBHOOK_SECRET). Nome exato do header pode variar por versão
-//    do Assinafy — aceitamos algumas variações comuns.
-//  - Sem validação de signature, rejeita.
+//  - Se ASSINAFY_WEBHOOK_SECRET estiver configurado, valida o header
+//    X-Assinafy-Signature (HMAC-SHA256 do corpo). Nome exato do header pode
+//    variar por versão do Assinafy — aceitamos algumas variações comuns.
+//  - Não confia no corpo: antes de marcar, confirma na API do Assinafy que o
+//    documento está totalmente assinado (um POST forjado não marca nada).
 //
 // O que faz:
 //  - Extrai o document_id do payload.
-//  - Se o evento é de conclusão de assinatura, marca o proprietário
-//    correspondente como contrato_status='assinado' + contrato_assinado_em.
+//  - Se o evento parece de conclusão e o Assinafy confirma, marca o
+//    proprietário correspondente como contrato_status='assinado' +
+//    contrato_assinado_em.
 //
 // Idempotente: pode receber o mesmo callback várias vezes sem estragar
 // (só faz update se ainda não estiver 'assinado').
@@ -24,6 +26,23 @@ const CORS = {
 };
 
 const WEBHOOK_SECRET = Deno.env.get("ASSINAFY_WEBHOOK_SECRET") ?? "";
+const ASSINAFY_BASE = Deno.env.get("ASSINAFY_BASE_URL") ?? "https://api.assinafy.com.br/v1";
+const ASSINAFY_API_KEY = Deno.env.get("ASSINAFY_API_KEY") ?? "";
+
+// Mesma regra do assinafy-checar-status: "certificated" = totalmente assinado
+// (ou summary com todos os signatários concluídos).
+async function confirmadoNoAssinafy(documentId: string) {
+  const r = await fetch(`${ASSINAFY_BASE}/documents/${encodeURIComponent(documentId)}`, {
+    headers: { "X-Api-Key": ASSINAFY_API_KEY },
+  });
+  if (!r.ok) return false;
+  let data: any = null;
+  try { data = await r.json(); } catch { return false; }
+  const d = data?.data || data;
+  const summary = d?.assignment?.summary;
+  return d?.status === "certificated" ||
+    (summary && summary.signer_count > 0 && summary.signer_count === summary.completed_count);
+}
 
 // Palavras-chave nos nomes de eventos que consideramos "assinado".
 // Ampla porque o Assinafy varia: document.signed, assignment.completed,
@@ -88,6 +107,12 @@ serve(async (req) => {
   if (!documentId) {
     return new Response(JSON.stringify({ error: "no_document_id" }), {
       status: 400,
+      headers: { "Content-Type": "application/json", ...CORS },
+    });
+  }
+
+  if (!(await confirmadoNoAssinafy(documentId))) {
+    return new Response(JSON.stringify({ ignored: true, reason: "not_certificated" }), {
       headers: { "Content-Type": "application/json", ...CORS },
     });
   }

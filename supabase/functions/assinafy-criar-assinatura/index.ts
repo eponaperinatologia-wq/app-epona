@@ -1,16 +1,17 @@
 // Edge Function: cria (ou reutiliza) o documento de assinatura pro proprietário
 // e devolve o signing_url pra embedar em iframe no app.
 //
-// Estratégia atual (Opção 2 da conversa):
-//   - O CLIENTE gera o PDF do contrato já preenchido com todos os dados do
-//     proprietário (nome, RG, CPF, endereço, etc.) via jsPDF.
-//   - Manda o base64 pra essa function.
-//   - A function faz upload no Assinafy, cria signer e assignment "virtual".
+// Estratégia atual:
+//   - Esta function gera o PDF do contrato (../_shared/pdfContrato.js, jsPDF)
+//     com os dados do proprietário que estão NO BANCO (nome, RG, CPF,
+//     endereço…). O aparelho do cliente não envia mais o PDF: antes ele podia
+//     alterar o texto do contrato antes de assinar.
+//   - Faz upload no Assinafy, cria signer e assignment "virtual".
 //   - Devolve o signing_url pro app embedar em iframe.
 //
 // Templates do Assinafy NÃO conseguem pre-fill via API — por isso geramos o
-// PDF client-side. O signer só coloca a assinatura, todos os dados já vêm
-// baked no papel.
+// PDF aqui. O signer só coloca a assinatura, todos os dados já vêm baked no
+// papel.
 //
 // Segurança:
 //   - Só o próprio proprietário logado pode chamar (token da sessão do
@@ -19,6 +20,7 @@
 
 import { serve } from "https://deno.land/std@0.203.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0";
+import { gerarPdfContrato, dadosContratoDoBanco, nomeArquivoContrato } from "../_shared/pdfContrato.js";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -61,22 +63,14 @@ async function ehOProprietarioLogado(supa: any, req: Request, proprietarioId: st
   return acesso?.tipo === "proprietario" && acesso.ref_id === proprietarioId;
 }
 
-// Decodifica base64 para Uint8Array (Deno-nativo, sem Buffer)
-function base64ToBytes(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const out = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
-  return out;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
-    const { proprietarioId, pdfBase64 } = await req.json();
+    // pdfBase64 de versões antigas do app é ignorado: o PDF sai daqui.
+    const { proprietarioId } = await req.json();
     if (!proprietarioId) return json({ error: "missing_params" }, 400);
-    if (!pdfBase64) return json({ error: "missing_pdf" }, 400);
 
     const supa = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -86,7 +80,9 @@ serve(async (req) => {
 
     const { data: propRow, error: propErr } = await supa
       .from("proprietarios")
-      .select("id, nome, login, email, nome_completo, cpf, contrato_status, contrato_document_id, contrato_url")
+      .select("id, nome, login, email, telefone, nome_completo, cpf, rg, profissao, nacionalidade, estado_civil, " +
+        "cep, rua, numero, complemento, bairro, cidade, estado, cadastro_completo, " +
+        "contrato_status, contrato_document_id, contrato_url")
       .eq("id", proprietarioId)
       .maybeSingle();
     if (propErr || !propRow) return json({ error: "not_found" }, 404);
@@ -103,9 +99,12 @@ serve(async (req) => {
       });
     }
 
-    // ── Passo 1: upload do PDF no Assinafy ──────────────
-    const pdfBytes = base64ToBytes(pdfBase64);
-    const nomeArquivo = `contrato-${(propRow.nome_completo || propRow.nome || "proprietario").toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "")}.pdf`;
+    if (!propRow.cadastro_completo) return json({ error: "cadastro_incompleto" }, 400);
+
+    // ── Passo 1: gera o PDF com os dados do banco e sobe no Assinafy ──
+    const dadosContrato = dadosContratoDoBanco(propRow);
+    const pdfBytes = gerarPdfContrato(dadosContrato);
+    const nomeArquivo = nomeArquivoContrato(dadosContrato);
 
     const form = new FormData();
     form.append("file", new Blob([pdfBytes], { type: "application/pdf" }), nomeArquivo);

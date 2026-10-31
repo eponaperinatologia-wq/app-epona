@@ -1020,6 +1020,8 @@ export function VacinacaoScreen({
   protocolos, vacinacoesAnimais, agenda,
   addProtocolo, updateProtocolo, deleteProtocolo, upsertVacinacao, onBack,
 }) {
+  // Sem upsertVacinacao (proprietário) a agenda é só de leitura: sem aplicar/cancelar/reagendar.
+  const podeAplicar = !!upsertVacinacao;
   const [vista, setVista] = useState('agenda');
   const [editProt, setEditProt] = useState(null);
   const [showProtForm, setShowProtForm] = useState(false);
@@ -1154,10 +1156,10 @@ export function VacinacaoScreen({
             {agendaFiltrada.filter(i => !i.feito).length === 0 && protocolos.length > 0 && (
               <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhuma dose pendente.</div>
             )}
-            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
-            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
-            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onCancelar={handleCancelarVacina} onReagendar={handleReagendarVacina} protocolos={protocolos} />}
-            {futuras.length > 0 && <AgendaGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVacinar={handleVacinar} onReagendar={handleReagendarVacina} collapsed protocolos={protocolos} />}
+            {atrasadas.length > 0 && <AgendaGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVacinar={podeAplicar ? handleVacinar : null} onCancelar={podeAplicar ? handleCancelarVacina : null} onReagendar={podeAplicar ? handleReagendarVacina : null} protocolos={protocolos} />}
+            {hoje.length > 0 && <AgendaGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVacinar={podeAplicar ? handleVacinar : null} onCancelar={podeAplicar ? handleCancelarVacina : null} onReagendar={podeAplicar ? handleReagendarVacina : null} protocolos={protocolos} />}
+            {proximas.length > 0 && <AgendaGrupo titulo="Próximos 30 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVacinar={podeAplicar ? handleVacinar : null} onCancelar={podeAplicar ? handleCancelarVacina : null} onReagendar={podeAplicar ? handleReagendarVacina : null} protocolos={protocolos} />}
+            {futuras.length > 0 && <AgendaGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVacinar={podeAplicar ? handleVacinar : null} onReagendar={podeAplicar ? handleReagendarVacina : null} collapsed protocolos={protocolos} />}
             {feitas.length > 0 && <AgendaGrupo titulo={`Realizadas (${feitas.length})`} cor="#6b7280" items={feitas} cavalos={cavalos} insumos={insumos} onVacinar={null} collapsed protocolos={protocolos} />}
           </>
         )}
@@ -1237,7 +1239,7 @@ function AgendaItem({ item, cavalos, insumos, onVacinar, onCancelar, onReagendar
             <>
               <div style={{ fontSize: 11, fontWeight: 600, color: cor, marginBottom: 6 }}>{labelDias}</div>
               <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                <button onClick={() => setConfirmando(true)} style={{ background: cor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Aplicar ✓</button>
+                {onVacinar && <button onClick={() => setConfirmando(true)} style={{ background: cor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Aplicar ✓</button>}
                 {onReagendar && (
                   <button onClick={() => setReagendando(true)} title="Reagendar dose" style={{ background: 'transparent', color: 'var(--ink-2)', border: '1px solid var(--line)', borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>🗓</button>
                 )}
@@ -1576,6 +1578,9 @@ export function VermifugacaoScreen({
   addVermifugacao, addOpg, updateOpg, deleteOpg,
   addProcedimento, servicos, onBack,
 }) {
+  // Sem os handlers de gravação (proprietário) a agenda é só de leitura.
+  const podeAplicar = !!addVermifugacao;
+  const podeOpg = !!addOpg && !!updateOpg;
   const [vista, setVista] = useState('agenda');
   const [editProt, setEditProt] = useState(null);
   const [showProtForm, setShowProtForm] = useState(false);
@@ -1835,17 +1840,17 @@ export function VermifugacaoScreen({
             {agendaFiltrada.length === 0 && protocolos.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--ink-3)', fontSize: 14 }}>Nenhum protocolo cadastrado. Crie em "Protocolos".</div>
             )}
-            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
-            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
-            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} protocolos={protocolos} />}
-            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={handleVermifugar} onCancelar={handleCancelarVerm} onReagendar={handleReagendarVerm} collapsed protocolos={protocolos} />}
+            {atrasadas.length > 0 && <VermGrupo titulo="Atrasadas" cor="#dc2626" items={atrasadas} cavalos={cavalos} insumos={insumos} onVermifugar={podeAplicar ? handleVermifugar : null} onCancelar={podeAplicar ? handleCancelarVerm : null} onReagendar={podeAplicar ? handleReagendarVerm : null} protocolos={protocolos} />}
+            {hoje.length > 0 && <VermGrupo titulo="Hoje" cor="var(--accent)" items={hoje} cavalos={cavalos} insumos={insumos} onVermifugar={podeAplicar ? handleVermifugar : null} onCancelar={podeAplicar ? handleCancelarVerm : null} onReagendar={podeAplicar ? handleReagendarVerm : null} protocolos={protocolos} />}
+            {proximas.length > 0 && <VermGrupo titulo="Próximos 60 dias" cor="#b45309" items={proximas} cavalos={cavalos} insumos={insumos} onVermifugar={podeAplicar ? handleVermifugar : null} onCancelar={podeAplicar ? handleCancelarVerm : null} onReagendar={podeAplicar ? handleReagendarVerm : null} protocolos={protocolos} />}
+            {futuras.length > 0 && <VermGrupo titulo="Futuros" cor="var(--ink-3)" items={futuras} cavalos={cavalos} insumos={insumos} onVermifugar={podeAplicar ? handleVermifugar : null} onCancelar={podeAplicar ? handleCancelarVerm : null} onReagendar={podeAplicar ? handleReagendarVerm : null} collapsed protocolos={protocolos} />}
             {agendaOpgFiltrada.length > 0 && (
               <div style={{ marginTop: agendaFiltrada.length > 0 ? 16 : 0 }}>
                 <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'0.08em', color:'#7c3aed', marginBottom:10 }}>
                   OPG · Coleta Programada ({agendaOpgFiltrada.length})
                 </div>
                 {agendaOpgFiltrada.map(item => (
-                  <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} servicos={servicos||[]} addProcedimento={addProcedimento} onAplicar={handleOPGAplicar} onDispensar={handleDispensarOpg} cor="#7c3aed" />
+                  <OPGAgendaItem key={`${item.key}_${item.opgPendente?.id||'novo'}`} item={item} insumos={insumos} servicos={servicos||[]} addProcedimento={addProcedimento} onAplicar={podeOpg ? handleOPGAplicar : null} onDispensar={podeOpg ? handleDispensarOpg : null} cor="#7c3aed" />
                 ))}
               </div>
             )}
@@ -1983,7 +1988,7 @@ function VermItem({ item, cavalos, insumos, onVermifugar, onCancelar, onReagenda
             <>
               <div style={{ fontSize:11, fontWeight:600, color:cor, marginBottom:6 }}>{labelDias}</div>
               <div style={{ display:'flex', gap:6, justifyContent:'flex-end', flexWrap:'wrap' }}>
-                <button onClick={()=>setConfirmando(true)} style={{ background:cor, color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>Aplicar ✓</button>
+                {onVermifugar && <button onClick={()=>setConfirmando(true)} style={{ background:cor, color:'#fff', border:'none', borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>Aplicar ✓</button>}
                 {onReagendar && (
                   <button onClick={()=>setReagendando(true)} title="Reagendar dose" style={{ background:'transparent', color:'var(--ink-2)', border:'1px solid var(--line)', borderRadius:8, padding:'6px 10px', fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--sans)' }}>🗓</button>
                 )}
@@ -2698,7 +2703,7 @@ function OPGAgendaItem({ item, insumos, servicos, addProcedimento, onAplicar, on
         </div>
         <div style={{ flexShrink:0, textAlign:'right' }}>
           <div style={{ fontSize:11, fontWeight:600, color:opg?.aplicado?'#9ca3af':cor, marginBottom:6 }}>{labelDias}</div>
-          {!opg?.aplicado && (
+          {!opg?.aplicado && onAplicar && (
             <button onClick={()=>setOpen(o=>!o)} style={{ background:open?cor:'var(--soft)', color:open?'#fff':'var(--ink)', border:`1px solid ${open?cor:'var(--line)'}`, borderRadius:8, padding:'6px 12px', fontSize:12, fontWeight:700, cursor:'pointer', fontFamily:'var(--sans)' }}>
               {open?'Fechar':opg?'Continuar':'Registrar'}
             </button>
@@ -2809,7 +2814,7 @@ function OPGScreen({ cavalos, opgs, isAdmin, currentUser, addOpg, updateOpg, del
         </select>
       </div>
 
-      {(isAdmin || true) && !showForm && (
+      {addOpg && !showForm && (
         <button onClick={()=>{ setEditOpg(null); setShowForm(true); }} style={{ width:'100%', background:'var(--accent-soft)', border:'1px dashed var(--accent)', borderRadius:12, padding:13, fontSize:14, fontWeight:600, color:'var(--accent)', marginBottom:14, fontFamily:'var(--sans)' }}>
           + Registrar OPG
         </button>
@@ -3094,7 +3099,7 @@ export function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUse
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)', flex: 1 }}>Anotações Clínicas</div>
-          <button onClick={() => { setEditNota(null); setShowForm(true); }} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Nova</button>
+          {addAnotacaoClinica && <button onClick={() => { setEditNota(null); setShowForm(true); }} style={{ background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Nova</button>}
         </div>
       </div>
 
@@ -3241,14 +3246,14 @@ export function AnotacoesClinicasScreen({ cavalos, insumos, servicos, currentUse
                               insumos={insumos}
                               servicos={servicos}
                               showAnimal={false}
-                              onEdit={() => { setEditNota(nota); setShowForm(true); }}
-                              onDelete={() => {
+                              onEdit={updateAnotacaoClinica ? () => { setEditNota(nota); setShowForm(true); } : null}
+                              onDelete={deleteAnotacaoClinica ? () => {
                                 if (!window.confirm('Excluir anotação? Os insumos e procedimentos lançados por ela também saem da fatura.')) return;
                                 // Antes as cobranças criadas pela nota ficavam na fatura
                                 (nota.insumosCriados || []).forEach(c => c.registroId && deleteRegistro && deleteRegistro(c.registroId));
                                 (nota.procsCriados || []).forEach(c => c.procId && deleteProcedimento && deleteProcedimento(c.procId));
                                 deleteAnotacaoClinica(nota.id);
-                              }}
+                              } : null}
                             />
                           ))}
                         </div>
@@ -3313,8 +3318,8 @@ function AnotacaoCard({ nota, cavalo, insumos, servicos, showAnimal, onEdit, onD
           )}
         </div>
         <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
-          <button onClick={onEdit} style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)' }}>Editar</button>
-          <button onClick={onDelete} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '3px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+          {onEdit && <button onClick={onEdit} style={{ background: 'var(--soft)', border: '1px solid var(--line)', borderRadius: 8, padding: '3px 10px', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)', color: 'var(--ink)' }}>Editar</button>}
+          {onDelete && <button onClick={onDelete} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '3px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>}
         </div>
       </div>
     </div>
@@ -3767,7 +3772,7 @@ export function ExamesComplementaresScreen({ cavalos, exames, uploadExame, delet
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
           <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)', flex: 1 }}>Exames Complementares</div>
-          <button onClick={() => setShowForm(true)} style={{ background: '#0e7490', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Anexar</button>
+          {uploadExame && <button onClick={() => setShowForm(true)} style={{ background: '#0e7490', color: '#fff', border: 'none', borderRadius: 10, padding: '7px 14px', fontSize: 13, fontWeight: 600, fontFamily: 'var(--sans)', cursor: 'pointer' }}>+ Anexar</button>}
         </div>
       </div>
 
@@ -3825,7 +3830,7 @@ export function ExamesComplementaresScreen({ cavalos, exames, uploadExame, delet
                             {isImg ? 'Ver imagem' : 'Abrir'}
                           </button>
                         )}
-                        <button onClick={() => { if (window.confirm('Excluir exame?')) deleteExame(exame.id); }} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>
+                        {deleteExame && <button onClick={() => { if (window.confirm('Excluir exame?')) deleteExame(exame.id); }} style={{ background: '#fef2f2', border: 'none', borderRadius: 8, padding: '4px 8px', cursor: 'pointer' }}><Icon name="x" size={12} color="#dc2626" /></button>}
                       </div>
                     </div>
                   </div>

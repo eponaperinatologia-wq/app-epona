@@ -627,7 +627,7 @@ export function ProprietarioApp({
         frascosAbertos={[]}
         progProgramas={vetData.progProgramas || []} progAplicacoes={vetData.progAplicacoes || []}
         // sectionsAllowed limita o hub — sem cronograma, sem emergências
-        sectionsAllowed={['anotacoes', 'reproducao', 'gestacao', 'vacinacao', 'vermifugacao', 'desenvolvimento', 'exames', 'relatorio']}
+        sectionsAllowed={['anotacoes', 'gestacao', 'vacinacao', 'vermifugacao', 'desenvolvimento', 'exames', 'relatorio']}
       />
     );
   } else if (screen === 'proprietario-conta') {

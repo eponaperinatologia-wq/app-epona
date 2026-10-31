@@ -1,18 +1,31 @@
 // pdfContrato.js — Gera o CONTRATO DE PRESTAÇÃO DE SERVIÇOS
-// preenchido com os dados do proprietário. Retorna base64 pronto pra
-// subir na Edge Function assinafy-criar-assinatura.
+// preenchido com os dados do proprietário. Roda NO SERVIDOR (Edge Function
+// assinafy-criar-assinatura), a partir do cadastro no banco — antes era
+// gerado no aparelho do cliente, que podia alterar o texto antes de assinar.
 //
 // O texto do contrato é fixo (definido junto com o Haras Epona). Só variam
 // os dados do CONTRATANTE (nome, CPF, RG, endereço, etc). Se o texto do
 // contrato mudar, edite as strings abaixo — quem escreve o texto é humano,
 // então evito engenharia excessiva de template.
 
-import { jsPDF } from 'jspdf';
+import { jsPDF } from 'npm:jspdf@4.2.1';
 
-// Formata data: 4 de agosto de 2026
+// Formata data no fuso de São Paulo: 4 de agosto de 2026
 function fmtDataExtenso(d = new Date()) {
   const meses = ['janeiro','fevereiro','março','abril','maio','junho','julho','agosto','setembro','outubro','novembro','dezembro'];
-  return `${d.getDate()} de ${meses[d.getMonth()]} de ${d.getFullYear()}`;
+  const sp = new Date(d.getTime() - 3 * 60 * 60 * 1000);
+  return `${sp.getUTCDate()} de ${meses[sp.getUTCMonth()]} de ${sp.getUTCFullYear()}`;
+}
+
+// Linha de proprietarios (snake_case do banco) → campos usados no texto.
+export function dadosContratoDoBanco(r) {
+  return {
+    nomeCompleto: r.nome_completo || r.nome || '', nacionalidade: r.nacionalidade || '',
+    estadoCivil: r.estado_civil || '', profissao: r.profissao || '', rg: r.rg || '', cpf: r.cpf || '',
+    rua: r.rua || '', numero: r.numero || '', complemento: r.complemento || '', bairro: r.bairro || '',
+    cidade: r.cidade || '', estado: r.estado || '', cep: r.cep || '', telefone: r.telefone || '',
+    email: r.email || '',
+  };
 }
 
 // Monta o endereço completo em uma linha
@@ -345,9 +358,8 @@ export function gerarPdfContrato(proprietario) {
   doc.setFontSize(9);
   doc.text('Haras da Vila Alojamento para Animais Ltda.', M, y + 10);
 
-  // Devolve como base64 sem o prefixo data:...
-  const dataUri = doc.output('datauristring');
-  return dataUri.split(',')[1];
+  // Devolve os bytes do PDF (para subir direto no Assinafy)
+  return new Uint8Array(doc.output('arraybuffer'));
 }
 
 // Nome sugerido do arquivo (para debug/download)

@@ -9,7 +9,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { trocarSenhaProprietario } from './auth-proprietario';
 import { tokenAtual } from './auth-conta';
-import { gerarPdfContrato } from './utils/pdfContrato';
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL || '';
 
@@ -115,7 +114,11 @@ export function TrocarSenhaScreen({ currentUser, onComplete, onLogout }) {
 const maskCpf = (v) => (v || '').replace(/\D/g, '').slice(0, 11).replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
 const maskCep = (v) => (v || '').replace(/\D/g, '').slice(0, 8).replace(/(\d{5})(\d)/, '$1-$2');
 const maskTel = (v) => {
-  const d = (v || '').replace(/\D/g, '').slice(0, 11);
+  const bruto = String(v || '');
+  // Com DDI (+55 …) não reformata: antes os dígitos do DDI viravam DDD e o
+  // número da cobrança por WhatsApp ficava errado.
+  if (bruto.trim().startsWith('+')) return bruto.replace(/[^\d+()\-\s]/g, '').slice(0, 20);
+  const d = bruto.replace(/\D/g, '').slice(0, 11);
   if (d.length <= 10) return d.replace(/(\d{2})(\d{4})(\d)/, '($1) $2-$3');
   return d.replace(/(\d{2})(\d{5})(\d)/, '($1) $2-$3');
 };
@@ -268,16 +271,15 @@ export function AssinaturaContratoScreen({ currentUser, proprietarioAtual, onCom
           setErro('Sessão expirada. Faça login novamente para assinar o contrato.');
           return;
         }
-        // Gera o PDF do contrato client-side com todos os dados do proprietário.
-        // O Assinafy recebe o PDF já preenchido — signer só coloca a assinatura.
-        const pdfBase64 = gerarPdfContrato(proprietarioAtual);
+        // O servidor gera o PDF do contrato com os dados do cadastro no banco
+        // (o aparelho não monta mais o documento) e devolve o link de assinatura.
         const res = await fetch(`${SUPABASE_URL}/functions/v1/assinafy-criar-assinatura`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${token}`,
           },
-          body: JSON.stringify({ proprietarioId: currentUser.id, pdfBase64 }),
+          body: JSON.stringify({ proprietarioId: currentUser.id }),
         });
         const data = await res.json();
         if (cancelado) return;

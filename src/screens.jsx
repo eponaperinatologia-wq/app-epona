@@ -1659,6 +1659,8 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
 
       {/* Quick action */}
       <div style={{ padding: '20px 20px 0' }}>
+        {/* Sem updateCavalo (proprietário) não há lançamento por aqui */}
+        {updateCavalo && (
         <button onClick={() => { setSelected(id); setScreen('registrar'); }} style={{
           width: '100%', background: 'var(--accent)', color: 'var(--accent-ink)',
           border: 'none', borderRadius: 14, padding: '14px',
@@ -1668,6 +1670,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
           <Icon name="plus" size={18} color="#fff" />
           Registrar insumo p/ {c.nome.split(' ')[0]}
         </button>
+        )}
       </div>
     </div>
   );
@@ -6524,7 +6527,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
               </div>
             );
           })}
-          {!faturaExistente && (
+          {!faturaExistente && !isProprietarioView && (
             <button onClick={() => { setMesRegistroDestino?.(`${ref.ano}-${String(ref.mes).padStart(2, '0')}`); setScreen('registrar'); }} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
               + Registrar insumo
             </button>
@@ -6562,7 +6565,7 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
               </div>
             );
           })}
-          {!faturaExistente && (
+          {!faturaExistente && !isProprietarioView && (
             <button onClick={() => { setMesRegistroDestino?.(`${ref.ano}-${String(ref.mes).padStart(2, '0')}`); setScreen('registrarProcedimento'); }} style={{ marginTop: 6, fontSize: 11, color: 'var(--accent)', background: 'none', border: '1px dashed var(--accent)', borderRadius: 6, padding: '4px 10px', fontFamily: 'var(--sans)', cursor: 'pointer' }}>
               + Registrar procedimento
             </button>
