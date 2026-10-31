@@ -554,6 +554,9 @@ export function GestacaoPartosScreen({
 }) {
   const [subTab, setSubTab] = useState('gestacoes');
   const [busca, setBusca] = useState('');
+  // Alertas do acompanhamento (placentite, FC, RCIU, migrar p/ maternidade…)
+  // são controle veterinário: o proprietário não vê, para não criar alarde.
+  const verAlertas = currentUser?.role !== 'proprietario';
 
   const q = busca.trim().toLowerCase();
 
@@ -633,7 +636,7 @@ export function GestacaoPartosScreen({
       </div>
       <div style={{ paddingBottom:90 }}>
         {subTab === 'gestacoes' && (
-          <GestaoesTab gestantes={gestantesFiltradas} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
+          <GestaoesTab gestantes={gestantesFiltradas} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} verAlertas={verAlertas} />
         )}
         {subTab === 'partos' && (
           <PartosTab partos={partosFiltrados} cavalos={cavalos} proprietarios={proprietarios} setScreen={setScreen} setSelected={setSelected} />
@@ -657,7 +660,7 @@ export function GestacaoPartosScreen({
 }
 
 // ── Lista de gestantes ────────────────────────────────────────
-function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
+function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected, verAlertas = true }) {
   const dentro = gestantes.filter(c => !c._foraHaras);
   const fora = gestantes.filter(c => c._foraHaras);
 
@@ -672,23 +675,23 @@ function GestaoesTab({ gestantes, proprietarios, setScreen, setSelected }) {
   const renderCard = (c, isGray) => {
     const prop = proprietarios.find(p => p.id === c.proprietarioId);
     const dias = c._dias;
-    const atrasada = !isGray && dias !== null && dias < 0;
-    const alerta = !isGray && dias !== null && dias >= 0 && dias <= 30;
+    const atrasada = verAlertas && !isGray && dias !== null && dias < 0;
+    const alerta = verAlertas && !isGray && dias !== null && dias >= 0 && dias <= 30;
     const mes = mesDaGestacao(c.gestacao?.dataCobricao);
     const pct = Math.round((mes / 11) * 100);
     const sexagem = c.gestacao?.sexagem;
-    const posterior = !isGray && temApresentacaoPosterior(c);
-    const jup = !isGray ? analisarJupCavalo(c) : null;
+    const posterior = verAlertas && !isGray && temApresentacaoPosterior(c);
+    const jup = verAlertas && !isGray ? analisarJupCavalo(c) : null;
     const suspInsuf = jup && jup.status === 'insuficiencia';
     const suspPlac = jup && jup.status === 'placentite';
     const temAlertaJup = suspInsuf || suspPlac;
-    const fcCrit = !isGray ? analisarFcCritico(c) : null;
+    const fcCrit = verAlertas && !isGray ? analisarFcCritico(c) : null;
     const brady = fcCrit && fcCrit.critico === 'bradicardia';
     const taqui = fcCrit && fcCrit.critico === 'taquicardia';
     const temAlertaFc = brady || taqui;
-    const ofCrit = !isGray ? analisarOfCritico(c) : null;
-    const aortaCrit = !isGray ? analisarAortaCritica(c) : null;
-    const bpCrit = !isGray ? analisarBiparietalCritico(c) : null;
+    const ofCrit = verAlertas && !isGray ? analisarOfCritico(c) : null;
+    const aortaCrit = verAlertas && !isGray ? analisarAortaCritica(c) : null;
+    const bpCrit = verAlertas && !isGray ? analisarBiparietalCritico(c) : null;
     const rciu = (ofCrit && ofCrit.classe === 'critico')
       || (aortaCrit && aortaCrit.status === 'critico')
       || (bpCrit && bpCrit.status === 'critico');
@@ -1029,7 +1032,8 @@ export function EguaGestanteDetalheScreen({
             </div>
           }
         />
-        {alertas}
+        {/* Alertas do acompanhamento são controle veterinário: o proprietário não vê. */}
+        {currentUser?.role !== 'proprietario' && alertas}
         <SubTabBar
           tabs={[
             { id:'gestacao', label:'Gestação' },
@@ -1488,6 +1492,8 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   const g = c.gestacao || {};
   const acomp = g.acompanhamento || {};
   const readOnly = !updateCavalo;
+  // Proprietário vê as medidas, sem as classificações/alertas (controle veterinário).
+  const ocultarAlertas = currentUser?.role === 'proprietario';
 
   const salvarMes = (mes, dados, sexagem) => {
     if (readOnly) return;
@@ -1547,6 +1553,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
             expandido={expandido === mes}
             temDados={temDados(mes)}
             readOnly={readOnly}
+            ocultarAlertas={ocultarAlertas}
             onToggle={() => setExpandido(expandido === mes ? null : mes)}
             onSalvar={(dados, sexagem) => salvarMes(mes, dados, sexagem)}
           />
@@ -1556,7 +1563,7 @@ function AcompanhamentoTab({ c, updateCavalo, mesAtual, addAviso, addAtividade, 
   );
 }
 
-function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar, readOnly = false }) {
+function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temDados, onToggle, onSalvar, readOnly = false, ocultarAlertas = false }) {
   const [form, setForm] = useState(() => {
     const base = { ...ACOMP_VAZIO, ...dados };
     // Backward compat: até o refactor, o campo era só "orbitaOcular" e
@@ -1588,12 +1595,14 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
     fontSize:13, color:'var(--ink)', fontFamily:'var(--sans)', outline:'none',
   };
 
-  const isPosterior = estaticaFetal === 'posterior';
-  const fcStatus = _classificarFc(mes, form.freqCardiaca);
-  const ofClasse = _classificarOf(mes, form);
-  const aortaStatus = _classificarAorta(mes, form.aorta);
-  const bpStatus = _classificarBiparietal(mes, form.biparietal);
-  const jupStatus = _classificarJup(mes, form.jup);
+  // ocultarAlertas (proprietário): sem chips, destaques e textos de
+  // classificação — só os valores medidos.
+  const isPosterior = !ocultarAlertas && estaticaFetal === 'posterior';
+  const fcStatus = ocultarAlertas ? null : _classificarFc(mes, form.freqCardiaca);
+  const ofClasse = ocultarAlertas ? null : _classificarOf(mes, form);
+  const aortaStatus = ocultarAlertas ? null : _classificarAorta(mes, form.aorta);
+  const bpStatus = ocultarAlertas ? null : _classificarBiparietal(mes, form.biparietal);
+  const jupStatus = ocultarAlertas ? null : _classificarJup(mes, form.jup);
 
   // Auto-preenche o volume ao editar altura/largura. Se o usuário digitar
   // volume manualmente, ele vai ser sobrescrito no próximo edit de a/l —
@@ -1696,7 +1705,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
             if (campo.tipo === 'skip') return null;
             const ehJup = campo.key === 'jup';
             const refJup = ehJup ? _refJupPorMes(mes) : null;
-            const classe = ehJup && form.jup !== '' && form.jup != null
+            const classe = !ocultarAlertas && ehJup && form.jup !== '' && form.jup != null
               ? _classificarJup(mes, form.jup) : null;
             const corClasse = classe === 'insuficiencia' ? '#b45309'
               : classe === 'placentite' ? '#be123c'
@@ -1707,7 +1716,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
             const ehFc = campo.key === 'freqCardiaca';
             const refFc = ehFc ? _refFcPorMes(mes) : null;
-            const fcClasse = ehFc ? _classificarFc(mes, form.freqCardiaca) : null;
+            const fcClasse = ehFc && !ocultarAlertas ? _classificarFc(mes, form.freqCardiaca) : null;
             const fcAlterada = fcClasse === 'alta' || fcClasse === 'baixa';
             const fcInputStyle = fcAlterada
               ? { ...inputStyle, background:'#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
@@ -1715,7 +1724,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
             const ehAorta = campo.key === 'aorta';
             const refAorta = ehAorta ? _refAortaPorMes(mes) : null;
-            const aortaClasse = ehAorta ? _classificarAorta(mes, form.aorta) : null;
+            const aortaClasse = ehAorta && !ocultarAlertas ? _classificarAorta(mes, form.aorta) : null;
             const aortaAlterada = aortaClasse && aortaClasse !== 'normal';
             const aortaInputStyle = aortaAlterada
               ? { ...inputStyle, background: aortaClasse === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
@@ -1723,7 +1732,7 @@ function MesAcompanhamento({ mes, mesAtual, dados, sexagemAtual, expandido, temD
 
             const ehBp = campo.key === 'biparietal';
             const refBp = ehBp ? _refBiparietalPorMes(mes) : null;
-            const bpClasse = ehBp ? _classificarBiparietal(mes, form.biparietal) : null;
+            const bpClasse = ehBp && !ocultarAlertas ? _classificarBiparietal(mes, form.biparietal) : null;
             const bpAlterada = bpClasse && bpClasse !== 'normal';
             const bpInputStyle = bpAlterada
               ? { ...inputStyle, background: bpClasse === 'critico' ? '#fee2e2' : '#fef2f2', border:'1px solid #fca5a5', color:'#7f1d1d' }
