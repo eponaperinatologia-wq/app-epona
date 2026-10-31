@@ -203,11 +203,37 @@ function AppEpona() {
     };
   }, []);
 
+ // Cadastro dos clientes + dados pessoais (CPF, RG, endereço…), que ficam numa
+ // tabela à parte: só admin e o próprio cliente recebem; para os demais vem vazia.
+ const carregarProprietarios = async () => {
+   const [linhas, pessoais] = await Promise.all([
+     fetchAll('proprietarios'),
+     fetchAll('proprietarios_dados_pessoais'),
+   ]);
+   const porId = new Map((pessoais || []).map(d => [d.proprietario_id, d]));
+   return (linhas || []).map(p => fromDbProprietario({ ...p, ...(porId.get(p.id) || {}) }));
+ };
+ // Operacional: o próprio cadastro inteiro; dos colegas só nome, função,
+ // aniversário e escala (sem salário), para o planner.
+ const carregarEquipeOperacional = async () => {
+   const [proprio, { data: publica, error }] = await Promise.all([
+     fetchAll('funcionarios', fromDbFuncionario),
+     supabase.rpc('equipe_publica'),
+   ]);
+   if (error) return proprio;
+   const ids = new Set(proprio.map(f => f.id));
+   return [...proprio, ...(publica || []).filter(f => !ids.has(f.id)).map(fromDbFuncionario)];
+ };
+
  // ── Carregamento inicial ──────────────────────────────────────
  // Só roda com alguém logado: o banco entrega a cada conta apenas o que ela
  // pode ver (proprietário recebe só os dados dele; tabelas da equipe vêm vazias).
 const loadAllData = async (user = currentUser) => {
   const ehProprietario = user?.role === 'proprietario';
+  const ehOperacional = user?.role === 'operacional';
+  // Financeiro (lançamentos, custos, faturas) só para quem enxerga: não roda
+  // as migrações automáticas no aparelho do proprietário nem do operacional.
+  const veFinanceiro = !ehProprietario && !ehOperacional;
   try {
     const [cavalosData, propsData, insumosData, servicosData, funcData,
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
@@ -220,16 +246,16 @@ const loadAllData = async (user = currentUser) => {
       contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
-      fetchAll('proprietarios', fromDbProprietario),
-      // Proprietário não lê a tabela (custo de compra, markup, fornecedor):
-      // recebe o catálogo só com preço de venda.
-      ehProprietario
+      carregarProprietarios(),
+      // Proprietário e operacional não leem a tabela (custo de compra, markup,
+      // fornecedor): recebem o catálogo só com preço de venda.
+      ehProprietario || ehOperacional
         ? supabase.rpc('catalogo_insumos').then(({ data, error }) => (
           error ? fetchAll('insumos', fromDbInsumo) : (data || []).map(fromDbInsumo)
         ))
         : fetchAll('insumos', fromDbInsumo),
       fetchAll('servicos', fromDbServico),
-      fetchAll('funcionarios', fromDbFuncionario),
+      ehOperacional ? carregarEquipeOperacional() : fetchAll('funcionarios', fromDbFuncionario),
       fetchAll('registros', fromDbRegistro),
       fetchAll('partos', fromDbParto),
       fetchAll('eventos', fromDbEvento),
@@ -362,7 +388,7 @@ const loadAllData = async (user = currentUser) => {
         _ecId: c.id, _novoId: !c.lancamentoId,
       };
     });
-    if (lansEstoque.length > 0 && !ehProprietario) {
+    if (lansEstoque.length > 0 && veFinanceiro) {
       lansEstoque.forEach(({ _ecId, _novoId, ...lan }) => {
         dbInsertIgnore('financeiro_lancamentos', toDbLancamento(lan));
         if (_novoId) dbUpdate('estoque_compras', _ecId, { lancamento_id: lan.id });
@@ -391,7 +417,7 @@ const loadAllData = async (user = currentUser) => {
     });
 
     setLancamentos([...lancamentosCorrigidos, ...novosLans, ...lansEstoqueLimpos]);
-    if (!ehProprietario) {
+    if (veFinanceiro) {
       if (novosLans.length > 0) novosLans.forEach(l => dbInsertIgnore('financeiro_lancamentos', toDbLancamento(l)));
       lansParaDeletar.forEach(id => dbDelete('financeiro_lancamentos', id));
     }
@@ -1572,8 +1598,11 @@ const loadAllData = async (user = currentUser) => {
   // Recarrega um proprietário do banco — usado após RPC (criar credencial,
   // trocar senha) que muda campos fora do fluxo normal do setState.
   const refetchProprietario = async (id) => {
-    const { data } = await supabase.from('proprietarios').select('*').eq('id', id).single();
-    if (data) setProprietarios(prev => prev.map(p => p.id === id ? fromDbProprietario(data) : p));
+    const [{ data }, { data: pessoais }] = await Promise.all([
+      supabase.from('proprietarios').select('*').eq('id', id).single(),
+      supabase.from('proprietarios_dados_pessoais').select('*').eq('proprietario_id', id).maybeSingle(),
+    ]);
+    if (data) setProprietarios(prev => prev.map(p => p.id === id ? fromDbProprietario({ ...data, ...(pessoais || {}) }) : p));
   };
   const deleteProprietario = (id) => {
     setProprietarios(prev => prev.filter(p => p.id !== id));
@@ -2164,7 +2193,9 @@ const loadAllData = async (user = currentUser) => {
   const updateMinhaConta = (data) => {
     if (!currentUser) return;
     const fn = funcionarios.find(f => f.id === currentUser.id);
-    if (fn) updateFuncionario(fn.id, { ...fn, ...data });
+    // Só os campos da tela: regravar a linha inteira levava salário/função do
+    // estado da tela (e o banco só deixa admin mudar esses campos).
+    if (fn) updateFuncionario(fn.id, data);
     setCurrentUser(prev => {
       const next = {
         ...prev,

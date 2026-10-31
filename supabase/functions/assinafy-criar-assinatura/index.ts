@@ -78,14 +78,21 @@ serve(async (req) => {
     );
     if (!(await ehOProprietarioLogado(supa, req, proprietarioId))) return json({ error: "unauthorized" }, 401);
 
-    const { data: propRow, error: propErr } = await supa
+    const { data: cadastro, error: propErr } = await supa
       .from("proprietarios")
-      .select("id, nome, login, email, telefone, nome_completo, cpf, rg, profissao, nacionalidade, estado_civil, " +
-        "cep, rua, numero, complemento, bairro, cidade, estado, cadastro_completo, " +
+      .select("id, nome, login, email, telefone, nome_completo, cadastro_completo, " +
         "contrato_status, contrato_document_id, contrato_url")
       .eq("id", proprietarioId)
       .maybeSingle();
-    if (propErr || !propRow) return json({ error: "not_found" }, 404);
+    if (propErr || !cadastro) return json({ error: "not_found" }, 404);
+    // CPF, RG, endereço… ficam em proprietarios_dados_pessoais (só admin e o
+    // próprio cliente leem pelo app; aqui a service role lê).
+    const { data: pessoais } = await supa
+      .from("proprietarios_dados_pessoais")
+      .select("cpf, rg, profissao, nacionalidade, estado_civil, cep, rua, numero, complemento, bairro, cidade, estado")
+      .eq("proprietario_id", proprietarioId)
+      .maybeSingle();
+    const propRow = { ...cadastro, ...(pessoais || {}) };
 
     if (propRow.contrato_status === "assinado") {
       return json({ status: "assinado" });

@@ -478,14 +478,10 @@ export const toDbCavalo = c => ({
 export const toDbProprietario = p => ({
   id: p.id, nome: p.nome, telefone: p.telefone || '', email: p.email || '',
   workspace_id: p.workspaceId || 'haras',
-  // Campos de cadastro completo (senha_hash NUNCA vai por aqui — só via RPC)
+  // CPF, RG, endereço, estado civil, profissão e nacionalidade ficam em
+  // proprietarios_dados_pessoais (só admin e o próprio cliente leem) e são
+  // gravados pela RPC completar_cadastro_proprietario — não vão por aqui.
   nome_completo: p.nomeCompleto || null,
-  rg: p.rg || null, cpf: p.cpf || null, profissao: p.profissao || null,
-  nacionalidade: p.nacionalidade || null,
-  estado_civil: p.estadoCivil || null,
-  cep: p.cep || null, rua: p.rua || null, numero: p.numero || null,
-  complemento: p.complemento || null, bairro: p.bairro || null,
-  cidade: p.cidade || null, estado: p.estado || null,
   cadastro_completo: !!p.cadastroCompleto,
   contrato_status: p.contratoStatus || 'pendente',
   contrato_document_id: p.contratoDocumentId || null,
@@ -1041,7 +1037,7 @@ export const toDbProgesteronaAplicacao = a => ({
 // ── partialToDb: mapeia apenas os campos que diferem ──────────
 
 const CAVALO_MAP    = { proprietarioId: 'proprietario_id', proprietarioIds: 'proprietario_ids', dataSaida: 'data_saida', dataEntrada: 'data_entrada', historicoGestacional: 'historico_gestacional', historicoProprietarios: 'historico_proprietarios', maeId: 'mae_id', pagarOCusto: 'pagar_o_custo' };
-const PROPRIETARIO_MAP = { workspaceId: 'workspace_id', nomeCompleto: 'nome_completo', estadoCivil: 'estado_civil', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro', valorAluguelReceptora: 'valor_aluguel_receptora' };
+const PROPRIETARIO_MAP = { workspaceId: 'workspace_id', nomeCompleto: 'nome_completo', cadastroCompleto: 'cadastro_completo', contratoStatus: 'contrato_status', contratoDocumentId: 'contrato_document_id', contratoUrl: 'contrato_url', contratoAssinadoEm: 'contrato_assinado_em', valorResultadoRepro: 'valor_resultado_repro', valorAluguelReceptora: 'valor_aluguel_receptora' };
 const INSUMO_MAP    = { valorCompra: 'valor_compra', valorVenda: 'valor_venda', incluidoMensalidade: 'incluido_mensalidade', formaCobranca: 'forma_cobranca', valorFrasco: 'valor_frasco', validadeAposAbertaDias: 'validade_apos_aberta_dias', capacidadePorFrasco: 'capacidade_por_frasco', indutorOvulacao: 'indutor_ovulacao', workspaceId: 'workspace_id' };
 const SERVICO_MAP   = { descartaveisObrigatorios: 'descartaveis_obrigatorios', workspaceId: 'workspace_id' };
 const PARTO_MAP     = { eguaId: 'egua_id', potroId: 'potro_id', sexoPotro: 'sexo_potro', nomePotro: 'nome_potro', pesoPotro: 'peso_potro', mamouColostro: 'mamou_colostro', horaPrimeiroLeite: 'hora_primeiro_leite', insumosParto: 'insumos_parto' };
