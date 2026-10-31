@@ -38,6 +38,9 @@ async function autorizado(req) {
 }
 
 module.exports = async function handler(req, res) {
+  // Diagnóstico sem dados: esta publicação tem a chave de serviço? (sem ela,
+  // com o banco fechado para quem não tem login, o push não lê as inscrições)
+  if (req.method === 'GET') return res.status(200).json({ chaveServico: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY) });
   if (req.method !== 'POST') return res.status(405).end();
   if (!(await autorizado(req))) return res.status(401).json({ error: 'unauthorized' });
 
