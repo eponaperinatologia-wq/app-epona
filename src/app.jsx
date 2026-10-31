@@ -275,7 +275,18 @@ const loadAllData = async (user = currentUser) => {
       fetchAll('visitas_clinicas', fromDbVisitaClinica),
     ]);
     setCavalos(cavalosData || []);
-    setProprietarios(propsData || []);
+    let proprietariosVisiveis = propsData || [];
+    if (ehProprietario) {
+      // O proprietário só lê o próprio cadastro; dos coproprietários dos
+      // cavalos dele vem só o nome (senão a ficha mostra "Sem proprietário").
+      const { data: copro, error: erroCopro } = await supabase.rpc('nomes_coproprietarios');
+      if (!erroCopro && copro?.length) {
+        const ids = new Set(proprietariosVisiveis.map(p => p.id));
+        proprietariosVisiveis = [...proprietariosVisiveis,
+          ...copro.filter(c => !ids.has(c.id)).map(c => fromDbProprietario({ id: c.id, nome: c.nome }))];
+      }
+    }
+    setProprietarios(proprietariosVisiveis);
     setInsumos(insumosData || []);
     setServicos(servicosData || []);
     setFuncionarios(funcData || []);
