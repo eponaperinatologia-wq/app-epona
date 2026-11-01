@@ -5975,13 +5975,13 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         />
         <GraficoComparativo
           titulo="Embr+ × Prenh."
-          hint="Taxa de prenhez confirmada entre os embriões positivados"
+          hint="Taxa de prenhez confirmada (DG45+) entre os embriões positivados"
           valorA={totalEmbrioesPos} labelA="Embr+" corA="#be185d"
           valorB={totalPrenhezes} labelB="Prenh." corB="#15803d"
         />
         <GraficoComparativo
           titulo="IA × Prenh."
-          hint="Taxa geral de sucesso: prenhez confirmada por inseminação"
+          hint="Taxa geral de sucesso: prenhez confirmada (DG45+) por inseminação"
           valorA={totalIA} labelA="IA" corA="#7c2d8c"
           valorB={totalPrenhezes} labelB="Prenh." corB="#15803d"
         />
