@@ -5670,12 +5670,12 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   const iasPrenhez = iasDoMes.filter(r => r.dados?.destino === 'prenhez');
   const iasParaTe = iasDoMes.filter(r => r.dados?.destino === 'transferencia');
 
-  // Encontra as CEs+ vinculadas a uma IA (iaOrigemId OU heurística:
-  // mesma égua + CE em até 15 dias depois da IA). Base COMPLETA, não
-  // só do mês — a CE pode ter caído no mês seguinte.
-  const encontraCesDaIa = (ia) => (registrosRepro || []).filter(r => {
+  // Encontra as CEs vinculadas a uma IA, com qualquer resultado
+  // (iaOrigemId OU heurística: mesma égua + CE em até 15 dias depois
+  // da IA). Base COMPLETA, não só do mês — a CE pode ter caído no mês
+  // seguinte.
+  const cesVinculadasDaIa = (ia) => (registrosRepro || []).filter(r => {
     if (r.tipo !== 'transferencia_embriao') return false;
-    if (r.dados?.resultado !== 'positivo') return false;
     if (r.dados?.iaOrigemId === ia.id) return true;
     if (r.eguaId !== ia.eguaId) return false;
     if (!r.data || !ia.data) return false;
@@ -5683,6 +5683,41 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
     const dd = (new Date(r.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
     return dd >= 0 && dd <= 15;
   });
+  const encontraCesDaIa = (ia) => cesVinculadasDaIa(ia).filter(r => r.dados?.resultado === 'positivo');
+
+  // DGs lançados como registro à parte (Diagnóstico de Gestação) da
+  // mesma égua, depois da IA e antes da próxima IA dela. É por aí que
+  // costuma entrar o DG12 da IA pra prenhez na própria égua.
+  const dgsSeparadosDaIa = (ia) => {
+    if (!ia.data) return [];
+    const proximaIa = todasIas
+      .filter(x => x.eguaId === ia.eguaId && (x.data || '') > ia.data)
+      .map(x => x.data)
+      .sort()[0];
+    return (registrosRepro || []).filter(r => r.tipo === 'diagnostico_gestacao'
+      && r.eguaId === ia.eguaId
+      && r.data && r.data >= ia.data
+      && (!proximaIa || r.data < proximaIa)
+      && (r.dados?.resultado === 'positivo' || r.dados?.resultado === 'negativo'));
+  };
+
+  // ── IAs já resolvidas — base do gráfico IA × Embr+ ───────────
+  // IA recente ainda não teve tempo de virar embrião; contar ela como
+  // IA sem Embr+ derruba a taxa. Entram só:
+  //  - destino=transferencia: IA que já virou CE (positiva ou negativa)
+  //  - destino=prenhez (na própria égua): IA com DG lançado ou que já
+  //    chegou no D12 (dia do primeiro DG)
+  const hojeIso = hoje.toLocaleDateString('sv-SE');
+  const iaPrenhezTemDg = (ia) => {
+    const d = ia.dados || {};
+    return ['dgInicial', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo' || d[k] === 'negativo')
+      || dgsSeparadosDaIa(ia).length > 0;
+  };
+  const iasResolvidas = [
+    ...iasParaTe.filter(ia => cesVinculadasDaIa(ia).length > 0),
+    ...iasPrenhez.filter(ia => iaPrenhezTemDg(ia) || (!!ia.data && addDias(ia.data, 12) <= hojeIso)),
+  ];
+  const totalIaResolvidas = iasResolvidas.length;
 
   // CE do mês atribuídas (via mês da IA de origem). Usada só pelo
   // detalhe antigo; a métrica central é embrioesPosLinhas.
@@ -5694,7 +5729,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   // ── Embriões positivados — ancorados ao mês da IA ─────────────
   // Pra cada IA do mês:
   //  - destino=transferencia: itera CE+ vinculadas, soma qtdEmbrioes
-  //  - destino=prenhez: conta se tem DG inicial/DG15 positivo
+  //  - destino=prenhez: conta se tem algum DG positivo, na própria IA
+  //    ou lançado à parte
   const embrioesPosLinhas = [];
   for (const ia of iasParaTe) {
     const ces = encontraCesDaIa(ia);
@@ -5713,7 +5749,8 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   }
   for (const ia of iasPrenhez) {
     const d = ia.dados || {};
-    if (d.dgInicial === 'positivo' || d.dg15 === 'positivo') {
+    if (['dgInicial', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo')
+      || dgsSeparadosDaIa(ia).some(dg => dg.dados.resultado === 'positivo')) {
       embrioesPosLinhas.push({
         key: `${ia.id}:0`, tipo: 'prenhez', regId: ia.id, embIdx: 0, qtd: 1,
         cavaloId: ia.eguaId, data: ia.data,
@@ -5723,13 +5760,19 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
     }
   }
   const totalEmbrioesPos = embrioesPosLinhas.length;
+  const totalEmbrioesPosCe = embrioesPosLinhas.filter(l => l.tipo === 'ce').length;
+  const totalEmbrioesPosPrenhez = embrioesPosLinhas.filter(l => l.tipo === 'prenhez').length;
 
-  // ── Embriões coletados que viraram DG15+ (sobrevivência inicial) ─
-  // Só aplica a embriões COLETADOS (CE+); IA prenhez já é contada em
-  // Embr+ via dgInicial/dg15 — a métrica aqui mede resistência do
-  // embrião entre a coleta e o primeiro DG. Fonte do dg15:
-  //  - na própria CE (dados.dg15 ou dgsEmbrioes[i].dg15), OU
-  //  - na inovulação vinculada à CE via ceOrigemId
+  // ── Embriões que viraram DG15+ (sobrevivência inicial) ────────
+  // Um gráfico por origem, cada um contra o Embr+ da mesma origem:
+  // embriões de CE+ que positivaram na receptora e IAs pra prenhez
+  // na própria égua. Conta como DG15+ qualquer DG positivo do D15 em
+  // diante (não precisa ser exatamente no D15):
+  //  - CE: na própria CE (dados.dgXX ou dgsEmbrioes[i].dgXX), OU na
+  //    inovulação vinculada à CE via ceOrigemId
+  //  - IA prenhez: dados.dg15/dg45/dg60 da própria IA (botões do painel
+  //    de acompanhamento) OU DG+ lançado à parte a partir de 15 dias
+  //    depois da IA
   const embrioesDg15Linhas = [];
   for (const ia of iasParaTe) {
     for (const ce of encontraCesDaIa(ia)) {
@@ -5740,11 +5783,11 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId === ce.id);
       for (let i = 0; i < qtd; i++) {
         const emb = (qtd === 1 && dgsArr.length === 0)
-          ? { dg15: d.dg15 || null }
+          ? { dg15: d.dg15 || null, dg30: d.dg30 || null, dg45: d.dg45 || null, dg60: d.dg60 || null }
           : (dgsArr[i] || {});
-        // DG15+ marcado na CE OU em alguma inovulação linkada
-        const dg15DaCe = emb.dg15 === 'positivo';
-        const dg15DaInov = inovsDaCe.some(iv => iv.dados?.dg15 === 'positivo');
+        // DG+ do D15 em diante marcado na CE OU em alguma inovulação linkada
+        const dg15DaCe = ['dg15', 'dg30', 'dg45', 'dg60'].some(k => emb[k] === 'positivo');
+        const dg15DaInov = inovsDaCe.some(iv => ['dg15', 'dg25', 'dg45', 'dg60'].some(k => iv.dados?.[k] === 'positivo'));
         if (dg15DaCe || dg15DaInov) {
           embrioesDg15Linhas.push({
             key: `${ce.id}:${i}`, tipo: 'ce',
@@ -5758,7 +5801,26 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
       }
     }
   }
-  const totalEmbrioesDg15 = embrioesDg15Linhas.length;
+  for (const ia of iasPrenhez) {
+    const d = ia.dados || {};
+    const dg15Separado = dgsSeparadosDaIa(ia).some(dg => {
+      if (dg.dados.resultado !== 'positivo') return false;
+      const dias = Math.round((new Date(dg.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000);
+      return dias >= 15;
+    });
+    if (['dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo') || dg15Separado) {
+      embrioesDg15Linhas.push({
+        key: `${ia.id}:0`, tipo: 'prenhez',
+        regId: ia.id, cavaloId: ia.eguaId, embIdx: 0, qtd: 1,
+        data: ia.data,
+        garanhao: d.garanhao || '',
+        iaData: ia.data,
+        vetInseminador: ia.vetId,
+      });
+    }
+  }
+  const totalEmbrioesDg15Ce = embrioesDg15Linhas.filter(l => l.tipo === 'ce').length;
+  const totalEmbrioesDg15Prenhez = embrioesDg15Linhas.filter(l => l.tipo === 'prenhez').length;
 
   // ── Prenhezes confirmadas (DG45+) — ancoradas ao mês da IA ───
   // Pra cada IA do mês:
@@ -5895,15 +5957,21 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         </div>
         <GraficoComparativo
           titulo="IA × Embr+"
-          hint="Taxa de embriões positivados por inseminação"
-          valorA={totalIA} labelA="IA" corA="#7c2d8c"
+          hint={`Só entram IAs que já viraram CE ou que já chegaram no DG12 (prenhez na própria égua): ${totalIaResolvidas} de ${totalIA}`}
+          valorA={totalIaResolvidas} labelA="IA" corA="#7c2d8c"
           valorB={totalEmbrioesPos} labelB="Embr+" corB="#be185d"
         />
         <GraficoComparativo
-          titulo="Embr+ × DG15+"
-          hint="Taxa de sobrevivência: embriões coletados que viraram DG15+"
-          valorA={totalEmbrioesPos} labelA="Embr+" corA="#be185d"
-          valorB={totalEmbrioesDg15} labelB="DG15+" corB="#f59e0b"
+          titulo="Embr+ coleta × DG15+"
+          hint="Embriões de coletas positivas que viraram DG15+ na receptora"
+          valorA={totalEmbrioesPosCe} labelA="Embr+" corA="#be185d"
+          valorB={totalEmbrioesDg15Ce} labelB="DG15+" corB="#f59e0b"
+        />
+        <GraficoComparativo
+          titulo="Embr+ própria matriz × DG15+"
+          hint="Inseminações pra prenhez na própria matriz com Embr+ que viraram DG15+"
+          valorA={totalEmbrioesPosPrenhez} labelA="Embr+" corA="#be185d"
+          valorB={totalEmbrioesDg15Prenhez} labelB="DG15+" corB="#f59e0b"
         />
         <GraficoComparativo
           titulo="Embr+ × Prenh."
