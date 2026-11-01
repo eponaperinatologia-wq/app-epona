@@ -5533,23 +5533,24 @@ function ReproLocalDetalhe({ local, vetsExternos, vetKmLocais, onBack, onEdit })
 // serviços agora vivem em Cadastros).
 // ─────────────────────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────
-// Painel — wrapper com 3 sub-abas: Dashboard | Cruzamentos | Calendário
+// Painel — wrapper com 4 sub-abas: Dashboard | Garanhões | Éguas | Calendário
 // ─────────────────────────────────────────────────────────────
 function ReproPainel({
-  registrosRepro, eguasRepro, vetsExternos, propRepro, locaisRepro,
+  registrosRepro, eguasRepro, vetsExternos, locaisRepro,
   servicos = [], centraisRepro = [],
-  currentUser, updateRegistroReproducao, onSelectEvento,
+  currentUser, onSelectEvento,
   vetBundle = null, apenasReproducao = false,
 }) {
   const [sub, setSub] = useState('dashboard');
   const abas = [
     ['dashboard', 'Dashboard'],
-    ['cruzamentos', 'Cruzamentos'],
+    ['garanhoes', 'Garanhões'],
+    ['eguas', 'Éguas'],
     ['calendario', 'Calendário'],
   ];
   return (
     <div>
-      <TopBar title="Painel" subtitle="Dashboard · Cruzamentos · Calendário" />
+      <TopBar title="Painel" subtitle="Dashboard · Garanhões · Éguas · Calendário" />
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', background: 'var(--bg)' }}>
         {abas.map(([id, lbl]) => (
           <button key={id} onClick={() => setSub(id)} style={{
@@ -5570,13 +5571,11 @@ function ReproPainel({
           currentUser={currentUser}
         />
       )}
-      {sub === 'cruzamentos' && (
-        <ReproCruzamentos
+      {(sub === 'garanhoes' || sub === 'eguas') && (
+        <ReproResultados
+          por={sub === 'garanhoes' ? 'garanhao' : 'egua'}
           registrosRepro={registrosRepro}
           eguasRepro={eguasRepro}
-          propRepro={propRepro}
-          vetsExternos={vetsExternos}
-          updateRegistroReproducao={updateRegistroReproducao}
         />
       )}
       {sub === 'calendario' && (
@@ -5592,6 +5591,82 @@ function ReproPainel({
       )}
     </div>
   );
+}
+
+// ── Resultado por IA (regras do Painel) ──────────────────────
+// Usadas pelo Dashboard e pelas abas Garanhões/Éguas, pra que a mesma
+// IA conte igual em todas.
+
+// CEs vinculadas a uma IA, com qualquer resultado (iaOrigemId OU
+// heurística: mesma égua + CE em até 15 dias depois da IA). Base
+// COMPLETA, não só do mês — a CE pode ter caído no mês seguinte.
+function cesVinculadasDaIa(registros, ia) {
+  return (registros || []).filter(r => {
+    if (r.tipo !== 'transferencia_embriao') return false;
+    if (r.dados?.iaOrigemId === ia.id) return true;
+    if (r.eguaId !== ia.eguaId) return false;
+    if (!r.data || !ia.data) return false;
+    if (r.data < ia.data) return false;
+    const dd = (new Date(r.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
+    return dd >= 0 && dd <= 15;
+  });
+}
+
+// DGs lançados como registro à parte (Diagnóstico de Gestação) da
+// mesma égua, depois da IA e antes da próxima IA dela. É por aí que
+// costuma entrar o DG12 da IA pra prenhez na própria égua.
+function dgsSeparadosDaIa(registros, ia) {
+  if (!ia.data) return [];
+  const proximaIa = (registros || [])
+    .filter(x => x.tipo === 'inseminacao_artificial' && x.eguaId === ia.eguaId && (x.data || '') > ia.data)
+    .map(x => x.data)
+    .sort()[0];
+  return (registros || []).filter(r => r.tipo === 'diagnostico_gestacao'
+    && r.eguaId === ia.eguaId
+    && r.data && r.data >= ia.data
+    && (!proximaIa || r.data < proximaIa)
+    && (r.dados?.resultado === 'positivo' || r.dados?.resultado === 'negativo'));
+}
+
+// IA pra prenhez na própria égua: algum DG lançado / algum DG positivo
+// (nos campos da própria IA ou em registro à parte).
+const CAMPOS_DG_IA = ['dgInicial', 'dg15', 'dg45', 'dg60'];
+function iaPrenhezTemDg(registros, ia) {
+  const d = ia.dados || {};
+  return CAMPOS_DG_IA.some(k => d[k] === 'positivo' || d[k] === 'negativo')
+    || dgsSeparadosDaIa(registros, ia).length > 0;
+}
+function iaPrenhezPositiva(registros, ia) {
+  const d = ia.dados || {};
+  return CAMPOS_DG_IA.some(k => d[k] === 'positivo')
+    || dgsSeparadosDaIa(registros, ia).some(dg => dg.dados.resultado === 'positivo');
+}
+
+// IA que já teve tempo de dar resultado — base justa das taxas. IA
+// recente contada como "sem Embr+" derruba a taxa. Entram só:
+//  - destino=transferencia: IA que já virou CE (positiva ou negativa)
+//  - destino=prenhez (na própria égua): IA com DG lançado ou que já
+//    chegou no D12 (dia do primeiro DG)
+function iaResolvida(registros, ia, hojeIso) {
+  const destino = ia.dados?.destino;
+  if (destino === 'transferencia') return cesVinculadasDaIa(registros, ia).length > 0;
+  if (destino === 'prenhez') {
+    return iaPrenhezTemDg(registros, ia) || (!!ia.data && addDias(ia.data, 12) <= hojeIso);
+  }
+  return false;
+}
+
+// Embriões positivados de uma IA: TE soma os embriões das CEs+;
+// prenhez na própria égua conta 1 se algum DG deu positivo.
+function embrioesPosDaIa(registros, ia) {
+  const destino = ia.dados?.destino;
+  if (destino === 'transferencia') {
+    return cesVinculadasDaIa(registros, ia)
+      .filter(ce => ce.dados?.resultado === 'positivo')
+      .reduce((soma, ce) => soma + Math.max(1, Number(ce.dados?.qtdEmbrioes) || 1), 0);
+  }
+  if (destino === 'prenhez') return iaPrenhezPositiva(registros, ia) ? 1 : 0;
+  return 0;
 }
 
 // ── Dashboard ────────────────────────────────────────────────
@@ -5670,54 +5745,12 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   const iasPrenhez = iasDoMes.filter(r => r.dados?.destino === 'prenhez');
   const iasParaTe = iasDoMes.filter(r => r.dados?.destino === 'transferencia');
 
-  // Encontra as CEs vinculadas a uma IA, com qualquer resultado
-  // (iaOrigemId OU heurística: mesma égua + CE em até 15 dias depois
-  // da IA). Base COMPLETA, não só do mês — a CE pode ter caído no mês
-  // seguinte.
-  const cesVinculadasDaIa = (ia) => (registrosRepro || []).filter(r => {
-    if (r.tipo !== 'transferencia_embriao') return false;
-    if (r.dados?.iaOrigemId === ia.id) return true;
-    if (r.eguaId !== ia.eguaId) return false;
-    if (!r.data || !ia.data) return false;
-    if (r.data < ia.data) return false;
-    const dd = (new Date(r.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000;
-    return dd >= 0 && dd <= 15;
-  });
-  const encontraCesDaIa = (ia) => cesVinculadasDaIa(ia).filter(r => r.dados?.resultado === 'positivo');
+  // CEs+ vinculadas a uma IA (ver cesVinculadasDaIa)
+  const encontraCesDaIa = (ia) => cesVinculadasDaIa(registrosRepro, ia).filter(r => r.dados?.resultado === 'positivo');
 
-  // DGs lançados como registro à parte (Diagnóstico de Gestação) da
-  // mesma égua, depois da IA e antes da próxima IA dela. É por aí que
-  // costuma entrar o DG12 da IA pra prenhez na própria égua.
-  const dgsSeparadosDaIa = (ia) => {
-    if (!ia.data) return [];
-    const proximaIa = todasIas
-      .filter(x => x.eguaId === ia.eguaId && (x.data || '') > ia.data)
-      .map(x => x.data)
-      .sort()[0];
-    return (registrosRepro || []).filter(r => r.tipo === 'diagnostico_gestacao'
-      && r.eguaId === ia.eguaId
-      && r.data && r.data >= ia.data
-      && (!proximaIa || r.data < proximaIa)
-      && (r.dados?.resultado === 'positivo' || r.dados?.resultado === 'negativo'));
-  };
-
-  // ── IAs já resolvidas — base do gráfico IA × Embr+ ───────────
-  // IA recente ainda não teve tempo de virar embrião; contar ela como
-  // IA sem Embr+ derruba a taxa. Entram só:
-  //  - destino=transferencia: IA que já virou CE (positiva ou negativa)
-  //  - destino=prenhez (na própria égua): IA com DG lançado ou que já
-  //    chegou no D12 (dia do primeiro DG)
+  // IAs já resolvidas — base do gráfico IA × Embr+ (ver iaResolvida)
   const hojeIso = hoje.toLocaleDateString('sv-SE');
-  const iaPrenhezTemDg = (ia) => {
-    const d = ia.dados || {};
-    return ['dgInicial', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo' || d[k] === 'negativo')
-      || dgsSeparadosDaIa(ia).length > 0;
-  };
-  const iasResolvidas = [
-    ...iasParaTe.filter(ia => cesVinculadasDaIa(ia).length > 0),
-    ...iasPrenhez.filter(ia => iaPrenhezTemDg(ia) || (!!ia.data && addDias(ia.data, 12) <= hojeIso)),
-  ];
-  const totalIaResolvidas = iasResolvidas.length;
+  const totalIaResolvidas = iasDoMes.filter(ia => iaResolvida(registrosRepro, ia, hojeIso)).length;
 
   // CE do mês atribuídas (via mês da IA de origem). Usada só pelo
   // detalhe antigo; a métrica central é embrioesPosLinhas.
@@ -5749,8 +5782,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   }
   for (const ia of iasPrenhez) {
     const d = ia.dados || {};
-    if (['dgInicial', 'dg15', 'dg45', 'dg60'].some(k => d[k] === 'positivo')
-      || dgsSeparadosDaIa(ia).some(dg => dg.dados.resultado === 'positivo')) {
+    if (iaPrenhezPositiva(registrosRepro, ia)) {
       embrioesPosLinhas.push({
         key: `${ia.id}:0`, tipo: 'prenhez', regId: ia.id, embIdx: 0, qtd: 1,
         cavaloId: ia.eguaId, data: ia.data,
@@ -5803,7 +5835,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   }
   for (const ia of iasPrenhez) {
     const d = ia.dados || {};
-    const dg15Separado = dgsSeparadosDaIa(ia).some(dg => {
+    const dg15Separado = dgsSeparadosDaIa(registrosRepro, ia).some(dg => {
       if (dg.dados.resultado !== 'positivo') return false;
       const dias = Math.round((new Date(dg.data + 'T12:00:00') - new Date(ia.data + 'T12:00:00')) / 86400000);
       return dias >= 15;
@@ -6253,112 +6285,129 @@ const BarraPercentual = ({ titulo, valor, totalLabel, cor }) => (
   </div>
 );
 
-// ── Cruzamentos confirmados (DG45+) ─────────────────────────
-// Listamos éguas cuja gestação foi confirmada em DG45. O checklist
-// (comunicado cobertura, pré-registro, inspeção) fica salvo em
-// registro.dados.checklistCobertura no MESMO registro que carrega o dg45.
-function ReproCruzamentos({ registrosRepro, eguasRepro, propRepro, vetsExternos, updateRegistroReproducao }) {
-  const [filtroVetId, setFiltroVetId] = useState('');
-  const [ocultarConcluidos, setOcultarConcluidos] = useState(false);
+// ── Resultados por garanhão / por égua ──────────────────────
+// Ranking de IA × Embr+ com as mesmas regras do Dashboard: a taxa só
+// usa IAs que já tiveram tempo de dar resultado (iaResolvida); as
+// outras aparecem como "aguardando". IA sem destino não entra.
 
-  // Qualquer registro com pelo menos um DG45 positivo vira uma
-  // "confirmação". Aceita legado (dados.dg45) e novo (dados.dgsEmbrioes[i].dg45).
-  const hasDg45Pos = (r) => {
-    if (r.dados?.dg45 === 'positivo') return true;
-    const arr = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
-    return arr.some(e => e?.dg45 === 'positivo');
+// Sufixo de criatório/stud-book no fim do nome do garanhão: a equipe
+// lança às vezes "Grandorado", às vezes "Grandorado TN" — é o mesmo.
+const SUFIXOS_GARANHAO = ['tn', 'z', 'br', 'bh', 'old', 'vdl', 'kwpn', 'sf', 'holst'];
+const chaveGaranhao = (nome) => {
+  const partes = norm(nome).replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+  if (partes.length > 1 && SUFIXOS_GARANHAO.includes(partes[partes.length - 1])) partes.pop();
+  return partes.join(' ');
+};
+
+function ReproResultados({ por, registrosRepro, eguasRepro = [] }) {
+  const hoje = new Date();
+  const hojeIso = hoje.toLocaleDateString('sv-SE');
+  // Mesmo mês inicial do Dashboard, mas abre em "todos os meses": um
+  // mês só tem poucas IAs por garanhão/égua pra comparar.
+  const mesInicial = useMemo(() => {
+    const datas = (registrosRepro || []).map(r => r.data).filter(Boolean).sort();
+    if (datas.length === 0) return { mes: hoje.getMonth() + 1, ano: hoje.getFullYear() };
+    const [y, m] = datas[datas.length - 1].split('-');
+    return { mes: Number(m), ano: Number(y) };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [mesRef, setMesRef] = useState(mesInicial);
+  const [todosMeses, setTodosMeses] = useState(true);
+  const emMes = (iso) => {
+    if (!iso) return false;
+    const [y, m] = iso.split('-');
+    return Number(y) === mesRef.ano && Number(m) === mesRef.mes;
   };
-  const confirmados = (registrosRepro || [])
-    .filter(hasDg45Pos)
-    .filter(r => !filtroVetId || r.vetId === filtroVetId)
-    .sort((a, b) => (b.dados?.dg45_data || b.data || '').localeCompare(a.dados?.dg45_data || a.data || ''));
 
-  const salvarCheck = (r, campo, valor) => {
-    const cur = r.dados?.checklistCobertura || {};
-    const novo = { ...cur, [campo]: valor };
-    updateRegistroReproducao(r.id, { dados: { ...(r.dados || {}), checklistCobertura: novo } });
-  };
+  const grupos = new Map();
+  for (const ia of (registrosRepro || [])) {
+    if (ia.tipo !== 'inseminacao_artificial') continue;
+    if (!todosMeses && !emMes(ia.data)) continue;
+    const destino = ia.dados?.destino;
+    if (destino !== 'transferencia' && destino !== 'prenhez') continue;
+    const nome = por === 'garanhao'
+      ? (ia.dados?.garanhao || '').trim()
+      : (eguasRepro.find(e => e.id === ia.eguaId)?.nome || '');
+    const chave = por === 'garanhao' ? chaveGaranhao(nome) : (ia.eguaId || '');
+    if (!grupos.has(chave)) grupos.set(chave, { chave, grafias: new Map(), ia: 0, embr: 0, aguardando: 0 });
+    const g = grupos.get(chave);
+    if (nome) g.grafias.set(nome, (g.grafias.get(nome) || 0) + 1);
+    if (iaResolvida(registrosRepro, ia, hojeIso)) {
+      g.ia += 1;
+      g.embr += embrioesPosDaIa(registrosRepro, ia);
+    } else {
+      g.aguardando += 1;
+    }
+  }
 
-  const isConcluido = (r) => {
-    const c = r.dados?.checklistCobertura || {};
-    return c.comunicadoCobertura && c.preRegistro && c.inspecaoZootecnica;
-  };
+  // Nome mostrado: a grafia mais completa (com o sufixo), depois a mais usada.
+  const palavras = (s) => s.split(/\s+/).length;
+  const linhas = [...grupos.values()]
+    .map(g => ({
+      ...g,
+      nome: [...g.grafias.entries()]
+        .sort((a, b) => palavras(b[0]) - palavras(a[0]) || b[1] - a[1] || a[0].localeCompare(b[0], 'pt'))[0]?.[0] || '',
+      taxa: g.ia > 0 ? g.embr / g.ia : null,
+    }))
+    // Melhor taxa primeiro; empate → mais IAs. Sem resultado ainda e sem
+    // garanhão informado vão pro fim.
+    .sort((a, b) => {
+      if (!a.chave !== !b.chave) return a.chave ? -1 : 1;
+      if ((a.taxa === null) !== (b.taxa === null)) return a.taxa === null ? 1 : -1;
+      return (b.taxa || 0) - (a.taxa || 0) || b.ia - a.ia || a.nome.localeCompare(b.nome, 'pt');
+    });
+  let posicao = 0;
+  for (const l of linhas) l.posicao = (l.taxa !== null && l.chave) ? ++posicao : null;
 
-  const visiveis = ocultarConcluidos ? confirmados.filter(r => !isConcluido(r)) : confirmados;
+  const nomeVazio = por === 'garanhao' ? 'Garanhão não informado' : 'Égua sem cadastro';
 
   return (
     <div>
-      <div style={{ padding: '12px 20px 8px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <FiltroVet vets={vetsExternos} valor={filtroVetId} onChange={setFiltroVetId} />
+      {!todosMeses && <NavMes mesRef={mesRef} setMesRef={setMesRef} />}
+      <div style={{ padding: '8px 20px 4px' }}>
         <label style={{
-          display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-          fontSize: 12, color: 'var(--ink-2)',
+          display: 'inline-flex', alignItems: 'center', gap: 6, cursor: 'pointer',
+          fontSize: 12, color: todosMeses ? CORES_TAB_ATIVA : 'var(--ink-3)', fontWeight: 600,
         }}>
-          <input type="checkbox" checked={ocultarConcluidos} onChange={e => setOcultarConcluidos(e.target.checked)} />
-          Ocultar cruzamentos com checklist completa
+          <input type="checkbox" checked={todosMeses} onChange={e => setTodosMeses(e.target.checked)}
+            style={{ width: 14, height: 14, cursor: 'pointer' }} />
+          Ver todos os meses
         </label>
       </div>
+      <div style={{ padding: '4px 20px 8px', fontSize: 10, color: 'var(--ink-3)' }}>
+        Embr+ por IA, do melhor para o pior resultado. Só entram IAs que já viraram CE ou que já chegaram no DG12 (prenhez na própria égua).
+      </div>
 
-      <div style={{ padding: '4px 20px 20px' }}>
-        {visiveis.length === 0 && (
+      <div style={{ padding: '0 20px 20px' }}>
+        {linhas.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
-            {confirmados.length === 0 ? 'Nenhum cruzamento confirmado (DG45+) ainda.' : 'Todos os cruzamentos filtrados estão com checklist completo.'}
+            {todosMeses ? 'Nenhuma inseminação registrada.' : 'Nenhuma inseminação neste mês.'}
           </div>
-        )}
-        {visiveis.map(r => {
-          const egua = eguasRepro.find(e => e.id === r.eguaId);
-          const prop = egua && propRepro.find(p => (egua.proprietarioIds || [egua.proprietarioId]).includes(p.id));
-          const vet = vetsExternos.find(v => v.id === r.vetId);
-          const c = r.dados?.checklistCobertura || {};
-          const dg45Data = r.dados?.dg45_data || r.data;
-          const completo = isConcluido(r);
-          return (
-            <div key={r.id} style={{
-              background: completo ? '#ecfdf5' : 'var(--card)',
-              border: `1px solid ${completo ? '#a7f3d0' : 'var(--line)'}`,
-              borderRadius: 14, padding: '12px 14px', marginBottom: 10,
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{
-                  width: 34, height: 34, borderRadius: 34, background: vet?.cor || CORES_TAB_ATIVA, color: '#fff',
-                  display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 700, flexShrink: 0,
-                }}>{(egua?.nome || 'E').slice(0, 2).toUpperCase()}</div>
+        ) : (
+          <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12, overflow: 'hidden' }}>
+            {linhas.map((l, i) => (
+              <div key={l.chave || '_'} style={{
+                display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px',
+                borderTop: i > 0 ? '1px solid var(--line)' : 'none',
+              }}>
+                <div style={{ width: 18, fontSize: 11, fontWeight: 700, color: 'var(--ink-3)', textAlign: 'right', flexShrink: 0 }}>
+                  {l.posicao || ''}
+                </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontFamily: 'var(--serif)', fontSize: 15, color: 'var(--ink)' }}>{egua?.nome || 'Égua'}</div>
+                  <div style={{ fontSize: 14, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {l.nome || nomeVazio}
+                  </div>
                   <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                    {prop?.nome || '—'} · DG45 {fmtDataBr(dg45Data)} {vet ? `· ${vet.nome.split(' ')[0]}` : ''}
+                    {l.ia} IA · {l.embr} Embr+{l.aguardando > 0 ? ` · ${l.aguardando} aguardando` : ''}
                   </div>
                 </div>
-                {completo && (
-                  <div style={{
-                    fontSize: 10, background: '#15803d', color: '#fff', padding: '3px 7px', borderRadius: 4, fontWeight: 700,
-                  }}>OK</div>
-                )}
+                <div style={{ fontSize: 15, fontWeight: 700, color: l.taxa === null ? 'var(--ink-3)' : '#be185d', flexShrink: 0 }}>
+                  {l.taxa === null ? '—' : `${Math.round(l.taxa * 100)}%`}
+                </div>
               </div>
-
-              {[
-                ['comunicadoCobertura', 'Comunicado de cobertura'],
-                ['preRegistro', 'Pré-registro'],
-                ['inspecaoZootecnica', 'Inspeção zootécnica'],
-              ].map(([campo, label]) => (
-                <label key={campo} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
-                  cursor: 'pointer', fontSize: 13, color: 'var(--ink)',
-                }}>
-                  <input
-                    type="checkbox"
-                    checked={!!c[campo]}
-                    onChange={e => salvarCheck(r, campo, e.target.checked)}
-                    style={{ width: 16, height: 16, cursor: 'pointer' }}
-                  />
-                  <span style={{ textDecoration: c[campo] ? 'line-through' : 'none', opacity: c[campo] ? 0.6 : 1 }}>
-                    {label}
-                  </span>
-                </label>
-              ))}
-            </div>
-          );
-        })}
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -8450,16 +8499,13 @@ export function ReproApp({
     content = <ReproPainel
       registrosRepro={registrosRepro}
       eguasRepro={eguasRepro}
-      propRepro={propRepro}
       locaisRepro={locaisRepro}
       vetsExternos={vetsExternos}
       servicos={servicosRepro}
       centraisRepro={centraisRepro}
       currentUser={currentUser}
-      updateRegistroReproducao={updateRegistroReproducao}
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
-      updateRegistroReproducao={updateRegistroReproducao}
     />;
   } else if (screen === 'repro-cobrancas') {
     content = <ReproCobrancas
@@ -8771,12 +8817,10 @@ export function ReproHarasView({
     content = <ReproPainel
       registrosRepro={registrosHaras}
       eguasRepro={eguasHaras}
-      propRepro={propHaras}
       locaisRepro={locaisHaras}
       vetsExternos={vetsHaras}
       servicos={servicos}
       currentUser={currentUser}
-      updateRegistroReproducao={wrapUpdate}
       onSelectEvento={abrirCadernoDoEvento}
       apenasReproducao={true}
     />;
