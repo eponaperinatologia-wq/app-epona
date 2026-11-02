@@ -51,6 +51,7 @@ import {
   fromDbRegistro, fromDbProcedimento, fromDbParto, fromDbMovimentacao, fromDbEvento,
   fromDbFaturaFechada, toDbFaturaFechada,
   fromDbFaturaRepro, toDbFaturaRepro,
+  fromDbAjusteFaturaRepro, toDbAjusteFaturaRepro,
   fromDbContratoAssessoria, toDbContratoAssessoria,
   fromDbVisitaClinica, toDbVisitaClinica,
   fromDbLancamento, toDbLancamento,
@@ -132,6 +133,7 @@ function AppEpona() {
   const [procedimentos, setProcedimentos] = useState([]);
   const [faturasFechadas, setFaturasFechadas] = useState([]);
   const [faturasRepro, setFaturasRepro] = useState([]);
+  const [ajustesFaturasRepro, setAjustesFaturasRepro] = useState([]);
   const [contratosAssessoria, setContratosAssessoria] = useState([]);
   const [visitasClinicas, setVisitasClinicas] = useState([]);
   const [lancamentos, setLancamentos] = useState([]);
@@ -243,7 +245,7 @@ const loadAllData = async (user = currentUser) => {
       emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
       progProgramasData, progAplicacoesData,
       vetsExternosData, locaisReproData, centraisReproData, orcamentosReproData, genealogicosReproData, vetKmLocaisData,
-      avisosReproData, faturasReproData,
+      avisosReproData, faturasReproData, ajustesFaturasReproData,
       contratosAssessoriaData, visitasClinicasData,
     ] = await Promise.all([
       fetchAll('cavalos', fromDbCavalo),
@@ -298,6 +300,7 @@ const loadAllData = async (user = currentUser) => {
       fetchAll('vet_km_por_local', fromDbVetKmLocal),
       fetchAll('avisos_repro', fromDbAvisoRepro),
       fetchAll('faturas_repro', fromDbFaturaRepro),
+      fetchAll('faturas_repro_ajustes', fromDbAjusteFaturaRepro).catch(() => []),
       fetchAll('contratos_assessoria', fromDbContratoAssessoria),
       fetchAll('visitas_clinicas', fromDbVisitaClinica),
     ]);
@@ -355,6 +358,7 @@ const loadAllData = async (user = currentUser) => {
     setVetKmLocais(vetKmLocaisData || []);
     setAvisosRepro(avisosReproData || []);
     setFaturasRepro(faturasReproData || []);
+    setAjustesFaturasRepro(ajustesFaturasReproData || []);
     setContratosAssessoria(contratosAssessoriaData || []);
     setVisitasClinicas(visitasClinicasData || []);
     if (ehProprietario) {
@@ -2143,6 +2147,23 @@ const loadAllData = async (user = currentUser) => {
     setFaturasRepro(prev => prev.filter(f => f.id !== id));
     dbDelete('faturas_repro', id);
   };
+  // Ajustes manuais de visitas na fatura do Repro (excluir/acrescentar).
+  // Ficam fora do snapshot: reabrir a fatura não os perde.
+  const addAjusteFaturaRepro = async (a) => {
+    const id = a.id || 'afr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+    const novo = { ...a, id };
+    setAjustesFaturasRepro(prev => [...prev, novo]);
+    const ok = await dbInsert('faturas_repro_ajustes', toDbAjusteFaturaRepro(novo));
+    if (!ok) {
+      setAjustesFaturasRepro(prev => prev.filter(x => x.id !== id));
+      return false;
+    }
+    return true;
+  };
+  const removeAjusteFaturaRepro = (id) => {
+    setAjustesFaturasRepro(prev => prev.filter(a => a.id !== id));
+    dbDelete('faturas_repro_ajustes', id);
+  };
 
   // ── Contratos de assessoria ──────────────────────────────────
   const addContratoAssessoria = async (c) => {
@@ -2523,6 +2544,9 @@ const loadAllData = async (user = currentUser) => {
       addFaturaRepro={addFaturaRepro}
       updateFaturaRepro={updateFaturaRepro}
       removeFaturaRepro={removeFaturaRepro}
+      ajustesFaturasRepro={ajustesFaturasRepro}
+      addAjusteFaturaRepro={addAjusteFaturaRepro}
+      removeAjusteFaturaRepro={removeAjusteFaturaRepro}
       contratosAssessoria={contratosAssessoria}
       addContratoAssessoria={addContratoAssessoria}
       updateContratoAssessoria={updateContratoAssessoria}

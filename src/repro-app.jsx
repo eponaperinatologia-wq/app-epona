@@ -6,7 +6,7 @@ import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado } from './utils/faturaRepro';
+import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
@@ -6830,6 +6830,7 @@ function ReproCobrancas({
   orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  ajustesFaturasRepro = [], addAjusteFaturaRepro, removeAjusteFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
 }) {
   const [sub, setSub] = useState('faturas');
@@ -6882,6 +6883,9 @@ function ReproCobrancas({
           addFaturaRepro={addFaturaRepro}
           updateFaturaRepro={updateFaturaRepro}
           removeFaturaRepro={removeFaturaRepro}
+          ajustesFaturasRepro={ajustesFaturasRepro}
+          addAjusteFaturaRepro={addAjusteFaturaRepro}
+          removeAjusteFaturaRepro={removeAjusteFaturaRepro}
           contratosAssessoria={contratosAssessoria}
           visitasClinicas={visitasClinicas}
         />
@@ -6898,6 +6902,7 @@ function ReproCobrancas({
           locais={locaisRepro}
           vetsExternos={vetsExternos}
           faturasRepro={faturasRepro}
+          ajustesFaturasRepro={ajustesFaturasRepro}
           contratosAssessoria={contratosAssessoria}
           visitasClinicas={visitasClinicas}
         />
@@ -6961,13 +6966,17 @@ function ReproFaturas({
   centraisRepro = [], genealogicos = [],
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  ajustesFaturasRepro = [], addAjusteFaturaRepro, removeAjusteFaturaRepro,
   contratosAssessoria = [], visitasClinicas = [],
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
   const [propAberto, setPropAberto] = useState(null);
 
-  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas, genealogicos };
+  const deps = {
+    registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas, genealogicos,
+    ajustesFaturas: ajustesFaturasRepro,
+  };
   // Lookup de fatura persistida (fechada ou paga) por proprietário.
   // Fatura persistida vence o cálculo on-the-fly: o snapshot representa
   // o que foi efetivamente fechado — não deve recalcular depois.
@@ -7017,6 +7026,9 @@ function ReproFaturas({
           addFaturaRepro={addFaturaRepro}
           updateFaturaRepro={updateFaturaRepro}
           removeFaturaRepro={removeFaturaRepro}
+          vetKmLocais={vetKmLocais}
+          addAjusteFaturaRepro={addAjusteFaturaRepro}
+          removeAjusteFaturaRepro={removeAjusteFaturaRepro}
         />
       );
     }
@@ -7077,6 +7089,14 @@ function ReproFaturas({
                   (fat.assessoriasLinhas || []).length ? `${fat.assessoriasLinhas.length} assess.` : null,
                 ].filter(Boolean).join(' · ')}
               </div>
+              {(() => {
+                const semKm = (fat.visitasLinhas || []).filter(v => v.semKm).length;
+                return semKm > 0 ? (
+                  <div style={{ fontSize: 11, color: '#c2410c', marginTop: 2 }}>
+                    {semKm} visita{semKm > 1 ? 's' : ''} sem valor de km
+                  </div>
+                ) : null;
+              })()}
               {divisaoResumo && (
                 <div style={{ fontSize: 10.5, color: 'var(--ink-3)', marginTop: 4, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
                   <span>Epona {formatBRL(divisaoResumo.epona || 0)}</span>
@@ -7168,6 +7188,7 @@ function ReproFaturaDetalhe({
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   mesRef,
   addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  vetKmLocais = [], addAjusteFaturaRepro, removeAjusteFaturaRepro,
 }) {
   const status = persist?.status || 'aberta';
   const isFechada = status === 'fechada' || status === 'paga';
@@ -7257,6 +7278,61 @@ function ReproFaturaDetalhe({
     });
   };
   const registroEmEdicao = editRegId ? registros.find(r => r.id === editRegId) : null;
+
+  // ── Visitas: excluir ou acrescentar direto na fatura (só aberta) ──
+  const podeAjustarVisitas = !isFechada && !!addAjusteFaturaRepro && !!removeAjusteFaturaRepro;
+  const [novaVisita, setNovaVisita] = useState(null);
+  const kmDe = (vetId, localId) => vetKmLocais.find(k => k.vetId === vetId && k.localId === localId);
+  const mesIso = `${fatura.ref.ano}-${String(fatura.ref.mes).padStart(2, '0')}`;
+  const ultimoDiaIso = `${mesIso}-${String(new Date(fatura.ref.ano, fatura.ref.mes, 0).getDate()).padStart(2, '0')}`;
+  const ajusteBase = (tipo, dados) => ({
+    proprietarioId: fatura.proprietario.id, ano: fatura.ref.ano, mes: fatura.ref.mes,
+    tipo, dados, criadoPor: currentUser?.nome || '',
+  });
+  const abrirNovaVisita = () => {
+    const vetId = vetsExternos.some(v => v.id === currentUser?.id) ? currentUser.id : '';
+    const localId = eguasDoProp[0]?.localId || '';
+    const hojeIso = new Date().toLocaleDateString('sv-SE');
+    const km = kmDe(vetId, localId);
+    setNovaVisita({
+      data: hojeIso.startsWith(mesIso) ? hojeIso : ultimoDiaIso,
+      vetId, localId, valor: km ? String(km.valor) : '',
+    });
+  };
+  const mudarNovaVisita = (campo, valor) => setNovaVisita(nv => {
+    const prox = { ...nv, [campo]: valor };
+    if (campo === 'vetId' || campo === 'localId') {
+      const km = kmDe(prox.vetId, prox.localId);
+      if (km) prox.valor = String(km.valor);
+    }
+    return prox;
+  });
+  const salvarNovaVisita = async () => {
+    const nv = novaVisita;
+    if (!nv?.data || !nv.vetId || !nv.localId) return;
+    const valor = parseFloat(String(nv.valor).replace(',', '.')) || 0;
+    const ok = await addAjusteFaturaRepro(ajusteBase('visita_adicionada', {
+      data: nv.data, vetId: nv.vetId, localId: nv.localId, valor,
+    }));
+    if (ok !== false) setNovaVisita(null);
+  };
+  const excluirVisita = (v) => {
+    if (v.manual) {
+      if (window.confirm(`Excluir a visita lançada na fatura (${v.localNome}, ${fmtDataBr(v.data)})?`)) removeAjusteFaturaRepro(v.ajusteId);
+      return;
+    }
+    if (!window.confirm(`Tirar da fatura a visita de ${fmtDataBr(v.data)} em ${v.localNome}? Os registros do caderno continuam.`)) return;
+    addAjusteFaturaRepro(ajusteBase('visita_excluida', {
+      chave: v.chave, data: v.data, vetId: v.vetId, localId: v.localId,
+    }));
+  };
+  const visitasExcluidas = fatura.visitasExcluidas || [];
+  const qtdSemKm = fatura.visitasLinhas.filter(v => v.semKm).length;
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: 10,
+    border: '1px solid var(--line)', background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+    fontFamily: 'var(--sans)', outline: 'none',
+  };
 
   return (
     <div>
@@ -7360,13 +7436,89 @@ function ReproFaturaDetalhe({
           </button>
         )}
 
-        {fatura.visitasLinhas.length > 0 && (
+        {(fatura.visitasLinhas.length > 0 || podeAjustarVisitas) && (
           <SecaoFat titulo={`Visitas · ${formatBRL(fatura.visitasTotal)}`} linhas={fatura.visitasLinhas.map(v => ({
             principal: v.localNome,
-            sub: `${fmtDataBr(v.data)} · ${vetNome(v.vetId).split(' ')[0]}${v.nProps > 1 ? ` · rateado ${v.nProps}p` : ''}`,
+            sub: `${fmtDataBr(v.data)} · ${vetNome(v.vetId).split(' ')[0]}${v.nProps > 1 ? ` · rateado ${v.nProps}p` : ''}${v.manual ? ' · lançada na fatura' : ''}`,
+            alerta: v.semKm ? `${vetNome(v.vetId).split(' ')[0]} não tem valor de km para este local` : null,
             valor: v.valor,
-            readOnly: true,
-          }))} />
+            readOnly: !podeAjustarVisitas,
+            onExcluir: podeAjustarVisitas ? () => excluirVisita(v) : null,
+          }))}>
+            {qtdSemKm > 0 && (
+              <div style={{ fontSize: 11, color: '#c2410c', marginTop: 8, lineHeight: 1.4 }}>
+                Visita sem valor de km sai por R$ 0 e não aparece no PDF. Para cobrar, o veterinário cadastra o valor em
+                Cobranças → Km por local (a fatura aberta atualiza sozinha) — ou exclua e lance a visita com o valor aqui.
+              </div>
+            )}
+            {visitasExcluidas.length > 0 && (
+              <div style={{ marginTop: 10, paddingTop: 8, borderTop: '1px solid var(--line)' }}>
+                <div style={{ fontSize: 11, color: 'var(--ink-3)', marginBottom: 4 }}>Tiradas desta fatura</div>
+                {visitasExcluidas.map(v => (
+                  <div key={v.ajusteId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 12, color: 'var(--ink-3)' }}>
+                    <span style={{ flex: 1, minWidth: 0, textDecoration: 'line-through' }}>
+                      {v.localNome} · {fmtDataBr(v.data)} · {vetNome(v.vetId).split(' ')[0]}
+                    </span>
+                    {podeAjustarVisitas && (
+                      <button onClick={() => removeAjusteFaturaRepro(v.ajusteId)} style={{
+                        padding: '3px 8px', borderRadius: 6, border: '1px solid var(--line)',
+                        background: 'var(--card)', color: 'var(--ink-2)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)',
+                      }}>Voltar</button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {podeAjustarVisitas && !novaVisita && (
+              <button onClick={abrirNovaVisita} style={{
+                width: '100%', marginTop: 8, padding: '8px', borderRadius: 8, border: '1px dashed var(--line)',
+                background: 'transparent', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+                cursor: 'pointer', fontFamily: 'var(--sans)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
+              }}>
+                <Icon name="plus" size={12} /> Adicionar visita
+              </button>
+            )}
+            {podeAjustarVisitas && novaVisita && (
+              <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--line)', display: 'grid', gap: 8 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <FormField label="Data">
+                    <input type="date" value={novaVisita.data} min={`${mesIso}-01`} max={ultimoDiaIso}
+                      onChange={e => mudarNovaVisita('data', e.target.value)} style={inputStyle} />
+                  </FormField>
+                  <FormField label="Valor (R$)">
+                    <input type="number" min="0" step="0.01" value={novaVisita.valor}
+                      onChange={e => mudarNovaVisita('valor', e.target.value)} style={inputStyle} placeholder="0,00" />
+                  </FormField>
+                </div>
+                <FormField label="Veterinário">
+                  <select value={novaVisita.vetId} onChange={e => mudarNovaVisita('vetId', e.target.value)} style={inputStyle}>
+                    <option value="">— Selecionar —</option>
+                    {vetsExternos.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
+                  </select>
+                </FormField>
+                <FormField label="Local">
+                  <select value={novaVisita.localId} onChange={e => mudarNovaVisita('localId', e.target.value)} style={inputStyle}>
+                    <option value="">— Selecionar —</option>
+                    {[...locaisRepro].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'))
+                      .map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
+                  </select>
+                </FormField>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button onClick={() => setNovaVisita(null)} style={{
+                    flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--line)',
+                    background: 'var(--card)', color: 'var(--ink-2)', fontSize: 12, fontWeight: 600,
+                    cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>Cancelar</button>
+                  <button onClick={salvarNovaVisita} disabled={!novaVisita.data || !novaVisita.vetId || !novaVisita.localId} style={{
+                    flex: 1, padding: '9px', borderRadius: 8, border: 'none',
+                    background: (novaVisita.data && novaVisita.vetId && novaVisita.localId) ? CORES_TAB_ATIVA : 'var(--line)',
+                    color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+                  }}>Salvar visita</button>
+                </div>
+              </div>
+            )}
+          </SecaoFat>
         )}
         {fatura.insumosLinhas.length > 0 && (
           <SecaoFat titulo={`Insumos · ${formatBRL(fatura.insumosTotal)}`} linhas={fatura.insumosLinhas.map(l => ({
@@ -7436,7 +7588,7 @@ function ReproFaturaDetalhe({
   );
 }
 
-const SecaoFat = ({ titulo, linhas }) => (
+const SecaoFat = ({ titulo, linhas, children }) => (
   <div style={{
     background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 12,
     padding: 12, marginBottom: 10,
@@ -7452,6 +7604,7 @@ const SecaoFat = ({ titulo, linhas }) => (
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, color: 'var(--ink)', fontFamily: 'var(--sans)' }}>{l.principal}</div>
           {l.sub && <div style={{ fontSize: 11, color: 'var(--ink-3)', marginTop: 1 }}>{l.sub}</div>}
+          {l.alerta && <div style={{ fontSize: 11, color: '#c2410c', marginTop: 1 }}>{l.alerta}</div>}
         </div>
         <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{formatBRL(l.valor)}</div>
         {!l.readOnly && (l.onEditar || l.onExcluir) && (
@@ -7478,6 +7631,7 @@ const SecaoFat = ({ titulo, linhas }) => (
         )}
       </div>
     ))}
+    {children}
   </div>
 );
 
@@ -7515,13 +7669,18 @@ const LinhaDivisao = ({ label, sub, valor, icon, iconBg, iconColor, iniciais }) 
 );
 function ReproDivisao({
   propRepro, registros, cavalos, proprietarios, servicos, insumos,
-  vetKmLocais, locais, vetsExternos, faturasRepro = [],
+  vetKmLocais, locais, vetsExternos, faturasRepro = [], ajustesFaturasRepro = [],
   contratosAssessoria = [], visitasClinicas = [],
 }) {
   const hoje = new Date();
   const [mesRef, setMesRef] = useState({ mes: hoje.getMonth() + 1, ano: hoje.getFullYear() });
 
-  const deps = { registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas };
+  const deps = {
+    registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas,
+    ajustesFaturas: ajustesFaturasRepro,
+  };
+  // Desde out/2026 os insumos vão pro vet que registrou (antes, Epona)
+  const insumosDoVet = `${mesRef.ano}-${String(mesRef.mes).padStart(2, '0')}-01` >= INICIO_INSUMOS_DO_VET;
   // Pra cada proprietário, pega a fatura (persistida se houver, senão on-the-fly)
   // e computa a divisão daquela fatura individual.
   const itens = [];
@@ -7563,7 +7722,7 @@ function ReproDivisao({
           background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 12,
           padding: '10px 14px', fontSize: 12, color: '#6b21a8', lineHeight: 1.4,
         }}>
-          Regras: <strong>insumos 100 Epona</strong> · <strong>km 100 vet</strong> ·
+          Regras: <strong>insumos 100 {insumosDoVet ? 'vet que registrou' : 'Epona'}</strong> · <strong>km 100 vet</strong> ·
           <strong> IA/TE 70 vet · 30 Epona</strong> · <strong>resultado 50 vet · 50 Epona</strong> ·
           <strong> avulsos 100 vet</strong>
         </div>
@@ -7583,12 +7742,12 @@ function ReproDivisao({
             A repassar agora (faturas pagas)
           </div>
           <LinhaDivisao
-            label="Epona Stud" sub="Insumos + 30 IA/TE + 50 resultado"
+            label="Epona Stud" sub={insumosDoVet ? '30 IA/TE + 50 resultado' : 'Insumos + 30 IA/TE + 50 resultado'}
             valor={totais.paga.epona} icon="building" iconBg="var(--accent-soft)" iconColor="var(--accent)"
           />
           {vetsOrdenados(totais.paga.porVet).map(({ vet, valor }) => (
             <LinhaDivisao
-              key={vet.id} label={vet.nome} sub="Km + 70 IA/TE + 50 resultado + avulsos"
+              key={vet.id} label={vet.nome} sub={insumosDoVet ? 'Insumos + km + 70 IA/TE + 50 resultado + avulsos' : 'Km + 70 IA/TE + 50 resultado + avulsos'}
               valor={valor} iconBg={vet.cor || CORES_TAB_ATIVA} iconColor="#fff"
               iniciais={(vet.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
             />
@@ -7997,6 +8156,7 @@ export function ReproApp({
   vetKmLocais = [], upsertVetKmLocal,
   avisosRepro = [], resolverAvisoRepro,
   faturasRepro = [], addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
+  ajustesFaturasRepro = [], addAjusteFaturaRepro, removeAjusteFaturaRepro,
   contratosAssessoria = [], addContratoAssessoria, updateContratoAssessoria, deleteContratoAssessoria,
   visitasClinicas = [], addVisitaClinica, updateVisitaClinica, deleteVisitaClinica,
   empresaInfo = null,
@@ -8536,6 +8696,9 @@ export function ReproApp({
       addFaturaRepro={addFaturaRepro}
       updateFaturaRepro={updateFaturaRepro}
       removeFaturaRepro={removeFaturaRepro}
+      ajustesFaturasRepro={ajustesFaturasRepro}
+      addAjusteFaturaRepro={addAjusteFaturaRepro}
+      removeAjusteFaturaRepro={removeAjusteFaturaRepro}
     />;
   } else if (screen === 'repro-conta') {
     content = <ReproConta

@@ -130,10 +130,12 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
       }
     };
 
-    // Visitas
-    if (visitasLinhas.length > 0) {
+    // Visitas (a de R$ 0 por falta de km cadastrado é aviso pra equipe,
+    // não vai pro cliente)
+    const visitasPdf = visitasLinhas.filter(v => !v.semKm);
+    if (visitasPdf.length > 0) {
       section('Visitas (km)');
-      visitasLinhas.forEach(v => {
+      visitasPdf.forEach(v => {
         const sub = [
           fmtData(v.data),
           v.localNome,

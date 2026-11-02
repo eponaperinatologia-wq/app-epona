@@ -453,6 +453,27 @@ export const toDbFaturaRepro = f => ({
   pago_em: f.pagoEm || null,
 });
 
+// ── faturas_repro_ajustes ────────────────────────────────────
+// Ajustes manuais de visitas feitos na fatura (proprietário + mês):
+// tipo 'visita_excluida' (dados.chave = vetId|data|localId da visita
+// calculada) ou 'visita_adicionada' (dados = { data, vetId, localId, valor }).
+export const fromDbAjusteFaturaRepro = r => ({
+  id: r.id,
+  proprietarioId: r.proprietario_id,
+  ano: r.ano, mes: r.mes,
+  tipo: r.tipo,
+  dados: r.dados || {},
+  criadoPor: r.criado_por || '',
+});
+export const toDbAjusteFaturaRepro = a => ({
+  id: a.id,
+  proprietario_id: a.proprietarioId,
+  ano: a.ano, mes: a.mes,
+  tipo: a.tipo,
+  dados: a.dados || {},
+  criado_por: a.criadoPor || '',
+});
+
 // ── toDb: App (camelCase) → DB (snake_case) ───────────────────
 
 export const toDbCavalo = c => ({

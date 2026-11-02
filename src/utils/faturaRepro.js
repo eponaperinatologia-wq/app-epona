@@ -4,7 +4,10 @@
 // Componentes:
 //   1. Visitas (km) — cada (vet, data, local) do mês gera 1 visita.
 //      O valor cadastrado em vet_km_por_local é rateado entre o número
-//      de PROPRIETÁRIOS distintos atendidos naquele dia+local.
+//      de PROPRIETÁRIOS distintos atendidos naquele dia+local. Sem valor
+//      cadastrado pro vet naquele local, a visita entra com R$ 0 e
+//      semKm=true (antes sumia da fatura sem aviso). Ajustes manuais da
+//      fatura (faturas_repro_ajustes) excluem ou acrescentam visitas.
 //   2. Insumos — vêm dos registros do caderno via `insumosUsados`
 //      ({insumoId, qtd}). Cobrados por valorVenda × qtd.
 //   3. Procedimentos IA/TE — 1 linha por registro, com o preço do
@@ -244,6 +247,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     contratosAssessoria = [], visitasClinicas = [],
     // Processos genealógicos (ABCCH) — pra cobrar inspeção realizada
     genealogicos = [],
+    // Ajustes manuais de visitas feitos na própria fatura
+    ajustesFaturas = [],
   } = deps;
   const { agruparDescartaveis = false } = opts;
 
@@ -282,19 +287,41 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     propsDoCav.forEach(pid => v.propriedades.add(pid));
     if (propsDoCav.includes(propId)) v.temPropAtual = true;
   }
+  const ajustesDaFatura = ajustesFaturas.filter(a =>
+    a.proprietarioId === propId && a.ano === ref.ano && a.mes === ref.mes);
+  const excluidasPorChave = new Map(ajustesDaFatura
+    .filter(a => a.tipo === 'visita_excluida')
+    .map(a => [a.dados?.chave, a]));
   const visitasLinhas = [];
+  const visitasExcluidas = [];
   for (const v of visitasMap.values()) {
     if (!v.temPropAtual) continue;
     const km = vetKmLocais.find(k => k.vetId === v.vetId && k.localId === v.localId);
-    if (!km) continue;
-    const valorBase = Number(km.valor) || 0;
+    const valorBase = Number(km?.valor) || 0;
     const nProps = v.propriedades.size || 1;
     const rateado = valorBase / nProps;
     const local = locais.find(l => l.id === v.localId);
-    visitasLinhas.push({
+    const chave = `${v.vetId}|${v.data}|${v.localId}`;
+    const linha = {
       data: v.data, vetId: v.vetId, localId: v.localId,
       localNome: local?.nome || '—',
       valorBase, nProps, valor: rateado,
+      chave, semKm: !km,
+    };
+    const exclusao = excluidasPorChave.get(chave);
+    if (exclusao) visitasExcluidas.push({ ...linha, ajusteId: exclusao.id });
+    else visitasLinhas.push(linha);
+  }
+  for (const a of ajustesDaFatura) {
+    if (a.tipo !== 'visita_adicionada') continue;
+    const d = a.dados || {};
+    const local = locais.find(l => l.id === d.localId);
+    const valor = Number(d.valor) || 0;
+    visitasLinhas.push({
+      data: d.data, vetId: d.vetId || null, localId: d.localId || null,
+      localNome: local?.nome || d.localNome || '—',
+      valorBase: valor, nProps: 1, valor,
+      manual: true, ajusteId: a.id,
     });
   }
   visitasLinhas.sort((a, b) => (a.data || '').localeCompare(b.data || ''));
@@ -311,6 +338,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
       insumosLinhas.push({
         data: r.data, registroId: r.id, insumoId: ins.id, nome: ins.nome,
         qtd, unidade: ins.unidade || 'un', unitario: Number(ins.valorVenda) || 0, valor: subtotal,
+        vetId: r.vetId || null,
       });
     }
   }
@@ -539,7 +567,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   return {
     proprietario: prop,
     ref,
-    visitasLinhas, visitasTotal,
+    visitasLinhas, visitasTotal, visitasExcluidas,
     insumosLinhas: insumosLinhasFinais, insumosTotal,
     procedimentosLinhas, procedimentosTotal,
     avulsosLinhas, avulsosTotal,
@@ -591,7 +619,10 @@ export function calcFaturasExternas(ref, deps) {
 // ─────────────────────────────────────────────────────────────
 // Divisão de equipe — dado uma fatura, gera o split entre Epona e
 // cada vet. Regras (pedidas pelo produto):
-//   Insumos       → 100% Epona (compra o material)
+//   Insumos       → até 30/09/2026: 100% Epona (comprava o material)
+//                 → desde 01/10/2026: 100% vet que registrou o uso
+//                   (cada vet compra o próprio material; o preço segue
+//                   o do cadastro de insumos)
 //   Km/Visita     → 100% vet que prestou
 //   IA / TE       → 70% vet, 30% Epona
 //   Resultado     → 50% vet inseminou, 50% Epona
@@ -603,6 +634,8 @@ export function calcFaturasExternas(ref, deps) {
 // de assessoria. Se não passar, assume que todos participantes contam
 // como externos (comportamento mais conservador — não dá tudo pra Epona).
 // ─────────────────────────────────────────────────────────────
+export const INICIO_INSUMOS_DO_VET = '2026-10-01';
+
 export function dividirFatura(fatura, vetsExternos = []) {
   const acc = { epona: 0, porVet: {} };
   // Sem vet identificado vai para uma chave própria (antes era descartado e
@@ -612,8 +645,13 @@ export function dividirFatura(fatura, vetsExternos = []) {
     const k = vetId || '__sem_vet__';
     acc.porVet[k] = (acc.porVet[k] || 0) + v;
   };
-  // Insumos → Epona
-  acc.epona += fatura.insumosTotal;
+  // Insumos → Epona até setembro/2026; depois, vet que registrou. Linha
+  // agrupada ("Descartáveis") traz as linhas originais em `detalhe`.
+  const linhasInsumo = (fatura.insumosLinhas || []).flatMap(l => (l.agrupado ? (l.detalhe || []) : [l]));
+  for (const l of linhasInsumo) {
+    if ((l.data || '') >= INICIO_INSUMOS_DO_VET && l.vetId !== undefined) addVet(l.vetId, l.valor);
+    else acc.epona += l.valor;
+  }
   // Visitas → vet
   for (const l of fatura.visitasLinhas) addVet(l.vetId, l.valor);
   // Procedimentos IA/TE → 70/30
