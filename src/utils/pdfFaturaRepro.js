@@ -3,6 +3,7 @@
 // Procedimentos IA/TE, Serviços avulsos, Resultado reprodutivo.
 
 import { jsPDF } from 'jspdf';
+import { textoComEgua } from './faturaRepro';
 
 const BRL = (v) => 'R$ ' + (v || 0).toFixed(2).replace('.', ',');
 const fmtData = (iso) => {
@@ -114,6 +115,9 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
       doc.text(leftLines[0] || '', L, y);
       doc.setFont('helvetica', 'bold');
       doc.text(safeStr(right), R, y, { align: 'right' });
+      // Descrição longa (ex.: garanhão × égua) continua nas linhas de baixo
+      doc.setFont('helvetica', 'normal');
+      leftLines.slice(1).forEach(l => { y += 3.8; doc.text(l, L, y); });
       if (sub) {
         y += 3.2;
         doc.setFont('helvetica', 'normal');
@@ -142,7 +146,7 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
           `Vet: ${vetNome(v.vetId).split(' ')[0]}`,
           v.nProps > 1 ? `rateado entre ${v.nProps} proprietários` : null,
         ].filter(Boolean).join(' · ');
-        row(`Visita ${v.localNome}`, sub, BRL(v.valor));
+        row(textoComEgua(`Visita ${v.localNome}`, v), sub, BRL(v.valor));
       });
       y += 2;
     }
@@ -152,7 +156,7 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
       section('Insumos');
       insumosLinhas.forEach(l => {
         const sub = [fmtData(l.data), `${l.qtd} ${l.unidade}`].filter(Boolean).join(' · ');
-        row(l.nome, sub, BRL(l.valor));
+        row(textoComEgua(l.nome, l), sub, BRL(l.valor));
       });
       y += 2;
     }
@@ -161,8 +165,12 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
     if (procedimentosLinhas.length > 0) {
       section('Procedimentos');
       procedimentosLinhas.forEach(l => {
-        const sub = [fmtData(l.data), `Vet: ${vetNome(l.vetId).split(' ')[0]}`].join(' · ');
-        row(l.descricao, sub, BRL(l.valor));
+        const sub = [
+          fmtData(l.data),
+          l.receptoraNome ? `Rec.: ${l.receptoraNome}` : null,
+          `Vet: ${vetNome(l.vetId).split(' ')[0]}`,
+        ].filter(Boolean).join(' · ');
+        row(textoComEgua(l.descricao, l), sub, BRL(l.valor));
       });
       y += 2;
     }
@@ -172,7 +180,7 @@ export function gerarPdfFaturaRepro({ fatura, mesNome, empresa = {}, vetsExterno
       section('Serviços avulsos');
       avulsosLinhas.forEach(l => {
         const sub = [fmtData(l.data), `Vet: ${vetNome(l.vetId).split(' ')[0]}`].join(' · ');
-        row(l.descricao, sub, BRL(l.valor));
+        row(textoComEgua(l.descricao, l), sub, BRL(l.valor));
       });
       y += 2;
     }

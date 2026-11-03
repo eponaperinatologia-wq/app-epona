@@ -321,7 +321,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
       data: d.data, vetId: d.vetId || null, localId: d.localId || null,
       localNome: local?.nome || d.localNome || '—',
       valorBase: valor, nProps: 1, valor,
-      manual: true, ajusteId: a.id,
+      manual: true, ajusteId: a.id, eguasIds: d.eguasIds || [],
     });
   }
   visitasLinhas.sort((a, b) => (a.data || '').localeCompare(b.data || ''));
@@ -577,6 +577,106 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     inspecoesLinhas, inspecoesTotal,
     total,
   };
+}
+
+// ─────────────────────────────────────────────────────────────
+// Nome da égua nas linhas da fatura (visitas, insumos, procedimentos e
+// avulsos). Roda na tela e no PDF, tanto sobre o cálculo quanto sobre o
+// snapshot de fatura fechada — as fechadas antes de 03/11/2026 não guardavam
+// a égua. Só acrescenta nomes: valores e totais não mudam. Linha que já tem a
+// égua (snapshot fechado depois disso) fica como está.
+// Regra: a fatura só mostra nome de égua DESTE proprietário — égua de outro
+// dono (no rateio da visita, doadora ou receptora) nunca aparece.
+//   - Visita: éguas do proprietário com registro do mesmo vet, dia e local.
+//     Lançada na fatura: as éguas escolhidas no lançamento.
+//   - Descartáveis agrupados: uma linha por égua.
+//   - IA/IE: o garanhão (o que vem depois do travessão na descrição) vira
+//     "Garanhão × Égua". Na inovulação a égua do cruzamento é a doadora; a
+//     receptora (égua do registro) vai em receptoraNome.
+// ─────────────────────────────────────────────────────────────
+export function comEguasNaFatura(fatura, { registros = [], cavalos = [] } = {}) {
+  const propId = fatura.proprietario?.id;
+  const regPorId = new Map(registros.map(r => [r.id, r]));
+  const cavPorId = new Map(cavalos.map(c => [c.id, c]));
+  const nomeEgua = (id) => cavPorId.get(id)?.nome || '';
+  const doProp = (c) => !!c && ((c.proprietarioIds || []).includes(propId) || c.proprietarioId === propId);
+  const porNome = (a, b) => a.localeCompare(b, 'pt');
+  const eguaDoRegistro = (l) => nomeEgua(regPorId.get(l.registroId)?.eguaId);
+  const comEgua = (l) => (l.eguaNome !== undefined ? l : { ...l, eguaNome: eguaDoRegistro(l) });
+
+  const comEguasDaVisita = (v) => {
+    if (v.eguasNomes) return v;
+    if (v.manual) {
+      const nomes = (v.eguasIds || []).map(id => cavPorId.get(id)).filter(doProp).map(c => c.nome);
+      return { ...v, eguasNomes: nomes.filter(Boolean) };
+    }
+    const nomes = new Set();
+    for (const r of registros) {
+      if (r.vetId !== v.vetId || r.data !== v.data || r.localId !== v.localId) continue;
+      const c = cavPorId.get(r.eguaId);
+      if (doProp(c) && c.nome) nomes.add(c.nome);
+    }
+    return { ...v, eguasNomes: [...nomes].sort(porNome) };
+  };
+
+  const insumosLinhas = [];
+  for (const l of (fatura.insumosLinhas || [])) {
+    if (!l.agrupado || l.eguaNome !== undefined || !(l.detalhe || []).length) {
+      insumosLinhas.push(comEgua(l));
+      continue;
+    }
+    const porEgua = new Map();
+    for (const d of l.detalhe.map(comEgua)) {
+      if (!porEgua.has(d.eguaNome)) porEgua.set(d.eguaNome, []);
+      porEgua.get(d.eguaNome).push(d);
+    }
+    for (const nome of [...porEgua.keys()].sort(porNome)) {
+      const detalhe = porEgua.get(nome);
+      insumosLinhas.push({
+        ...l, eguaNome: nome, data: detalhe[0].data, detalhe,
+        qtd: detalhe.reduce((s, d) => s + (Number(d.qtd) || 0), 0),
+        valor: detalhe.reduce((s, d) => s + d.valor, 0),
+      });
+    }
+  }
+
+  const procedimentosLinhas = (fatura.procedimentosLinhas || []).map(l => {
+    if (l.eguaNome !== undefined) return l;
+    const garanhao = (l.descricao || '').split(' — ')[1] || '';
+    if (l.tipo !== 'IE') return { ...l, garanhao, eguaNome: eguaDoRegistro(l) };
+    const r = regPorId.get(l.registroId);
+    const ce = r?.dados?.ceOrigemId ? regPorId.get(r.dados.ceOrigemId) : null;
+    const doadora = ce ? cavPorId.get(ce.eguaId) : cavalos.find(c => c.nome === r?.dados?.eguaDoadoraNome);
+    return {
+      ...l, garanhao,
+      eguaNome: doProp(doadora) ? doadora.nome : '',
+      receptoraNome: nomeEgua(r?.eguaId),
+    };
+  });
+
+  // Receptora do DG45+ (nome digitado na coleta): sai se for égua de outro dono
+  const resultadosLinhas = (fatura.resultadosLinhas || []).map(l => {
+    const rec = l.receptora ? cavalos.find(c => c.nome === l.receptora) : null;
+    return rec && !doProp(rec) ? { ...l, receptora: null } : l;
+  });
+
+  return {
+    ...fatura,
+    visitasLinhas: (fatura.visitasLinhas || []).map(comEguasDaVisita),
+    visitasExcluidas: (fatura.visitasExcluidas || []).map(comEguasDaVisita),
+    insumosLinhas,
+    procedimentosLinhas,
+    avulsosLinhas: (fatura.avulsosLinhas || []).map(comEgua),
+    resultadosLinhas,
+  };
+}
+
+// Texto da linha com a(s) égua(s): "… — Égua"; na IA/IE com garanhão,
+// "… — Garanhão × Égua".
+export function textoComEgua(texto, l) {
+  const eguas = l.eguasNomes || (l.eguaNome ? [l.eguaNome] : []);
+  if (eguas.length === 0) return texto;
+  return `${texto}${l.garanhao ? ' × ' : ' — '}${eguas.join(', ')}`;
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -6,7 +6,7 @@ import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET } from './utils/faturaRepro';
+import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET, comEguasNaFatura, textoComEgua } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
@@ -7183,13 +7183,15 @@ const StatusChip = ({ status, pagoEm, fechadaEm }) => {
 };
 
 function ReproFaturaDetalhe({
-  fatura, persist = null, empresaInfo, vetsExternos, onBack,
+  fatura: faturaCalc, persist = null, empresaInfo, vetsExternos, onBack,
   registros = [], eguasDoProp = [], eguasRepro = [], propRepro = [], locaisRepro = [], centraisRepro = [], servicos = [], insumos = [], currentUser,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
   mesRef,
   addFaturaRepro, updateFaturaRepro, removeFaturaRepro,
   vetKmLocais = [], addAjusteFaturaRepro, removeAjusteFaturaRepro,
 }) {
+  // Tela, PDF e snapshot do fechamento levam o nome da égua em cada linha
+  const fatura = comEguasNaFatura(faturaCalc, { registros, cavalos: eguasRepro });
   const status = persist?.status || 'aberta';
   const isFechada = status === 'fechada' || status === 'paga';
   const isPaga = status === 'paga';
@@ -7289,14 +7291,20 @@ function ReproFaturaDetalhe({
     proprietarioId: fatura.proprietario.id, ano: fatura.ref.ano, mes: fatura.ref.mes,
     tipo, dados, criadoPor: currentUser?.nome || '',
   });
+  // Éguas já marcadas: a única do proprietário, ou as que têm registro no dia
+  const eguasDoDia = (data) => {
+    if (eguasDoProp.length === 1) return [eguasDoProp[0].id];
+    const ids = new Set(eguasDoProp.map(e => e.id));
+    return [...new Set(registros.filter(r => r.data === data && ids.has(r.eguaId)).map(r => r.eguaId))];
+  };
   const abrirNovaVisita = () => {
     const vetId = vetsExternos.some(v => v.id === currentUser?.id) ? currentUser.id : '';
     const localId = eguasDoProp[0]?.localId || '';
     const hojeIso = new Date().toLocaleDateString('sv-SE');
     const km = kmDe(vetId, localId);
+    const data = hojeIso.startsWith(mesIso) ? hojeIso : ultimoDiaIso;
     setNovaVisita({
-      data: hojeIso.startsWith(mesIso) ? hojeIso : ultimoDiaIso,
-      vetId, localId, valor: km ? String(km.valor) : '',
+      data, vetId, localId, valor: km ? String(km.valor) : '', eguasIds: eguasDoDia(data),
     });
   };
   const mudarNovaVisita = (campo, valor) => setNovaVisita(nv => {
@@ -7305,14 +7313,18 @@ function ReproFaturaDetalhe({
       const km = kmDe(prox.vetId, prox.localId);
       if (km) prox.valor = String(km.valor);
     }
+    if (campo === 'data') prox.eguasIds = eguasDoDia(valor);
     return prox;
   });
+  const alternarEguaNovaVisita = (id) => setNovaVisita(nv => ({
+    ...nv, eguasIds: nv.eguasIds.includes(id) ? nv.eguasIds.filter(x => x !== id) : [...nv.eguasIds, id],
+  }));
   const salvarNovaVisita = async () => {
     const nv = novaVisita;
     if (!nv?.data || !nv.vetId || !nv.localId) return;
     const valor = parseFloat(String(nv.valor).replace(',', '.')) || 0;
     const ok = await addAjusteFaturaRepro(ajusteBase('visita_adicionada', {
-      data: nv.data, vetId: nv.vetId, localId: nv.localId, valor,
+      data: nv.data, vetId: nv.vetId, localId: nv.localId, valor, eguasIds: nv.eguasIds,
     }));
     if (ok !== false) setNovaVisita(null);
   };
@@ -7438,7 +7450,7 @@ function ReproFaturaDetalhe({
 
         {(fatura.visitasLinhas.length > 0 || podeAjustarVisitas) && (
           <SecaoFat titulo={`Visitas · ${formatBRL(fatura.visitasTotal)}`} linhas={fatura.visitasLinhas.map(v => ({
-            principal: v.localNome,
+            principal: textoComEgua(v.localNome, v),
             sub: `${fmtDataBr(v.data)} · ${vetNome(v.vetId).split(' ')[0]}${v.nProps > 1 ? ` · rateado ${v.nProps}p` : ''}${v.manual ? ' · lançada na fatura' : ''}`,
             alerta: v.semKm ? `${vetNome(v.vetId).split(' ')[0]} não tem valor de km para este local` : null,
             valor: v.valor,
@@ -7457,7 +7469,7 @@ function ReproFaturaDetalhe({
                 {visitasExcluidas.map(v => (
                   <div key={v.ajusteId} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '3px 0', fontSize: 12, color: 'var(--ink-3)' }}>
                     <span style={{ flex: 1, minWidth: 0, textDecoration: 'line-through' }}>
-                      {v.localNome} · {fmtDataBr(v.data)} · {vetNome(v.vetId).split(' ')[0]}
+                      {textoComEgua(v.localNome, v)} · {fmtDataBr(v.data)} · {vetNome(v.vetId).split(' ')[0]}
                     </span>
                     {podeAjustarVisitas && (
                       <button onClick={() => removeAjusteFaturaRepro(v.ajusteId)} style={{
@@ -7504,6 +7516,24 @@ function ReproFaturaDetalhe({
                       .map(l => <option key={l.id} value={l.id}>{l.nome}</option>)}
                   </select>
                 </FormField>
+                {eguasDoProp.length > 0 && (
+                  <FormField label="Éguas atendidas">
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {[...eguasDoProp].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(e => {
+                        const marcada = novaVisita.eguasIds.includes(e.id);
+                        return (
+                          <button key={e.id} type="button" onClick={() => alternarEguaNovaVisita(e.id)} style={{
+                            padding: '6px 12px', borderRadius: 999, fontSize: 12, fontWeight: 500,
+                            border: '1px solid ' + (marcada ? CORES_TAB_ATIVA : 'var(--line)'),
+                            background: marcada ? CORES_TAB_ATIVA : 'var(--card)',
+                            color: marcada ? '#fff' : 'var(--ink-2)',
+                            fontFamily: 'var(--sans)', cursor: 'pointer',
+                          }}>{e.nome}</button>
+                        );
+                      })}
+                    </div>
+                  </FormField>
+                )}
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button onClick={() => setNovaVisita(null)} style={{
                     flex: 1, padding: '9px', borderRadius: 8, border: '1px solid var(--line)',
@@ -7522,21 +7552,23 @@ function ReproFaturaDetalhe({
         )}
         {fatura.insumosLinhas.length > 0 && (
           <SecaoFat titulo={`Insumos · ${formatBRL(fatura.insumosTotal)}`} linhas={fatura.insumosLinhas.map(l => ({
-            principal: l.nome, sub: `${fmtDataBr(l.data)} · ${l.qtd} ${l.unidade}`, valor: l.valor,
+            principal: textoComEgua(l.nome, l), sub: `${fmtDataBr(l.data)} · ${l.qtd} ${l.unidade}`, valor: l.valor,
             onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
             onExcluir: updateRegistroReproducao ? () => removerInsumoDaLinha(l.registroId, l.insumoId) : null,
           }))} />
         )}
         {fatura.procedimentosLinhas.length > 0 && (
           <SecaoFat titulo={`Procedimentos · ${formatBRL(fatura.procedimentosTotal)}`} linhas={fatura.procedimentosLinhas.map(l => ({
-            principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+            principal: textoComEgua(l.descricao, l),
+            sub: `${fmtDataBr(l.data)}${l.receptoraNome ? ` · rec. ${l.receptoraNome}` : ''} · ${vetNome(l.vetId).split(' ')[0]}`,
+            valor: l.valor,
             onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
             onExcluir: deleteRegistroReproducao ? () => excluirRegistro(l.registroId, `Excluir procedimento ${l.tipo} de ${fmtDataBr(l.data)}? O registro sai do caderno.`) : null,
           }))} />
         )}
         {fatura.avulsosLinhas.length > 0 && (
           <SecaoFat titulo={`Serviços avulsos · ${formatBRL(fatura.avulsosTotal)}`} linhas={fatura.avulsosLinhas.map(l => ({
-            principal: l.descricao, sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
+            principal: textoComEgua(l.descricao, l), sub: `${fmtDataBr(l.data)} · ${vetNome(l.vetId).split(' ')[0]}`, valor: l.valor,
             onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
             onExcluir: deleteRegistroReproducao ? () => excluirRegistro(l.registroId, `Excluir serviço "${l.descricao}" de ${fmtDataBr(l.data)}?`) : null,
           }))} />
