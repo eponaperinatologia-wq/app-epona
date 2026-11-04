@@ -1598,7 +1598,7 @@ const loadAllData = async (user = currentUser) => {
     setProprietarios(prev => prev.map(p => p.id === id ? { ...p, ...updatedData } : p));
     // Grava só os campos alterados: gravar a linha inteira com o estado da
     // tela apagava o que o próprio proprietário preencheu (cadastro, contrato).
-    dbUpdate('proprietarios', id, partialToDb(updatedData, PROPRIETARIO_MAP));
+    return dbUpdate('proprietarios', id, partialToDb(updatedData, PROPRIETARIO_MAP));
   };
   // Recarrega um proprietário do banco — usado após RPC (criar credencial,
   // trocar senha) que muda campos fora do fluxo normal do setState.

@@ -3835,6 +3835,21 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
   const [credOk, setCredOk] = useState(false);
   const [credLoading, setCredLoading] = useState(false);
 
+  // Grava o que foi digitado e ainda não salvo. Roda também ao sair da tela
+  // (voltar ou menu): antes o nome se perdia se só criassem a credencial e o
+  // cadastro ficava como "Novo proprietário".
+  const salvarPendente = () => {
+    if (!p) return null;
+    const patch = {};
+    if (nome.trim() && nome.trim() !== p.nome) patch.nome = nome.trim();
+    if (telefone !== (p.telefone || '')) patch.telefone = telefone;
+    if (email !== (p.email || '')) patch.email = email;
+    return Object.keys(patch).length ? updateProprietario(id, patch) : null;
+  };
+  const salvarPendenteRef = useRef(salvarPendente);
+  salvarPendenteRef.current = salvarPendente;
+  useEffect(() => () => { salvarPendenteRef.current(); }, []);
+
   if (!p) return null;
 
   const handleSave = () => {
@@ -3844,7 +3859,7 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
   };
 
   const abrirFormCred = () => {
-    setCredLogin(p.login || (p.nome || '').toLowerCase().trim().split(/\s+/)[0] || '');
+    setCredLogin(p.login || (nome || '').toLowerCase().trim().split(/\s+/)[0] || '');
     setCredSenha('');
     setCredErro('');
     setCredOk(false);
@@ -3857,6 +3872,8 @@ const ProprietarioScreen = ({ id, setScreen, proprietarios, cavalos = CAVALOS, u
     if (credSenha.length < 6) { setCredErro('Senha precisa ter ao menos 6 caracteres'); return; }
     setCredLoading(true);
     try {
+      // Nome/telefone/e-mail digitados vão pro banco antes da credencial.
+      if (await salvarPendente() === false) throw new Error('Não foi possível salvar o nome. Tente de novo.');
       await criarCredencialProprietario(id, credLogin.trim(), credSenha);
       setCredOk(true);
       setShowCredForm(false);
