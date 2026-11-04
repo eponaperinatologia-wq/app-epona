@@ -1393,7 +1393,7 @@ const CavaloDetalheScreen = ({ id, setScreen, registros, procedimentos = [], ser
   };
   const fmtDia = (d) => { if (!d) return null; const [a, m, dd] = d.split('-'); return `${dd}/${m}/${a.slice(2)}`; };
   const [editRegQtd, setEditRegQtd] = useState(null);
-  const racao = c.nutricao && getInsumo(c.nutricao.racaoId);
+  const racao = c.nutricao && ((insumos || []).find(i => i.id === c.nutricao.racaoId) || getInsumo(c.nutricao.racaoId));
   const consumoDia = consumoDiarioCavalo(c.id, insumos);
 
   return (
@@ -2228,6 +2228,8 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
 
   // Nutritional state
   const [racaoId, setRacaoId] = useState(c.nutricao?.racaoId || 'i2');
+  // Rações do cadastro de insumos (categoria Rações), em ordem alfabética.
+  const racoes = insumosProp.filter(i => i.categoria === 'racao').sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
   const fallbackMeio = c.nutricao?.racaoKgDia ? c.nutricao.racaoKgDia / 2 : 2;
   const [racaoKgManha, setRacaoKgManha] = useState(String(c.nutricao?.racaoKgManha ?? fallbackMeio));
   const [racaoKgTarde, setRacaoKgTarde] = useState(String(c.nutricao?.racaoKgTarde ?? fallbackMeio));
@@ -2377,9 +2379,9 @@ const EditarCavaloScreen = ({ id, setScreen, cavalos = CAVALOS, updateCavalo, de
     updateCavalo(id, { nome, baia, piquete: baia, mensalidade: pagarOCusto ? 0 : safeMens, obs, sexo, pelagem, dataEntrada, nascimento: nascimento || null, proprietarioId: selectedProprietarios[0] || c.proprietarioId, proprietarioIds: selectedProprietarios, historicoProprietarios: historicoFinal, categoria: categoriasArr[0] || '', categorias: categoriasArr, maeId: isPotroAoPe ? (maeId || null) : null, pagarOCusto, ...gestacaoUpdate, nutricao: newNutricao });
 
     if (nutricaoChanged && addAtividade) {
-      const racaoNome = INSUMOS.find(i => i.id === racaoId)?.nome || racaoId;
+      const racaoNome = insumosProp.find(i => i.id === racaoId)?.nome || racaoId;
       const autor = currentUser?.nome || 'Sistema';
-      const supNomes = suplementos.map(s => INSUMOS.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
+      const supNomes = suplementos.map(s => insumosProp.find(i => i.id === s.insumoId)?.nome || s.insumoId).join(', ');
       const hoje = new Date(); const mes = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0');
       const data = hoje.toLocaleDateString('sv-SE');
       const text = `🍽️ Plano nutricional de ${c.nome} atualizado:
@@ -2920,7 +2922,7 @@ Suplementos: ${supNomes}` : ''}`;
               width: '100%', border: 'none', outline: 'none', background: 'transparent',
               fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
             }}>
-              {INSUMOS.filter(i => i.categoria === 'racao').map(i => (
+              {racoes.map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -3118,12 +3120,21 @@ const FormField = ({ label, children }) => (
 // ─────────────────────────────────────────────────────────────
 // ADICIONAR CAVALO
 // ─────────────────────────────────────────────────────────────
-const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCavaloPendente, pendingEntradaCavalo, setPendingEntradaCavalo, proprietarios: allProprietarios = PROPRIETARIOS, addProprietario }) => {
+const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCavaloPendente, pendingEntradaCavalo, setPendingEntradaCavalo, proprietarios: allProprietarios = PROPRIETARIOS, addProprietario, insumos = INSUMOS }) => {
   const pelagenOptions = ['Tordilho', 'Alazã', 'Castanho', 'Preto', 'Baia', 'Rosilha'];
-  
+
   const [nome, setNome] = useState('');
   const [selectedProprietarios, setSelectedProprietarios] = useState([]);
   const [showPropSelector, setShowPropSelector] = useState(false);
+  const [propSearch, setPropSearch] = useState('');
+  const sortedProprietarios = [...allProprietarios].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
+  const filteredProprietarios = propSearch.trim()
+    ? sortedProprietarios.filter(p => norm(p.nome).includes(norm(propSearch)))
+    : sortedProprietarios;
+  // Rações e suplementos do cadastro de insumos, em ordem alfabética.
+  const porNome = (a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt');
+  const racoes = insumos.filter(i => i.categoria === 'racao').sort(porNome);
+  const suplementosCadastrados = insumos.filter(i => i.categoria === 'suplemento').sort(porNome);
   const [novoProprietarioNome, setNovoProprietarioNome] = useState('');
   const [idade, setIdade] = useState('');
   const [sexo, setSexo] = useState('');
@@ -3355,13 +3366,25 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 textAlign: 'left', color: selectedProprietarios.length === 0 ? 'var(--ink-3)' : 'var(--ink)',
                 fontSize: 15, padding: 0,
               }}>
-                {selectedProprietarios.length === 0 
-                  ? 'Toque para selecionar...' 
-                  : allProprietarios.filter(p => selectedProprietarios.includes(p.id)).map(p => p.nome).join(', ')}
+                {selectedProprietarios.length === 0
+                  ? 'Toque para selecionar...'
+                  : sortedProprietarios.filter(p => selectedProprietarios.includes(p.id)).map(p => p.nome).join(', ')}
               </button>
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {allProprietarios.map(p => (
+                <input
+                  type="text"
+                  placeholder="Buscar proprietário..."
+                  value={propSearch}
+                  onChange={e => setPropSearch(e.target.value)}
+                  style={{
+                    width: '100%', border: 'none', outline: 'none', background: 'transparent',
+                    fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)',
+                    padding: '8px 0', borderBottom: '1px solid var(--line)',
+                  }}
+                />
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 200, overflowY: 'auto' }}>
+                {filteredProprietarios.map(p => (
                   <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 14, color: 'var(--ink)' }}>
                     <input
                       type="checkbox"
@@ -3372,6 +3395,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                     {p.nome}
                   </label>
                 ))}
+                </div>
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid var(--line)' }}>
                   <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 6 }}>Adicionar novo proprietário</div>
                   <div style={{ display: 'flex', gap: 8 }}>
@@ -3394,7 +3418,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                     </button>
                   </div>
                 </div>
-                <button onClick={() => setShowPropSelector(false)} style={{
+                <button onClick={() => { setShowPropSelector(false); setPropSearch(''); }} style={{
                   background: 'var(--accent)', color: '#fff', border: 'none', borderRadius: 10,
                   padding: '8px', fontSize: 13, fontWeight: 600, marginTop: 4, cursor: 'pointer',
                 }}>
@@ -3651,7 +3675,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
                 fontSize: 15, color: 'var(--ink)', fontFamily: 'var(--sans)', padding: 0,
               }}
             >
-              {INSUMOS.filter(i => i.categoria === 'racao').map(i => (
+              {racoes.map(i => (
                 <option key={i.id} value={i.id}>{i.nome}</option>
               ))}
             </select>
@@ -3747,7 +3771,7 @@ const AddCavaloScreen = ({ setScreen, addCavalo, cavalos = CAVALOS, setNovoCaval
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', marginBottom: 12 }}>
           <FormField label="Suplementos">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-              {INSUMOS.filter(i => i.categoria === 'suplemento').map(i => {
+              {suplementosCadastrados.map(i => {
                 const sup = suplementos.find(s => s.insumoId === i.id);
                 return (
                   <div key={i.id} style={{ padding: '6px 0', borderBottom: '1px solid var(--line)' }}>
