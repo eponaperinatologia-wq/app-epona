@@ -748,8 +748,15 @@ function PainelEmbrioesAcompanhamento({
   // "arquivar" ao fim da estação virá em fluxo futuro). Mostra todos,
   // ordenados por data de cobrição (mais recente em cima). Ativos e concluídos convivem — o badge
   // de status diferencia visualmente.
-  const ativos = todos.filter(e => !e.concluido);
-  const concluidos = todos.filter(e => e.concluido);
+  // Contagens do resumo do acordeão:
+  //  - confirmados: algum DG positivo e nenhum negativo (gestação em curso)
+  //  - negativados: algum DG deu negativo
+  //  - prenhezes 45+: D45 ou D60 positivo (subconjunto dos confirmados)
+  const ehNegativo = (e) => e.status.endsWith('_neg');
+  const ehPositivo = (e) => e.status.endsWith('_pos');
+  const confirmados = todos.filter(e => ehPositivo(e)).length;
+  const negativados = todos.filter(e => ehNegativo(e)).length;
+  const prenhezes45 = todos.filter(e => e.status === 'd45_pos' || e.status === 'd60_pos').length;
   const lista = todos;
 
   if (todos.length === 0) return null;
@@ -801,9 +808,10 @@ function PainelEmbrioesAcompanhamento({
             Embriões
           </div>
           <div style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-            {todos.length} embrião{todos.length === 1 ? '' : 'ões'} na estação
-            {ativos.length > 0 && ` · ${ativos.length} em acompanhamento`}
-            {concluidos.length > 0 && ` · ${concluidos.length} concluído${concluidos.length === 1 ? '' : 's'}`}
+            {todos.length} {todos.length === 1 ? 'embrião' : 'embriões'} na estação
+            {` · ${confirmados} confirmado${confirmados === 1 ? '' : 's'}`}
+            {` · ${negativados} negativado${negativados === 1 ? '' : 's'}`}
+            {` · ${prenhezes45} ${prenhezes45 === 1 ? 'prenhez' : 'prenhezes'} 45+`}
           </div>
         </div>
         <span style={{
