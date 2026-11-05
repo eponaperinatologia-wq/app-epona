@@ -447,8 +447,44 @@ function filtrarAvisosParaMural(avisos, { currentUser, genealogicosRepro = [], h
 //   { regId, embIdx, fonte: 'ce'|'inovulacao', dataColeta, dataInovulacao,
 //     dataIa, garanhao, eguaDoadora, destino, dgs, receptora,
 //     status, concluido, qtdTotalEmbrioes, pontosDg: [12,15,...] }
+// Soma N dias numa data ISO (YYYY-MM-DD), sem problemas de fuso.
+function somarDiasIso(iso, n) {
+  if (!iso) return null;
+  const d = new Date(iso + 'T12:00:00');
+  if (isNaN(d)) return null;
+  d.setDate(d.getDate() + n);
+  return d.toLocaleDateString('sv-SE');
+}
+
+// dd/mm curto pra exibir datas previstas de DG
+function fmtDiaMes(iso) {
+  if (!iso) return '';
+  const [, m, d] = iso.split('-');
+  return `${d}/${m}`;
+}
+
 function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
   const out = [];
+  // IA de origem de uma CE: link explícito (iaOrigemId) ou, na falta,
+  // a última IA "pra transferência" da mesma égua até a data da CE.
+  const iaOrigemDaCe = (ce) => {
+    if (!ce) return null;
+    if (ce.dados?.iaOrigemId) return registrosRepro.find(x => x.id === ce.dados.iaOrigemId) || null;
+    return registrosRepro
+      .filter(x => x.tipo === 'inseminacao_artificial'
+        && x.eguaId === ce.eguaId
+        && x.dados?.destino === 'transferencia'
+        && (x.data || '') <= (ce.data || ''))
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
+  };
+  // Última ovulação da receptora até a data da inovulação (fallback
+  // da data-base dos DGs quando não sabemos a cobrição).
+  const ovulacaoReceptora = (eguaId, ate) => registrosRepro
+    .filter(x => x.tipo === 'controle_folicular' && x.eguaId === eguaId
+      && x.dados?.ovulou && x.dados?.dataOvulacao
+      && (!ate || x.dados.dataOvulacao <= ate))
+    .map(x => x.dados.dataOvulacao)
+    .sort((a, b) => b.localeCompare(a))[0] || null;
   // IDs de CE que foram vinculadas via ceOrigemId em alguma inovulação:
   // essas CEs são suprimidas da lista (a inovulação toma o lugar delas).
   const ceLincadas = new Set(
@@ -464,14 +500,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     const d = r.dados || {};
     const qtd = Math.max(1, Number(d.qtdEmbrioes) || 1);
     const egua = cavalosLookup.find(c => c.id === r.eguaId);
-    const iaOrigem = d.iaOrigemId
-      ? registrosRepro.find(x => x.id === d.iaOrigemId)
-      : (registrosRepro
-          .filter(x => x.tipo === 'inseminacao_artificial'
-            && x.eguaId === r.eguaId
-            && x.dados?.destino === 'transferencia'
-            && (x.data || '') <= (r.data || ''))
-          .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null);
+    const iaOrigem = iaOrigemDaCe(r);
     const garanhao = iaOrigem?.dados?.garanhao || '';
     const dataIa = iaOrigem?.data || null;
     const destinosArr = Array.isArray(d.destinos) ? d.destinos :
@@ -497,6 +526,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       out.push({
         regId: r.id, embIdx: i, fonte: 'ce',
         dataColeta: r.data, dataInovulacao: null, dataIa, garanhao,
+        dataBaseDg: dataIa,
         eguaDoadora: egua?.nome || '—',
         destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
         pontosDg: [15, 45, 60],
@@ -516,13 +546,14 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     let garanhao = d.garanhao || '';
     let eguaDoadora = d.eguaDoadoraNome || '';
     let dataColeta = null;
+    let dataIa = null;
     if (ceOrigem) {
       dataColeta = ceOrigem.data;
       const eguaDoadoraReg = cavalosLookup.find(c => c.id === ceOrigem.eguaId);
       if (eguaDoadoraReg?.nome) eguaDoadora = eguaDoadoraReg.nome;
-      const iaOrigemCe = ceOrigem.dados?.iaOrigemId
-        ? registrosRepro.find(x => x.id === ceOrigem.dados.iaOrigemId) : null;
+      const iaOrigemCe = iaOrigemDaCe(ceOrigem);
       if (iaOrigemCe?.dados?.garanhao) garanhao = iaOrigemCe.dados.garanhao;
+      dataIa = iaOrigemCe?.data || null;
     }
     const dgs = {
       dg12: d.dg12 || null,
@@ -545,7 +576,10 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     else if (dgs.dg12 === 'positivo') { status = 'd12_pos'; }
     out.push({
       regId: r.id, embIdx: 0, fonte: 'inovulacao',
-      dataColeta, dataInovulacao: r.data, dataIa: null, garanhao,
+      dataColeta, dataInovulacao: r.data, dataIa, garanhao,
+      // Base dos DGs: cobrição; sem ela, ovulação da receptora (mesma
+      // referência que o Planner usa pros DGs de receptora).
+      dataBaseDg: dataIa || ovulacaoReceptora(r.eguaId, r.data),
       eguaDoadora: eguaDoadora || '—',
       destino: { tipo: 'egua', eguaNome: receptoraEgua?.nome || '', receptoraCadastradaId: r.eguaId },
       dgs, receptora: receptoraEgua?.nome || '',
@@ -640,6 +674,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       regId: r.id, embIdx: 0, fonte: 'prenhez',
       dataColeta: null, dataInovulacao: null,
       dataIa: r.data,
+      dataBaseDg: r.data,
       garanhao: d.garanhao || '',
       eguaDoadora: matriz?.nome || '—', // na prenhez a "doadora" é a própria matriz
       destino: { tipo: 'propria', eguaNome: matriz?.nome || '' },
@@ -651,12 +686,12 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     });
   }
 
-  // Mais recentes primeiro
-  return out.sort((a, b) => {
-    const da = a.dataInovulacao || a.dataColeta || a.dataIa || '';
-    const db = b.dataInovulacao || b.dataColeta || b.dataIa || '';
-    return db.localeCompare(da);
-  });
+  // Ordena por data de cobrição (IA): mais recentes em cima, mais
+  // antigas embaixo. Sem cobrição conhecida, usa a data-base dos DGs,
+  // depois coleta/inovulação. Empate: ordem do embrião no registro.
+  const dataOrdem = (x) => x.dataIa || x.dataBaseDg || x.dataColeta || x.dataInovulacao || '';
+  return out.sort((a, b) =>
+    dataOrdem(b).localeCompare(dataOrdem(a)) || (a.embIdx - b.embIdx));
 }
 
 const STATUS_META = {
@@ -711,7 +746,7 @@ function PainelEmbrioesAcompanhamento({
   );
   // Embriões ficam na lista até o fim da estação (regra do negócio;
   // "arquivar" ao fim da estação virá em fluxo futuro). Mostra todos,
-  // ordenados por data desc. Ativos e concluídos convivem — o badge
+  // ordenados por data de cobrição (mais recente em cima). Ativos e concluídos convivem — o badge
   // de status diferencia visualmente.
   const ativos = todos.filter(e => !e.concluido);
   const concluidos = todos.filter(e => e.concluido);
@@ -884,12 +919,19 @@ function PainelEmbrioesAcompanhamento({
                   const campo = `dg${p}`;
                   const lbl = `D${p}`;
                   const val = item.dgs?.[campo] || null;
+                  const dataPrevista = somarDiasIso(item.dataBaseDg, p);
                   return (
                     <div key={campo} style={{
                       padding: 6, borderRadius: 8, border: '1px solid var(--line)',
                       background: 'var(--bg)',
                     }}>
-                      <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>{lbl}</div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-3)', fontWeight: 700, textAlign: 'center', marginBottom: dataPrevista ? 0 : 4 }}>{lbl}</div>
+                      {dataPrevista && (
+                        <div title={`Previsto para ${fmtDataBr(dataPrevista)}`} style={{
+                          fontSize: 9, color: 'var(--ink-3)', opacity: 0.75,
+                          textAlign: 'center', marginBottom: 4, fontVariantNumeric: 'tabular-nums',
+                        }}>{fmtDiaMes(dataPrevista)}</div>
+                      )}
                       <div style={{ display: 'flex', gap: 3 }}>
                         {['positivo', 'negativo'].map(v => (
                           <button key={v} onClick={() => marcarDg(item, campo, v)} style={{
