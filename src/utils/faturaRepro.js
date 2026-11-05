@@ -387,6 +387,8 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
       avulsosLinhas.push({
         data: r.data, registroId: r.id, vetId: r.vetId, servicoId: r.dados?.servicoId || null,
         descricao: sv?.nome || 'Serviço avulso', valor,
+        // Transporte (Motoboy, Frete) fica 100% com o vet na divisão
+        categoria: sv?.categoria || null,
       });
       continue;
     }
@@ -724,9 +726,13 @@ export function calcFaturasExternas(ref, deps) {
 //                   (cada vet compra o próprio material; o preço segue
 //                   o do cadastro de insumos)
 //   Km/Visita     → 100% vet que prestou
-//   IA / TE       → 70% vet, 30% Epona
+//   IA / TE / IE  → 70% vet, 30% Epona
 //   Resultado     → 50% vet inseminou, 50% Epona
-//   Serviço avulso→ 100% vet que fez
+//   Outros procedimentos (serviços avulsos, tratamento uterino, ozônio,
+//   PRP, biópsia, cultura)
+//                 → até 30/09/2026: 100% vet que fez
+//                 → desde 01/10/2026: 70% vet que registrou, 30% Epona
+//   Transporte    → 100% vet que registrou (Motoboy, Frete)
 //   Assessoria    → só Epona interno (Alexandre/Carolina) → 100% Epona
 //                 → vet externo participa → Epona 50% + externos dividem 50%
 // Retorna: { epona: n, porVet: { [vetId]: n } }
@@ -735,6 +741,7 @@ export function calcFaturasExternas(ref, deps) {
 // como externos (comportamento mais conservador — não dá tudo pra Epona).
 // ─────────────────────────────────────────────────────────────
 export const INICIO_INSUMOS_DO_VET = '2026-10-01';
+export const INICIO_PROCEDIMENTOS_70_30 = '2026-10-01';
 
 export function dividirFatura(fatura, vetsExternos = []) {
   const acc = { epona: 0, porVet: {} };
@@ -759,8 +766,14 @@ export function dividirFatura(fatura, vetsExternos = []) {
     addVet(l.vetId, l.valor * 0.7);
     acc.epona += l.valor * 0.3;
   }
-  // Avulsos → vet
-  for (const l of fatura.avulsosLinhas) addVet(l.vetId, l.valor);
+  // Outros procedimentos → 70/30 desde out/2026 (antes, 100% vet).
+  // Transporte continua 100% vet.
+  for (const l of fatura.avulsosLinhas) {
+    if ((l.data || '') >= INICIO_PROCEDIMENTOS_70_30 && l.categoria !== 'transporte') {
+      addVet(l.vetId, l.valor * 0.7);
+      acc.epona += l.valor * 0.3;
+    } else addVet(l.vetId, l.valor);
+  }
   // Resultado → 50/50 (vet inseminou / Epona)
   for (const l of fatura.resultadosLinhas) {
     addVet(l.vetIdInsem, l.valor * 0.5);

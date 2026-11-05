@@ -6,7 +6,7 @@ import { Icon } from './icons';
 import { norm, formatBRL, CATEGORIAS_INSUMOS, CATEGORIAS_SERVICOS } from './data';
 import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
-import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET, comEguasNaFatura, textoComEgua } from './utils/faturaRepro';
+import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET, INICIO_PROCEDIMENTOS_70_30, comEguasNaFatura, textoComEgua } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
 import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
@@ -7711,8 +7711,11 @@ function ReproDivisao({
     registros, cavalos, proprietarios, servicos, insumos, vetKmLocais, locais, contratosAssessoria, visitasClinicas,
     ajustesFaturas: ajustesFaturasRepro,
   };
-  // Desde out/2026 os insumos vão pro vet que registrou (antes, Epona)
-  const insumosDoVet = `${mesRef.ano}-${String(mesRef.mes).padStart(2, '0')}-01` >= INICIO_INSUMOS_DO_VET;
+  // Desde out/2026 os insumos vão pro vet que registrou (antes, Epona) e
+  // todos os procedimentos ficam 70 vet · 30 Epona (antes, só IA/TE)
+  const inicioMes = `${mesRef.ano}-${String(mesRef.mes).padStart(2, '0')}-01`;
+  const insumosDoVet = inicioMes >= INICIO_INSUMOS_DO_VET;
+  const procedimentos7030 = inicioMes >= INICIO_PROCEDIMENTOS_70_30;
   // Pra cada proprietário, pega a fatura (persistida se houver, senão on-the-fly)
   // e computa a divisão daquela fatura individual.
   const itens = [];
@@ -7754,9 +7757,9 @@ function ReproDivisao({
           background: '#f5e8ff', border: '1px solid #d8b4fe', borderRadius: 12,
           padding: '10px 14px', fontSize: 12, color: '#6b21a8', lineHeight: 1.4,
         }}>
-          Regras: <strong>insumos 100 {insumosDoVet ? 'vet que registrou' : 'Epona'}</strong> · <strong>km 100 vet</strong> ·
-          <strong> IA/TE 70 vet · 30 Epona</strong> · <strong>resultado 50 vet · 50 Epona</strong> ·
-          <strong> avulsos 100 vet</strong>
+          Regras: <strong>insumos 100 {insumosDoVet ? 'vet que registrou' : 'Epona'}</strong> · <strong>km {procedimentos7030 ? 'e transporte ' : ''}100 vet</strong> ·
+          <strong> {procedimentos7030 ? 'procedimentos' : 'IA/TE'} 70 vet · 30 Epona</strong> · <strong>resultado 50 vet · 50 Epona</strong>
+          {!procedimentos7030 && <> · <strong>avulsos 100 vet</strong></>}
         </div>
       </div>
 
@@ -7774,12 +7777,13 @@ function ReproDivisao({
             A repassar agora (faturas pagas)
           </div>
           <LinhaDivisao
-            label="Epona Stud" sub={insumosDoVet ? '30 IA/TE + 50 resultado' : 'Insumos + 30 IA/TE + 50 resultado'}
+            label="Epona Stud" sub={`${insumosDoVet ? '' : 'Insumos + '}30 ${procedimentos7030 ? 'procedimentos' : 'IA/TE'} + 50 resultado`}
             valor={totais.paga.epona} icon="building" iconBg="var(--accent-soft)" iconColor="var(--accent)"
           />
           {vetsOrdenados(totais.paga.porVet).map(({ vet, valor }) => (
             <LinhaDivisao
-              key={vet.id} label={vet.nome} sub={insumosDoVet ? 'Insumos + km + 70 IA/TE + 50 resultado + avulsos' : 'Km + 70 IA/TE + 50 resultado + avulsos'}
+              key={vet.id} label={vet.nome}
+              sub={`${insumosDoVet ? 'Insumos + km' : 'Km'}${procedimentos7030 ? ' + transporte + 70 procedimentos + 50 resultado' : ' + 70 IA/TE + 50 resultado + avulsos'}`}
               valor={valor} iconBg={vet.cor || CORES_TAB_ATIVA} iconColor="#fff"
               iniciais={(vet.nome || '').split(' ').map(n => n[0]).slice(0, 2).join('').toUpperCase()}
             />
