@@ -5834,6 +5834,27 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
     }
   }
   const totalEmbrioesPos = embrioesPosLinhas.length;
+
+  // ── Coletas de embrião feitas — ancoradas ao mês da IA ────────
+  // Todas as CEs (positivas e negativas) vinculadas às IAs pra TE do
+  // mês. 1 linha por coleta (não por embrião).
+  const coletasLinhas = [];
+  const cesVistas = new Set();
+  for (const ia of iasParaTe) {
+    for (const ce of cesVinculadasDaIa(registrosRepro, ia)) {
+      if (cesVistas.has(ce.id)) continue;
+      cesVistas.add(ce.id);
+      coletasLinhas.push({
+        key: ce.id, regId: ce.id, cavaloId: ce.eguaId, data: ce.data,
+        garanhao: ia.dados?.garanhao || ce.dados?.garanhao || '',
+        iaData: ia.data,
+        resultado: ce.dados?.resultado || null,
+        qtd: Math.max(1, Number(ce.dados?.qtdEmbrioes) || 1),
+        vetInseminador: ia.vetId,
+      });
+    }
+  }
+  const totalColetas = coletasLinhas.length;
   const totalEmbrioesPosCe = embrioesPosLinhas.filter(l => l.tipo === 'ce').length;
   const totalEmbrioesPosPrenhez = embrioesPosLinhas.filter(l => l.tipo === 'prenhez').length;
 
@@ -5965,6 +5986,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
   const cards = [
     { label: 'CF', key: 'cf', valor: totalCF, cor: '#0e7490', bg: '#cffafe', clicavel: true, hint: 'Controles foliculares' },
     { label: 'IA', key: 'ia', valor: totalIA, cor: '#7c2d8c', bg: '#f5e8ff', clicavel: true, hint: 'Inseminações' },
+    { label: 'CE', key: 'coletas', valor: totalColetas, cor: '#c2410c', bg: '#ffedd5', clicavel: true, hint: 'Coletas de embrião' },
     { label: 'Embr+', key: 'embrioes_pos', valor: totalEmbrioesPos, cor: '#be185d', bg: '#fce7f3', clicavel: true, hint: 'Embriões positivados' },
     { label: 'Prenh.', key: 'prenhezes', valor: totalPrenhezes, cor: '#15803d', bg: '#dcfce7', clicavel: true, hint: 'Prenhezes DG45+' },
   ];
@@ -6004,7 +6026,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
         </div>
       )}
 
-      <div style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
+      <div style={{ padding: '4px 20px 12px', display: 'grid', gridTemplateColumns: `repeat(${cards.length}, 1fr)`, gap: 6 }}>
         {cards.map(c => (
           <button
             key={c.label}
@@ -6013,7 +6035,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
             title={c.hint || c.label}
             style={{
               background: c.bg, border: `1px solid ${c.cor}30`, borderRadius: 12,
-              padding: '12px 6px', textAlign: 'center',
+              padding: '12px 3px', textAlign: 'center', minWidth: 0,
               cursor: c.clicavel ? 'pointer' : 'default', fontFamily: 'inherit',
             }}>
             <div style={{ fontFamily: 'var(--serif)', fontSize: 26, color: c.cor, lineHeight: 1 }}>{c.valor}</div>
@@ -6068,6 +6090,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
           cesAtribuidas={cesAtribuidas}
           cfsDoMes={cfsDoMes}
           embrioesPosLinhas={embrioesPosLinhas}
+          coletasLinhas={coletasLinhas}
           prenhezesLinhas={prenhezesLinhas}
           svsDoMes={svsDoMes}
           eguasRepro={eguasRepro}
@@ -6087,7 +6110,7 @@ function ReproDashboard({ registrosRepro, eguasRepro, vetsExternos, servicos = [
 // tipo: 'ia' | 'ce' | 'dg'
 function DetalhePainelLista({
   tipo, iasDoMes = [], cesAtribuidas = [], cfsDoMes = [],
-  embrioesPosLinhas = [], prenhezesLinhas = [],
+  embrioesPosLinhas = [], prenhezesLinhas = [], coletasLinhas = [],
   svsDoMes = [],
   eguasRepro = [], vetsExternos = [], servicos = [], centraisRepro = [],
   iaDeOrigem = null, filtroVetAtivo = false, onClose,
@@ -6100,6 +6123,7 @@ function DetalhePainelLista({
   const nomeCentral = (id) => centraisRepro.find(c => c.id === id)?.nome || '—';
   const titulo = tipo === 'ia' ? 'Inseminações'
     : tipo === 'cf' ? 'Controles foliculares'
+    : tipo === 'coletas' ? 'Coletas de embrião'
     : tipo === 'embrioes_pos' ? 'Embriões positivados'
     : tipo === 'prenhezes' ? 'Prenhezes confirmadas (DG45+)'
     : tipo === 'sv' ? 'Serviços avulsos'
@@ -6144,11 +6168,27 @@ function DetalhePainelLista({
         key: l.key, vetId: l.vetInseminador,
         titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}${l.qtd > 1 ? ` · embr. ${l.embIdx + 1}/${l.qtd}` : ''}`,
         chip: l.tipo === 'prenhez'
-          ? { label: 'Prenhez na matriz · DG+', bg: '#fce7f3', ink: '#9d174d' }
+          ? { label: 'Prenhez na matriz · DG12+', bg: '#fce7f3', ink: '#9d174d' }
           : { label: '✓ Coleta positiva', bg: '#dcfce7', ink: '#15803d' },
         subs: [
           l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
           l.tipo === 'ce' ? `Coleta: ${fmtDataBr(l.data)}` : `Confirmado: ${fmtDataBr(l.data)}`,
+        ].filter(Boolean),
+      }));
+  } else if (tipo === 'coletas') {
+    linhas = [...coletasLinhas]
+      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))
+      .map(l => ({
+        key: l.key, vetId: l.vetInseminador,
+        titulo: `${l.garanhao || '—'} × ${nomeEgua(l.cavaloId)}`,
+        chip: l.resultado === 'positivo'
+          ? { label: `✓ Positiva${l.qtd > 1 ? ` · ${l.qtd} embr.` : ''}`, bg: '#dcfce7', ink: '#15803d' }
+          : l.resultado === 'negativo'
+            ? { label: '✗ Negativa', bg: '#fee2e2', ink: '#dc2626' }
+            : { label: 'Sem resultado', bg: 'var(--soft)', ink: 'var(--ink-3)' },
+        subs: [
+          l.iaData ? `IA: ${fmtDataBr(l.iaData)}` : null,
+          `Coleta: ${fmtDataBr(l.data)}`,
         ].filter(Boolean),
       }));
   } else if (tipo === 'prenhezes') {
