@@ -1360,7 +1360,17 @@ function Planner({
   const proximos = [];
   for (let i = 1; i <= diasAFrente; i++) proximos.push(addDias(hoje, i));
   const temAtrasado = (buckets.get('atrasado') || []).length > 0;
-  const ordem = temAtrasado ? ['atrasado', 'hoje', ...proximos] : ['hoje', ...proximos];
+  // Datas com evento além do horizonte visível também ganham coluna. Sem
+  // isso, um evento marcado pra 25/45/60 dias existe no bucket e nunca é
+  // renderizado — era o caso dos DGs longos das receptoras, que pareciam
+  // "não agendados" quando na verdade só não tinham coluna.
+  const dentroDoHorizonte = new Set(proximos);
+  const alemDoHorizonte = [...buckets.keys()]
+    .filter(k => k !== 'atrasado' && k !== 'hoje' && !dentroDoHorizonte.has(k))
+    .sort();
+  const ordem = temAtrasado
+    ? ['atrasado', 'hoje', ...proximos, ...alemDoHorizonte]
+    : ['hoje', ...proximos, ...alemDoHorizonte];
 
   const labelBucket = (k) => {
     if (k === 'atrasado') return 'Atrasado';
@@ -1876,13 +1886,20 @@ function eventosReceptorasAtivas(registros, hoje, cavalos = [], insumos = []) {
       // contava sempre da ovulação, o mesmo DG caía em dias diferentes nas
       // duas telas (a diferença entre cobrição e ovulação da receptora).
       const baseDg = dataCobricaoDaInovulacao(registros, inov) || dataOv;
+      // O primeiro ponto ainda não resolvido entra mesmo se a data já
+      // passou — vai pro bucket "Atrasado". Antes um DG vencido e não
+      // feito simplesmente desaparecia da agenda, que é justamente o
+      // caso em que ele mais precisa aparecer.
+      let primeiroPendente = true;
       for (const p of PONTOS_DG) {
-        const dataDg = addDiasLocal(baseDg, p);
-        if (dataDg < hoje) continue; // já passou, não é "pendente"
         // Se já marcado positivo/negativo no inov.dados, pula
         const chave = chaveDg[p];
         const val = inov.dados?.[chave];
         if (val === 'positivo' || val === 'negativo') continue;
+        const dataDg = addDiasLocal(baseDg, p);
+        const atrasado = dataDg < hoje;
+        if (atrasado && !primeiroPendente) continue;
+        primeiroPendente = false;
         out.push({
           id: `${inov.id}:dg${p}`,
           tipoEv: `receptora_dg${p}`,
