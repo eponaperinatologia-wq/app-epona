@@ -14,7 +14,7 @@ import { Icon } from './icons';
 import { TopBar } from './screens';
 import {
   calcEstoqueProp, STATUS_META, hojeIso, precisaReposicao,
-} from './utils/suplementosProp';
+} from './utils/insumosProp';
 
 export { calcEstoqueProp };
 

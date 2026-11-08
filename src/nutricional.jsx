@@ -5,7 +5,7 @@ import { norm } from './data';
 import { TopBar, HorseAvatar } from './screens';
 import { getEmpresa } from './utils/empresa';
 import { gerarPdfNutricao, nomePdfNutricao } from './utils/pdfNutricao';
-import { calcEstoqueProp, precisaReposicao } from './utils/suplementosProp';
+import { calcEstoqueProp, precisaReposicao } from './utils/insumosProp';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
