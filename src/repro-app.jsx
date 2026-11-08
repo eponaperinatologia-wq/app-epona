@@ -463,20 +463,35 @@ function fmtDiaMes(iso) {
   return `${d}/${m}`;
 }
 
+// IA de origem de uma CE: link explícito (iaOrigemId) ou, na falta, a
+// última IA "pra transferência" da mesma égua até a data da CE.
+// Escopo de módulo porque a lista de embriões (home) e o Planner/kanban
+// precisam da MESMA regra pra data-base dos DGs.
+function iaOrigemDaCeEm(registros, ce) {
+  if (!ce) return null;
+  const regs = registros || [];
+  if (ce.dados?.iaOrigemId) return regs.find(x => x.id === ce.dados.iaOrigemId) || null;
+  return regs
+    .filter(x => x.tipo === 'inseminacao_artificial'
+      && x.eguaId === ce.eguaId
+      && x.dados?.destino === 'transferencia'
+      && (x.data || '') <= (ce.data || ''))
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
+}
+
+// Data da cobrição (IA da doadora) que originou uma inovulação, via a CE
+// vinculada em dados.ceOrigemId. null quando o vínculo não existe.
+function dataCobricaoDaInovulacao(registros, inov) {
+  const ceId = inov?.dados?.ceOrigemId;
+  if (!ceId) return null;
+  const ce = (registros || []).find(x => x.id === ceId);
+  return iaOrigemDaCeEm(registros, ce)?.data || null;
+}
+
 function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
   const out = [];
-  // IA de origem de uma CE: link explícito (iaOrigemId) ou, na falta,
-  // a última IA "pra transferência" da mesma égua até a data da CE.
-  const iaOrigemDaCe = (ce) => {
-    if (!ce) return null;
-    if (ce.dados?.iaOrigemId) return registrosRepro.find(x => x.id === ce.dados.iaOrigemId) || null;
-    return registrosRepro
-      .filter(x => x.tipo === 'inseminacao_artificial'
-        && x.eguaId === ce.eguaId
-        && x.dados?.destino === 'transferencia'
-        && (x.data || '') <= (ce.data || ''))
-      .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
-  };
+  // Mesma regra do Planner/kanban (ver iaOrigemDaCeEm).
+  const iaOrigemDaCe = (ce) => iaOrigemDaCeEm(registrosRepro, ce);
   // Última ovulação da receptora até a data da inovulação (fallback
   // da data-base dos DGs quando não sabemos a cobrição).
   const ovulacaoReceptora = (eguaId, ate) => registrosRepro
@@ -1856,8 +1871,13 @@ function eventosReceptorasAtivas(registros, hoje, cavalos = [], insumos = []) {
     if (inov) {
       const PONTOS_DG = [12, 15, 25, 45, 60];
       const chaveDg = { 12: 'dg12', 15: 'dg15', 25: 'dg25', 45: 'dg45', 60: 'dg60' };
+      // Data-base igual à da lista de embriões da home: cobrição da doadora
+      // quando conhecida, senão a ovulação da receptora. Enquanto o kanban
+      // contava sempre da ovulação, o mesmo DG caía em dias diferentes nas
+      // duas telas (a diferença entre cobrição e ovulação da receptora).
+      const baseDg = dataCobricaoDaInovulacao(registros, inov) || dataOv;
       for (const p of PONTOS_DG) {
-        const dataDg = addDiasLocal(dataOv, p);
+        const dataDg = addDiasLocal(baseDg, p);
         if (dataDg < hoje) continue; // já passou, não é "pendente"
         // Se já marcado positivo/negativo no inov.dados, pula
         const chave = chaveDg[p];
@@ -2948,12 +2968,13 @@ function ReproCaderno({
           servicos={servicos}
           insumos={insumos}
           registrosRepro={registrosRepro}
-          onSave={(payload) => {
+          onSave={(payload, extras = []) => {
             if (editReg) {
               updateRegistroReproducao(editReg.id, payload);
             } else {
               addRegistroReproducao(payload);
             }
+            extras.forEach(ex => addRegistroReproducao(ex));
             setShowForm(false);
           }}
           onCancel={() => setShowForm(false)}
@@ -4534,7 +4555,47 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       vetId: registro?.vetId || currentUser?.id || null,
       localId: localId || null,
     };
-    onSave(payload);
+    // CE positiva com destino "égua nossa": cria a inovulação vinculada
+    // junto. Sem esse registro o kanban não agenda DG nenhum e a receptora
+    // fica presa nos cards D0–D9 — era o que obrigava a registrar a
+    // inovulação à mão depois, duplicando a mesma informação.
+    const extras = [];
+    if (tipo === 'transferencia_embriao' && dados.resultado === 'positivo') {
+      const destinosArr = Array.isArray(dados.destinos) ? dados.destinos : [];
+      destinosArr.forEach((dest, i) => {
+        // Receptora de terceiros (texto livre) não tem cadastro, logo não
+        // tem como virar registro de inovulação — segue só como destino.
+        if (!dest || dest.tipo !== 'egua' || !dest.receptoraCadastradaId) return;
+        const jaExiste = (registrosRepro || []).some(r =>
+          r.tipo === 'inovulacao_embriao'
+          && r.dados?.ceOrigemId === payload.id
+          && r.eguaId === dest.receptoraCadastradaId);
+        if (jaExiste) return;
+        // Retorno no D12 contado da ovulação da receptora (mesma regra que o
+        // formulário de inovulação já usava).
+        const ultOv = [...(registrosRepro || [])]
+          .filter(r => r.eguaId === dest.receptoraCadastradaId
+            && r.tipo === 'controle_folicular'
+            && r.dados?.ovulou && r.dados?.dataOvulacao
+            && (r.dados.dataOvulacao || '') <= (data || ''))
+          .sort((a, b) => (b.dados.dataOvulacao || '').localeCompare(a.dados.dataOvulacao || ''))[0];
+        extras.push({
+          id: 'rr_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + i,
+          eguaId: dest.receptoraCadastradaId,
+          data,
+          tipo: 'inovulacao_embriao',
+          dados: { ceOrigemId: payload.id, criadaDaCe: true },
+          dataRetorno: addDias(ultOv?.dados?.dataOvulacao || data, 12),
+          insumosUsados: [],
+          autor: payload.autor,
+          mes,
+          workspaceId: 'repro',
+          vetId: payload.vetId,
+          localId: localId || null,
+        });
+      });
+    }
+    onSave(payload, extras);
     limparRascunho();
   };
 
@@ -7696,9 +7757,10 @@ function ReproFaturaDetalhe({
           servicos={servicos}
           insumos={insumos}
           registrosRepro={registros}
-          onSave={(payload) => {
+          onSave={(payload, extras = []) => {
             if (registroEmEdicao) updateRegistroReproducao(registroEmEdicao.id, payload);
             else addRegistroReproducao(payload);
+            extras.forEach(ex => addRegistroReproducao(ex));
             setEditRegId(null);
             setNovoRegBase(null);
           }}
