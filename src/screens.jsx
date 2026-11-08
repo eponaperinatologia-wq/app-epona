@@ -375,7 +375,11 @@ const montarLinhasFechamento = (r) => [
   ...r.insumosLinhas.map(l => ({
     tipo: 'insumo', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome,
     regId: l.reg.id, insumoId: l.ins?.id, insumoNome: l.ins?.nome, unidade: l.ins?.unidade || '',
-    qtd: l.reg.qtd, valor: l.total, share: l.share, data: l.reg.data,
+    // Quantidade cobrada: num uso parcialmente coberto pelo estoque do
+    // proprietário, o snapshot precisa casar com o valor, senão a fatura
+    // fechada mostra quantidade cheia com preço reduzido.
+    qtd: l.qtdCobrada ?? l.reg.qtd, qtdCoberta: l.qtdCoberta || 0,
+    valor: l.total, share: l.share, data: l.reg.data,
   })),
   ...r.procLinhas.map(l => ({
     tipo: 'procedimento', cavaloId: l.cav?.id, cavaloNome: l.cav?.nome,
@@ -530,9 +534,17 @@ const calcFaturaProprietario = (propId, ref, deps) => {
     const ins = findInsumo(r.insumoId);
     const cav = cavalos.find(c => c.id === r.cavaloId);
     const share = _shareCountEmData(cav, r.data);
-    const subtotal = (Number(ins?.valorVenda) || 0) * r.qtd;
-    return { reg: r, ins, cav, subtotal, total: subtotal / share, share };
-  });
+    // Insumo que o proprietário trouxe: o saldo do estoque dele cobre o
+    // uso, e só o excedente é cobrado. qtdCobertaProp é anexada aos
+    // registros na origem (app.jsx), pra que todo consumidor desta
+    // função herde a regra sem precisar de parâmetro novo.
+    const qtdTotal = Number(r.qtd) || 0;
+    const qtdCoberta = Math.min(qtdTotal, Number(r.qtdCobertaProp) || 0);
+    const qtdCobrada = Math.max(0, qtdTotal - qtdCoberta);
+    const subtotal = (Number(ins?.valorVenda) || 0) * qtdCobrada;
+    return { reg: r, ins, cav, subtotal, total: subtotal / share, share, qtdCoberta, qtdCobrada };
+  // Uso totalmente coberto some da fatura: não é cobrança, é insumo dele.
+  }).filter(l => l.qtdCobrada > 0 || l.qtdCoberta === 0);
   const insumosTotal = insumosLinhas.reduce((s, l) => s + l.total, 0);
 
   // Procedimentos avulsos — vai pro dono na data do procedimento.
@@ -1740,11 +1752,12 @@ const NutritionRow = ({ icon, color, nome, qtd, valor, first }) => (
 // ─────────────────────────────────────────────────────────────
 // CADASTROS hub
 // ─────────────────────────────────────────────────────────────
-const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietariosCount = 0, insumosCount = 0, servicosCount = 0 }) => {
+const CadastrosScreen = ({ setScreen, currentUser, cavalosCount = 0, proprietariosCount = 0, insumosCount = 0, servicosCount = 0, insumosPropCount = 0 }) => {
   const items = [
     { id: 'cadProprietarios', label: 'Proprietários', count: proprietariosCount, icon: 'users' },
     { id: 'cadCavalos', label: 'Cavalos', count: cavalosCount, icon: 'horse' },
     { id: 'cadInsumos', label: 'Insumos', count: insumosCount, icon: 'package' },
+    { id: 'insumosProprietario', label: 'Insumos de proprietários', count: insumosPropCount, icon: 'package', sub: 'Trazidos pelo dono — não cobrados' },
     { id: 'cadServicos', label: 'Serviços', count: servicosCount, icon: 'stethoscope' },
     { id: 'cadMensalidades', label: 'Mensalidades', count: cavalosCount, icon: 'calendar' },
     { id: 'cadEmpresa', label: 'Dados da empresa', count: null, icon: 'building', sub: 'Endereço, pagamento e fatura' },
@@ -6563,6 +6576,11 @@ const FaturaDetalheScreen = ({ id, setScreen, setSelected, registros, proprietar
                         ? <span onClick={() => { setEditRegId(l.reg.id); setEditQtd(String(l.reg.qtd)); }} style={{ cursor: 'pointer', textDecoration: 'underline dotted', color: 'var(--accent)' }}>{l.reg.qtd} {l.ins?.unidade || ''}</span>
                         : `${l.reg.qtd} ${l.ins?.unidade || ''}`
                       }
+                      {l.qtdCoberta > 0 && (
+                        <span style={{ color: '#166534' }}>
+                          {' '}· {l.qtdCoberta} {l.ins?.unidade || ''} do proprietário
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>

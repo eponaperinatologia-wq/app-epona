@@ -1,9 +1,15 @@
 -- ─────────────────────────────────────────────────────────────────
--- Migração: suplementos entregues pelo proprietário
+-- Migração: insumos trazidos pelo proprietário
 --
--- Caso de uso: o proprietário compra o suplemento com o dinheiro dele e
--- entrega no haras. O consumo continua organizado pelo app (dose por
--- dia, trato), mas o item NÃO é cobrado dele na fatura.
+-- Caso de uso: o proprietário compra o insumo com o dinheiro dele e
+-- traz para o haras. Vale para qualquer insumo — ração, feno, serragem,
+-- suplemento, medicamento, vacina, vermífugo. O consumo continua
+-- organizado pelo app, mas o item NÃO é cobrado dele enquanto houver
+-- saldo.
+--
+-- A tabela mantém o nome suplementos_proprietario por já estar criada
+-- em produção; no código ela é tratada como insumos de proprietário
+-- (src/utils/insumosProp.js).
 --
 -- Uma linha por proprietário + suplemento. cavalo_ids lista quais
 -- cavalos consomem desse estoque — nunca é automático para todos os

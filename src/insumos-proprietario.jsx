@@ -1,13 +1,18 @@
-// suplementos-proprietario.jsx — Suplementos que o PROPRIETÁRIO comprou
-// e entregou no haras.
+// insumos-proprietario.jsx — Farmácia/estoque particular do
+// PROPRIETÁRIO: insumos que ele comprou e trouxe para o haras.
 //
-// Regra do negócio: o consumo segue organizado pelo app (dose/dia, trato,
-// lista de nutrição), mas o item não entra na fatura dele. Quando o
-// estoque acaba, o app NÃO volta a cobrar — só alerta, pra avisar o
-// proprietário a comprar mais.
+// Vale para qualquer insumo — ração, feno, serragem, suplemento,
+// medicamento, vacina, vermífugo. É direito dele trazer e não ser
+// cobrado. Diferente da farmácia compartilhada do haras, aqui a
+// quantidade é controlada de verdade, porque é o saldo que decide o que
+// entra na fatura.
 //
-// O estoque é do proprietário + suplemento, e os cavalos que consomem
-// dele são escolhidos um por um: ele pode comprar pra um cavalo só.
+// Duas mecânicas sobre o mesmo saldo (ver utils/insumosProp.js):
+//  - por registro: cada uso baixa do saldo; passou do saldo, é cobrado
+//  - periódico (dieta): consumo projetado; ao acabar não cobra, só avisa
+//
+// O estoque é do proprietário + insumo, e os cavalos que consomem dele
+// são escolhidos um por um: ele pode trazer para um cavalo só.
 
 import React, { useState, useMemo } from 'react';
 import { Icon } from './icons';
@@ -70,9 +75,9 @@ const Badge = ({ status }) => {
 // ─────────────────────────────────────────────────────────────
 // Tela
 // ─────────────────────────────────────────────────────────────
-export function SuplementosProprietarioScreen({
-  setScreen, cavalos = [], proprietarios = [], insumos = [],
-  suplementosProp = [], addSuplementoProp, updateSuplementoProp, deleteSuplementoProp,
+export function InsumosProprietarioScreen({
+  setScreen, cavalos = [], proprietarios = [], insumos = [], registros = [],
+  insumosProp = [], addInsumoProp, updateInsumoProp, deleteInsumoProp,
   updateCavalo, currentUser,
 }) {
   const hoje = hojeIso();
@@ -102,10 +107,11 @@ export function SuplementosProprietarioScreen({
   // é o conjunto útil pra escolher. Se o insumo não está na dieta de
   // ninguém, ainda assim deixamos escolher (ele pode cadastrar a dieta
   // depois), então a lista cai pra todos os suplementos.
-  const insumosEscolhiveis = useMemo(() => {
-    const sup = insumos.filter(i => /suplement/i.test(i.categoria || '') || i.categoria === 'suplemento');
-    return (sup.length ? sup : insumos).slice().sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
-  }, [insumos]);
+  // Qualquer insumo serve: ração, feno, serragem, medicamento, vacina,
+  // vermífugo. Agrupa por categoria só para a lista não virar uma sopa.
+  const insumosEscolhiveis = useMemo(() => insumos.slice().sort((a, b) =>
+    (a.categoria || '').localeCompare(b.categoria || '', 'pt')
+    || (a.nome || '').localeCompare(b.nome || '', 'pt')), [insumos]);
 
   // Marca/desmarca o flag que a fatura lê (screens.jsx: calcPerfilMes).
   // Só mexe no suplemento daquele insumo; o resto da dieta fica intacto.
@@ -121,9 +127,9 @@ export function SuplementosProprietarioScreen({
   };
 
   const linhas = useMemo(() => {
-    return suplementosProp
+    return insumosProp
       .filter(s => s.ativo !== false)
-      .map(s => ({ stock: s, calc: calcEstoqueProp(s, cavalos, hoje) }))
+      .map(s => ({ stock: s, calc: calcEstoqueProp(s, cavalos, registros, hoje) }))
       .sort((a, b) => {
         const oa = STATUS_META[a.calc.status]?.ordem ?? 9;
         const ob = STATUS_META[b.calc.status]?.ordem ?? 9;
@@ -131,7 +137,7 @@ export function SuplementosProprietarioScreen({
         return insumoNome(a.stock.insumoId).localeCompare(insumoNome(b.stock.insumoId), 'pt');
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [suplementosProp, cavalos, hoje, insumos]);
+  }, [insumosProp, cavalos, registros, hoje, insumos]);
 
   const alertas = linhas.filter(l => precisaReposicao(l.calc));
 
@@ -139,7 +145,7 @@ export function SuplementosProprietarioScreen({
     const qtd = parseFloat(String(nQtd).replace(',', '.'));
     if (!nPropId || !nInsumoId) return;
     const entregas = (qtd > 0 && nData) ? [{ data: nData, qtd }] : [];
-    const criado = await addSuplementoProp?.({
+    const criado = await addInsumoProp?.({
       proprietarioId: nPropId, insumoId: nInsumoId,
       cavaloIds: nCavalos, entregas, ativo: true,
     });
@@ -151,7 +157,7 @@ export function SuplementosProprietarioScreen({
   const registrarEntrega = (stock) => {
     const qtd = parseFloat(String(eQtd).replace(',', '.'));
     if (!(qtd > 0) || !eData) return;
-    updateSuplementoProp?.(stock.id, {
+    updateInsumoProp?.(stock.id, {
       entregas: [...(stock.entregas || []), { data: eData, qtd }],
     });
     setEntregaAberta(null); setEQtd(''); setEData(hoje);
@@ -161,14 +167,14 @@ export function SuplementosProprietarioScreen({
     const atual = stock.cavaloIds || [];
     const dentro = atual.includes(cavaloId);
     const novos = dentro ? atual.filter(x => x !== cavaloId) : [...atual, cavaloId];
-    updateSuplementoProp?.(stock.id, { cavaloIds: novos });
+    updateInsumoProp?.(stock.id, { cavaloIds: novos });
     marcarFornecido(cavaloId, stock.insumoId, !dentro);
   };
 
   const removerEstoque = (stock) => {
-    if (!window.confirm(`Remover o estoque de ${insumoNome(stock.insumoId)} de ${propNome(stock.proprietarioId)}?\n\nOs cavalos vinculados voltam a ser cobrados por esse suplemento.`)) return;
+    if (!window.confirm(`Remover o estoque de ${insumoNome(stock.insumoId)} de ${propNome(stock.proprietarioId)}?\n\nOs cavalos vinculados voltam a ser cobrados por esse insumo.`)) return;
     (stock.cavaloIds || []).forEach(cid => marcarFornecido(cid, stock.insumoId, false));
-    deleteSuplementoProp?.(stock.id);
+    deleteInsumoProp?.(stock.id);
   };
 
   const toggleHist = (id) => setHistAberto(prev => {
@@ -180,9 +186,9 @@ export function SuplementosProprietarioScreen({
   return (
     <div style={{ paddingBottom: 90 }}>
       <TopBar
-        title="Suplementos do proprietário"
+        title="Insumos de proprietários"
         subtitle={`${linhas.length} em controle${alertas.length ? ` · ${alertas.length} precisa(m) de reposição` : ''}`}
-        onBack={() => setScreen('nutricional')}
+        onBack={() => setScreen('cadastros')}
       />
 
       <div style={{ padding: '10px 14px 0' }}>
@@ -190,10 +196,17 @@ export function SuplementosProprietarioScreen({
           ...cardStyle, background: 'var(--bg)', fontSize: 12,
           color: 'var(--ink-2)', lineHeight: 1.5,
         }}>
-          Suplemento que o <strong style={{ color: 'var(--ink)' }}>proprietário comprou e entregou</strong> no
-          haras. O consumo continua na lista de nutrição, mas o item não é
-          cobrado na fatura dele. Quando o estoque acaba, o app avisa aqui —
-          não volta a cobrar sozinho.
+          Insumo que o <strong style={{ color: 'var(--ink)' }}>proprietário comprou e trouxe</strong> —
+          ração, feno, serragem, medicamento, vacina, vermífugo, suplemento.
+          Enquanto houver saldo, o uso não é cobrado dele.
+          <br /><br />
+          <strong style={{ color: 'var(--ink)' }}>Uso avulso</strong> (medicamento, vacina): cada registro baixa do
+          saldo; o que passar do saldo volta a ser cobrado.
+          <br />
+          <strong style={{ color: 'var(--ink)' }}>Uso na dieta</strong> (suplemento, ração): o consumo diário é
+          descontado e o app avisa quando está acabando. Ao acabar não volta
+          a cobrar sozinho — se o haras seguir com insumo próprio, isso é
+          cadastrado na dieta normalmente e aí sim é cobrado.
         </div>
 
         {alertas.length > 0 && (
@@ -216,13 +229,13 @@ export function SuplementosProprietarioScreen({
 
         {podeEditar && !novoAberto && (
           <button onClick={() => setNovoAberto(true)} style={{ ...btnPrim, width: '100%', marginBottom: 12 }}>
-            + Registrar entrega de proprietário
+            + Registrar insumo trazido
           </button>
         )}
 
         {novoAberto && (
           <div style={{ ...cardStyle, border: '1.5px solid var(--accent)' }}>
-            <div style={{ ...rotulo, marginBottom: 8 }}>Novo estoque do proprietário</div>
+            <div style={{ ...rotulo, marginBottom: 8 }}>Novo insumo de proprietário</div>
 
             <div style={{ marginBottom: 10 }}>
               <div style={rotulo}>Proprietário</div>
@@ -234,11 +247,11 @@ export function SuplementosProprietarioScreen({
             </div>
 
             <div style={{ marginBottom: 10 }}>
-              <div style={rotulo}>Suplemento</div>
+              <div style={rotulo}>Insumo</div>
               <select value={nInsumoId} onChange={e => setNInsumoId(e.target.value)} style={inputStyle}>
                 <option value="">— Selecione —</option>
                 {insumosEscolhiveis.map(i => (
-                  <option key={i.id} value={i.id}>{i.nome}{i.unidade ? ` (${i.unidade})` : ''}</option>
+                  <option key={i.id} value={i.id}>{i.categoria ? `[${i.categoria}] ` : ''}{i.nome}{i.unidade ? ` (${i.unidade})` : ''}</option>
                 ))}
               </select>
             </div>
@@ -268,7 +281,7 @@ export function SuplementosProprietarioScreen({
                       <span style={{ flex: 1 }}>{c.nome}</span>
                       <span style={{ fontSize: 11, color: sup ? 'var(--ink-3)' : '#b45309' }}>
                         {nInsumoId
-                          ? (sup ? `${fmtNum(sup.qtdDia)} ${insumoUnid(nInsumoId)}/dia` : 'sem esse suplemento na dieta')
+                          ? (sup ? `${fmtNum(sup.qtdDia)} ${insumoUnid(nInsumoId)}/dia na dieta` : 'uso avulso')
                           : ''}
                       </span>
                     </label>
@@ -301,7 +314,7 @@ export function SuplementosProprietarioScreen({
 
         {linhas.length === 0 && !novoAberto && (
           <div style={{ ...cardStyle, textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
-            Nenhum suplemento de proprietário em controle.
+            Nenhum insumo de proprietário em controle.
           </div>
         )}
 
@@ -336,6 +349,11 @@ export function SuplementosProprietarioScreen({
                   <div style={{ fontSize: 14, color: 'var(--ink)' }}>
                     {calc.consumoDia > 0 ? `${fmtNum(calc.consumoDia)}${unid ? ` ${unid}` : ''}/dia` : '—'}
                   </div>
+                  {calc.consumidoRegistros > 0 && (
+                    <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
+                      + {fmtNum(calc.consumidoRegistros)}{unid ? ` ${unid}` : ''} em registros
+                    </div>
+                  )}
                 </div>
                 <div>
                   <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>PREVISÃO</div>
@@ -373,8 +391,8 @@ export function SuplementosProprietarioScreen({
                           onChange={() => toggleCavaloNoEstoque(stock, c.id)}
                         />
                         <span style={{ flex: 1 }}>{c.nome}</span>
-                        <span style={{ fontSize: 11, color: sup ? 'var(--ink-3)' : '#b45309' }}>
-                          {sup ? `${fmtNum(sup.qtdDia)} ${unid}/dia` : 'sem esse suplemento na dieta'}
+                        <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
+                          {sup ? `${fmtNum(sup.qtdDia)} ${unid}/dia na dieta` : 'uso avulso'}
                         </span>
                       </label>
                     );
@@ -437,4 +455,4 @@ export function SuplementosProprietarioScreen({
   );
 }
 
-export default SuplementosProprietarioScreen;
+export default InsumosProprietarioScreen;

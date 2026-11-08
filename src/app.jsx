@@ -27,7 +27,8 @@ import { CustosFixosScreen } from './custos-fixos';
 import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor } from './register';
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
-import { SuplementosProprietarioScreen } from './suplementos-proprietario';
+import { InsumosProprietarioScreen } from './insumos-proprietario';
+import { coberturaGeral } from './utils/insumosProp';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
 import { CadVetsExternosScreen } from './repro-admin';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
@@ -76,10 +77,10 @@ import {
   fromDbEmergenciaNota, toDbEmergenciaNota,
   fromDbEmergenciaExame, toDbEmergenciaExame,
   fromDbFrascoAberto, toDbFrascoAberto,
-  fromDbSuplementoProp, toDbSuplementoProp,
+  fromDbInsumoProp, toDbInsumoProp,
   fromDbProgesteronaPrograma, toDbProgesteronaPrograma,
   fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
-  EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, SUP_PROP_MAP,
+  EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, INSUMO_PROP_MAP,
   PROG_PROG_MAP, PROG_APL_MAP,
   dbUpsert, notifyUploadError, outboxPendentes, liberarSincronizacao,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
@@ -161,7 +162,17 @@ function AppEpona() {
   const [emergNotas, setEmergNotas] = useState([]);
   const [emergExames, setEmergExames] = useState([]);
   const [frascosAbertos, setFrascosAbertos] = useState([]);
-  const [suplementosProp, setSuplementosProp] = useState([]);
+  const [insumosProp, setInsumosProp] = useState([]);
+
+  // Insumos trazidos pelo proprietário: anexa a cada registro quanto o
+  // estoque dele cobre. Feito aqui, na origem, porque calcFaturaProprietario
+  // é chamada de seis lugares — passar o estoque por todos convidaria a
+  // esquecer um, e esquecer significa cobrar o dono por algo que ele trouxe.
+  const registrosComCobertura = useMemo(() => {
+    const cob = coberturaGeral(insumosProp, cavalos, registros);
+    if (!cob.size) return registros;
+    return registros.map(r => cob.has(r.id) ? { ...r, qtdCobertaProp: cob.get(r.id) } : r);
+  }, [registros, insumosProp, cavalos]);
   const [progProgramas, setProgProgramas] = useState([]);
   const [progAplicacoes, setProgAplicacoes] = useState([]);
   const [loadError, setLoadError] = useState(null);
@@ -293,7 +304,7 @@ const loadAllData = async (user = currentUser) => {
       fetchAll('emergencia_notas', fromDbEmergenciaNota),
       fetchAll('emergencia_exames', fromDbEmergenciaExame),
       fetchAll('frascos_abertos', fromDbFrascoAberto),
-      fetchAll('suplementos_proprietario', fromDbSuplementoProp).catch(() => []),
+      fetchAll('suplementos_proprietario', fromDbInsumoProp).catch(() => []),
       fetchAll('progesterona_programas', fromDbProgesteronaPrograma),
       fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
       fetchAll('vets_externos', fromDbVetExterno),
@@ -352,7 +363,7 @@ const loadAllData = async (user = currentUser) => {
     setEmergNotas(emergNotasData || []);
     setEmergExames(emergExamesData || []);
     setFrascosAbertos(frascosData || []);
-    setSuplementosProp(supPropData || []);
+    setInsumosProp(supPropData || []);
     setProgProgramas(progProgramasData || []);
     setProgAplicacoes(progAplicacoesData || []);
     setVetsExternos(vetsExternosData || []);
@@ -623,9 +634,9 @@ const loadAllData = async (user = currentUser) => {
         if (et === 'DELETE') setFrascosAbertos(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'suplementos_proprietario' }, ({ eventType: et, new: n, old: o }) => {
-        if (et === 'INSERT') setSuplementosProp(prev => prev.some(x => x.id === n.id) ? prev : [...prev, fromDbSuplementoProp(n)]);
-        if (et === 'UPDATE') setSuplementosProp(prev => prev.map(x => x.id === n.id ? fromDbSuplementoProp(n) : x));
-        if (et === 'DELETE') setSuplementosProp(prev => o?.id ? prev.filter(x => x.id !== o.id) : prev);
+        if (et === 'INSERT') setInsumosProp(prev => prev.some(x => x.id === n.id) ? prev : [...prev, fromDbInsumoProp(n)]);
+        if (et === 'UPDATE') setInsumosProp(prev => prev.map(x => x.id === n.id ? fromDbInsumoProp(n) : x));
+        if (et === 'DELETE') setInsumosProp(prev => o?.id ? prev.filter(x => x.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'progesterona_programas' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setProgProgramas(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbProgesteronaPrograma(n)]);
@@ -937,22 +948,22 @@ const loadAllData = async (user = currentUser) => {
   // consumo sem cobrar. O flag que a fatura lê fica no suplemento do
   // cavalo (nutricao.suplementos[].fornecidoProp); a tela mantém os dois
   // em sincronia.
-  const addSuplementoProp = async (data) => {
+  const addInsumoProp = async (data) => {
     const novo = { id: _rid('sup'), cavaloIds: [], entregas: [], ativo: true, ...data };
-    setSuplementosProp(prev => [...prev, novo]);
-    const ok = await dbInsert('suplementos_proprietario', toDbSuplementoProp(novo));
-    if (!ok) setSuplementosProp(prev => prev.filter(x => x.id !== novo.id));
+    setInsumosProp(prev => [...prev, novo]);
+    const ok = await dbInsert('suplementos_proprietario', toDbInsumoProp(novo));
+    if (!ok) setInsumosProp(prev => prev.filter(x => x.id !== novo.id));
     return ok ? novo : null;
   };
-  const updateSuplementoProp = async (id, patch) => {
-    const snap = suplementosProp;
-    setSuplementosProp(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
-    const ok = await dbUpdate('suplementos_proprietario', id, partialToDb(patch, SUP_PROP_MAP));
-    if (!ok) setSuplementosProp(snap);
+  const updateInsumoProp = async (id, patch) => {
+    const snap = insumosProp;
+    setInsumosProp(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
+    const ok = await dbUpdate('suplementos_proprietario', id, partialToDb(patch, INSUMO_PROP_MAP));
+    if (!ok) setInsumosProp(snap);
     return ok;
   };
-  const deleteSuplementoProp = (id) => {
-    setSuplementosProp(prev => prev.filter(x => x.id !== id));
+  const deleteInsumoProp = (id) => {
+    setInsumosProp(prev => prev.filter(x => x.id !== id));
     dbDelete('suplementos_proprietario', id);
   };
 
@@ -2309,7 +2320,7 @@ const loadAllData = async (user = currentUser) => {
       }
       pend.partosPatch.forEach(pp => updateParto(pp.id, { insumosUsados: pp.insumosUsados }));
     }
-    const registrosC = [...registros, ...pend.novosRegistros];
+    const registrosC = [...registrosComCobertura, ...pend.novosRegistros];
     const procedimentosC = [...procedimentos, ...pend.novosProcedimentos];
     const deps = { cavalos: cavalosH, registros: registrosC, procedimentos: procedimentosC, servicos, insumos, movimentacoes, custosFixos };
 
@@ -2410,7 +2421,7 @@ const loadAllData = async (user = currentUser) => {
   // animal). Catálogo (insumos/serviços) segue compartilhado de propósito.
   const idsCavalosRepro    = useMemo(() => new Set(cavalos.filter(c => (c.workspaceId || 'haras') === 'repro').map(c => c.id)), [cavalos]);
   const soHaras = (arr, campo = 'cavaloId') => (arr || []).filter(x => !x?.[campo] || !idsCavalosRepro.has(x[campo]));
-  const registrosH         = useMemo(() => soHaras(registros), [registros, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  const registrosH         = useMemo(() => soHaras(registrosComCobertura), [registrosComCobertura, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
   const procedimentosH     = useMemo(() => soHaras(procedimentos), [procedimentos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
   const movimentacoesH     = useMemo(() => soHaras(movimentacoes), [movimentacoes, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
   const atividadesH        = useMemo(() => soHaras(atividades), [atividades, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -2662,7 +2673,7 @@ const loadAllData = async (user = currentUser) => {
       currentUser={currentUser}
       proprietarios={proprietarios /* completo — ProprietarioApp filtra internamente */}
       cavalos={cavalos /* completo — ProprietarioApp filtra internamente */}
-      registros={registros}
+      registros={registrosComCobertura}
       procedimentos={procedimentos}
       servicos={servicos}
       insumos={insumos}
@@ -2693,8 +2704,8 @@ const loadAllData = async (user = currentUser) => {
   }
   else if (screen === 'home') content = <HomeScreen registros={registrosH} setScreen={goScreen} density={tweaks.density} avisos={avisosH} cavalos={cavalosHaras} compras={compras} atividades={atividadesH} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisosH} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
-  else if (screen === 'suplementosProprietario') content = <SuplementosProprietarioScreen setScreen={goScreen} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} suplementosProp={suplementosProp} addSuplementoProp={addSuplementoProp} updateSuplementoProp={updateSuplementoProp} deleteSuplementoProp={deleteSuplementoProp} updateCavalo={updateCavalo} currentUser={currentUser} />;
-  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} suplementosProp={suplementosProp} />;
+  else if (screen === 'insumosProprietario') content = <InsumosProprietarioScreen setScreen={goScreen} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} registros={registrosH} insumosProp={insumosProp} addInsumoProp={addInsumoProp} updateInsumoProp={updateInsumoProp} deleteInsumoProp={deleteInsumoProp} updateCavalo={updateCavalo} currentUser={currentUser} />;
+  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalosHaras} proprietarios={proprietariosHaras} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} updateCavalo={updateCavalo} insumos={insumos} addRegistro={addRegistro} currentUser={currentUser} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalosHaras} setCavalos={setCavalos} proprietarios={proprietariosHaras} />;
@@ -2702,7 +2713,7 @@ const loadAllData = async (user = currentUser) => {
   else if (screen === 'cavaloDetalhe') content = <CavaloDetalheScreen id={selected} setScreen={goScreen} registros={registrosH} procedimentos={procedimentosH} setSelected={setSelected} cavalos={cavalosHaras} servicos={servicos} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} deleteRegistro={deleteRegistro} updateRegistro={updateRegistro} deleteProcedimento={deleteProcedimento} insumos={insumos} />;
   else if (screen === 'editarCavalo') content = <EditarCavaloScreen id={selected} setScreen={goScreen} cavalos={cavalosHaras} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} insumos={insumos} />;
   else if (screen === 'proprietarioDetalhe') content = <ProprietarioScreen id={selected} setScreen={goScreen} proprietarios={proprietariosHaras} cavalos={cavalosHaras} updateProprietario={updateProprietario} refetchProprietario={refetchProprietario} />;
-  else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} />;
+  else if (screen === 'cadastros') content = <CadastrosScreen setScreen={goScreen} currentUser={currentUser} cavalosCount={cavalos.length} proprietariosCount={proprietarios.length} insumosCount={insumos.length} servicosCount={servicos.length} insumosPropCount={insumosProp.filter(s => s.ativo !== false).length} />;
   else if (screen === 'cadProprietarios') content = <CadProprietariosScreen setScreen={goScreen} setSelected={setSelected} proprietarios={proprietariosHaras} cavalos={cavalosHaras} addProprietario={addProprietario} deleteProprietario={deleteProprietario} />;
   else if (screen === 'cadCavalos') content = <CadCavalosScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} />;
   else if (screen === 'cadInsumos') content = <CadInsumosScreen setScreen={goScreen} setSelected={setSelected} insumos={insumos} addInsumo={addInsumo} updateInsumo={updateInsumo} deleteInsumo={deleteInsumo} />;

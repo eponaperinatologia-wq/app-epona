@@ -188,7 +188,8 @@ export function gerarPdfFatura({
         const sub = [
           l.cav?.nome || '—',
           l.reg?.data ? new Date(l.reg.data + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : null,
-          `${l.reg.qtd} ${l.ins?.unidade || ''}`.trim(),
+          `${l.qtdCobrada ?? l.reg.qtd} ${l.ins?.unidade || ''}`.trim(),
+          l.qtdCoberta > 0 ? `${l.qtdCoberta} ${l.ins?.unidade || ''} trazidos por você`.trim() : null,
           share > 1 ? `${share} prop.` : null,
         ].filter(Boolean).join(' · ');
         row(l.ins?.nome || '—', sub, BRL(l.total));
