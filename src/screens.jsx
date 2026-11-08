@@ -265,6 +265,10 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins || isIncluso(ins)) continue;
+    // Suplemento que o próprio proprietário comprou e entregou no haras:
+    // o consumo segue organizado, mas não entra na fatura dele. Não volta
+    // a cobrar quando o estoque acaba — só alerta (regra do negócio).
+    if (s.fornecidoProp) continue;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
     linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos, dias: diasEfetivos });
   }
@@ -623,6 +627,9 @@ const calcCustoCompraPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins) continue;
+    // Entregue pelo proprietário: o dinheiro foi dele, então não é gasto
+    // do haras também.
+    if (s.fornecidoProp) continue;
     const diasEf = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
     linhas.push({ nome: ins.nome, valorMes: v(ins) * s.qtdDia * diasEf });
   }

@@ -27,6 +27,7 @@ import { CustosFixosScreen } from './custos-fixos';
 import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor } from './register';
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
+import { SuplementosProprietarioScreen } from './suplementos-proprietario';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
 import { CadVetsExternosScreen } from './repro-admin';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
@@ -75,9 +76,10 @@ import {
   fromDbEmergenciaNota, toDbEmergenciaNota,
   fromDbEmergenciaExame, toDbEmergenciaExame,
   fromDbFrascoAberto, toDbFrascoAberto,
+  fromDbSuplementoProp, toDbSuplementoProp,
   fromDbProgesteronaPrograma, toDbProgesteronaPrograma,
   fromDbProgesteronaAplicacao, toDbProgesteronaAplicacao,
-  EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP,
+  EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, SUP_PROP_MAP,
   PROG_PROG_MAP, PROG_APL_MAP,
   dbUpsert, notifyUploadError, outboxPendentes, liberarSincronizacao,
   toDbCavalo, toDbProprietario, toDbInsumo, toDbServico, toDbFuncionario,
@@ -159,6 +161,7 @@ function AppEpona() {
   const [emergNotas, setEmergNotas] = useState([]);
   const [emergExames, setEmergExames] = useState([]);
   const [frascosAbertos, setFrascosAbertos] = useState([]);
+  const [suplementosProp, setSuplementosProp] = useState([]);
   const [progProgramas, setProgProgramas] = useState([]);
   const [progAplicacoes, setProgAplicacoes] = useState([]);
   const [loadError, setLoadError] = useState(null);
@@ -242,7 +245,7 @@ const loadAllData = async (user = currentUser) => {
       registrosData, partosData, eventosData, movsData, procsData, ffData, avisosData, comprasData, atividadesData, lancamentosData, recorrenciasData, estoqueComprasData, configResult,
       protocolosVacData, campanhasVacData, vacinacoesAnimaisData,
       protocolosVermData, vermifugacoesData, opgsData, medicoesData, anotacoesData, examesData, reprosData, custosFixosData,
-      emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData,
+      emergenciasData, emergMedData, emergAgeData, emergParData, emergNotasData, emergExamesData, frascosData, supPropData,
       progProgramasData, progAplicacoesData,
       vetsExternosData, locaisReproData, centraisReproData, orcamentosReproData, genealogicosReproData, vetKmLocaisData,
       avisosReproData, faturasReproData, ajustesFaturasReproData,
@@ -290,6 +293,7 @@ const loadAllData = async (user = currentUser) => {
       fetchAll('emergencia_notas', fromDbEmergenciaNota),
       fetchAll('emergencia_exames', fromDbEmergenciaExame),
       fetchAll('frascos_abertos', fromDbFrascoAberto),
+      fetchAll('suplementos_proprietario', fromDbSuplementoProp).catch(() => []),
       fetchAll('progesterona_programas', fromDbProgesteronaPrograma),
       fetchAll('progesterona_aplicacoes', fromDbProgesteronaAplicacao),
       fetchAll('vets_externos', fromDbVetExterno),
@@ -348,6 +352,7 @@ const loadAllData = async (user = currentUser) => {
     setEmergNotas(emergNotasData || []);
     setEmergExames(emergExamesData || []);
     setFrascosAbertos(frascosData || []);
+    setSuplementosProp(supPropData || []);
     setProgProgramas(progProgramasData || []);
     setProgAplicacoes(progAplicacoesData || []);
     setVetsExternos(vetsExternosData || []);
@@ -616,6 +621,11 @@ const loadAllData = async (user = currentUser) => {
         if (et === 'INSERT') setFrascosAbertos(prev => prev.some(f => f.id === n.id) ? prev : [...prev, fromDbFrascoAberto(n)]);
         if (et === 'UPDATE') setFrascosAbertos(prev => prev.map(f => f.id === n.id ? fromDbFrascoAberto(n) : f));
         if (et === 'DELETE') setFrascosAbertos(prev => o?.id ? prev.filter(f => f.id !== o.id) : prev);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'suplementos_proprietario' }, ({ eventType: et, new: n, old: o }) => {
+        if (et === 'INSERT') setSuplementosProp(prev => prev.some(x => x.id === n.id) ? prev : [...prev, fromDbSuplementoProp(n)]);
+        if (et === 'UPDATE') setSuplementosProp(prev => prev.map(x => x.id === n.id ? fromDbSuplementoProp(n) : x));
+        if (et === 'DELETE') setSuplementosProp(prev => o?.id ? prev.filter(x => x.id !== o.id) : prev);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'progesterona_programas' }, ({ eventType: et, new: n, old: o }) => {
         if (et === 'INSERT') setProgProgramas(prev => prev.some(p => p.id === n.id) ? prev : [...prev, fromDbProgesteronaPrograma(n)]);
@@ -920,6 +930,30 @@ const loadAllData = async (user = currentUser) => {
     const ok = await dbUpdate('frascos_abertos', id, partialToDb(patch, FRASCO_MAP));
     if (!ok) setFrascosAbertos(snap);
     return ok;
+  };
+
+  // ── Suplementos entregues pelo proprietário ──────────────
+  // Estoque do proprietário: ele compra, entrega, e o app organiza o
+  // consumo sem cobrar. O flag que a fatura lê fica no suplemento do
+  // cavalo (nutricao.suplementos[].fornecidoProp); a tela mantém os dois
+  // em sincronia.
+  const addSuplementoProp = async (data) => {
+    const novo = { id: _rid('sup'), cavaloIds: [], entregas: [], ativo: true, ...data };
+    setSuplementosProp(prev => [...prev, novo]);
+    const ok = await dbInsert('suplementos_proprietario', toDbSuplementoProp(novo));
+    if (!ok) setSuplementosProp(prev => prev.filter(x => x.id !== novo.id));
+    return ok ? novo : null;
+  };
+  const updateSuplementoProp = async (id, patch) => {
+    const snap = suplementosProp;
+    setSuplementosProp(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
+    const ok = await dbUpdate('suplementos_proprietario', id, partialToDb(patch, SUP_PROP_MAP));
+    if (!ok) setSuplementosProp(snap);
+    return ok;
+  };
+  const deleteSuplementoProp = (id) => {
+    setSuplementosProp(prev => prev.filter(x => x.id !== id));
+    dbDelete('suplementos_proprietario', id);
   };
 
   // ── Progesterona (programas + aplicações) ────────────────
@@ -2659,7 +2693,8 @@ const loadAllData = async (user = currentUser) => {
   }
   else if (screen === 'home') content = <HomeScreen registros={registrosH} setScreen={goScreen} density={tweaks.density} avisos={avisosH} cavalos={cavalosHaras} compras={compras} atividades={atividadesH} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisosH} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
-  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
+  else if (screen === 'suplementosProprietario') content = <SuplementosProprietarioScreen setScreen={goScreen} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} suplementosProp={suplementosProp} addSuplementoProp={addSuplementoProp} updateSuplementoProp={updateSuplementoProp} deleteSuplementoProp={deleteSuplementoProp} updateCavalo={updateCavalo} currentUser={currentUser} />;
+  else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} suplementosProp={suplementosProp} />;
   else if (screen === 'compras') content = <ListaComprasScreen compras={compras} addCompra={addCompra} deleteCompra={deleteCompra} toggleCompra={toggleCompra} currentUser={currentUser} />;
   else if (screen === 'movimentacao') content = <MovimentacaoScreen setScreen={goScreen} addMovimentacao={addMovimentacao} addAviso={addAviso} addAtividade={addAtividade} cavalos={cavalosHaras} proprietarios={proprietariosHaras} novoCavaloPendente={novoCavaloPendente} setNovoCavaloPendente={setNovoCavaloPendente} setPendingEntradaCavalo={setPendingEntradaCavalo} servicos={servicos} addProcedimento={addProcedimento} updateCavalo={updateCavalo} insumos={insumos} addRegistro={addRegistro} currentUser={currentUser} />;
   else if (screen === 'cavalos') content = <CavalosScreen setScreen={goScreen} setSelected={setSelected} density={tweaks.density} cavalos={cavalosHaras} setCavalos={setCavalos} proprietarios={proprietariosHaras} />;

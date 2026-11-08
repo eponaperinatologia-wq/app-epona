@@ -5,6 +5,7 @@ import { norm } from './data';
 import { TopBar, HorseAvatar } from './screens';
 import { getEmpresa } from './utils/empresa';
 import { gerarPdfNutricao, nomePdfNutricao } from './utils/pdfNutricao';
+import { calcEstoqueProp, precisaReposicao } from './utils/suplementosProp';
 
 // ─────────────────────────────────────────────────────────────
 // Helpers
@@ -332,13 +333,21 @@ const PiqueteHeader = ({ label, count, expanded, onToggle, onMoveUp, onMoveDown,
 // ─────────────────────────────────────────────────────────────
 // Tela principal
 // ─────────────────────────────────────────────────────────────
-export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso, nutricaoOrdem = [], updateNutricaoOrdem }) {
+export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, currentUser, updateCavalo, addAviso, removeAviso, nutricaoOrdem = [], updateNutricaoOrdem, suplementosProp = [] }) {
   const [busca, setBusca] = useState('');
   const [colapsados, setColapsados] = useState(new Set());
   const [ordemGrupos, setOrdemGrupos] = useState(nutricaoOrdem);
   const [filtroInsumoId, setFiltroInsumoId] = useState(null);
   const trato = getTratoAtual();
   const podeEditar = currentUser?.role === 'admin' || currentUser?.role === 'vet';
+
+  // Quantos estoques de proprietário precisam de reposição — vira o badge
+  // no atalho da barra de título.
+  const nAlertasSupProp = useMemo(() => (suplementosProp || [])
+    .filter(st => st.ativo !== false)
+    .filter(st => {
+      return precisaReposicao(calcEstoqueProp(st, cavalos));
+    }).length, [suplementosProp, cavalos]);
 
   // Insumos em uso na dieta (ração principal + suplementos por cavalo).
   // Filtramos só quem tem ao menos 1 cavalo consumindo — insumos ociosos
@@ -451,6 +460,27 @@ export function NutricionalScreen({ setScreen, setSelected, cavalos, insumos, cu
         title="Nutrição"
         subtitle={`${cavalos.length} animais · ${groups.length} grupos`}
         onBack={(currentUser?.role === 'operacional' || currentUser?.role === 'proprietario') ? undefined : () => setScreen('home')}
+        action={podeEditar ? (
+          <button
+            onClick={() => setScreen('suplementosProprietario')}
+            title="Suplementos entregues pelo proprietário"
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '8px 10px',
+              borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)',
+              color: 'var(--ink-2)', fontSize: 12, fontFamily: 'var(--sans)', cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Icon name="suplemento" size={14} />
+            Do proprietário
+            {nAlertasSupProp > 0 && (
+              <span style={{
+                background: '#fcd34d', color: '#78350f', fontSize: 10, fontWeight: 700,
+                borderRadius: 999, padding: '1px 6px',
+              }}>{nAlertasSupProp}</span>
+            )}
+          </button>
+        ) : undefined}
       />
 
       {/* Banner do trato atual */}

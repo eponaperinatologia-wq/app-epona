@@ -1016,6 +1016,31 @@ export const toDbFrascoAberto = f => ({
   registro_id: f.registroId || null,
 });
 
+// ── Suplementos entregues pelo proprietário ─────────────────
+// O proprietário compra e entrega; o app organiza o consumo mas não
+// cobra. entregas é histórico ([{data, qtd}]) porque o fluxo esperado é
+// ele reabastecer. cavaloIds são os cavalos que consomem desse estoque —
+// nunca todos os dele automaticamente.
+export const fromDbSuplementoProp = r => ({
+  id: r.id,
+  proprietarioId: r.proprietario_id,
+  insumoId: r.insumo_id,
+  cavaloIds: Array.isArray(r.cavalo_ids) ? r.cavalo_ids : [],
+  entregas: Array.isArray(r.entregas) ? r.entregas : [],
+  ativo: r.ativo !== false,
+  obs: r.obs || '',
+  criadoEm: r.criado_em,
+});
+export const toDbSuplementoProp = s => ({
+  id: s.id,
+  proprietario_id: s.proprietarioId,
+  insumo_id: s.insumoId,
+  cavalo_ids: s.cavaloIds || [],
+  entregas: s.entregas || [],
+  ativo: s.ativo !== false,
+  obs: s.obs || '',
+});
+
 // ── Progesterona (receptoras) ────────────────────────────────
 
 export const fromDbProgesteronaPrograma = r => ({
@@ -1068,6 +1093,7 @@ const EMERGENCIA_MAP = { cavaloId: 'cavalo_id', observacaoUrgente: 'observacao_u
 const EMERG_MED_MAP  = { emergenciaId: 'emergencia_id', insumoId: 'insumo_id', servicoId: 'servico_id', doseQtd: 'dose_qtd', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', procedimentoId: 'procedimento_id', frascoId: 'frasco_id', descartaveisRegistros: 'descartaveis_registros', insumosAdicionais: 'insumos_adicionais' };
 const EMERG_AGE_MAP  = { emergenciaId: 'emergencia_id', intervaloHoras: 'intervalo_horas' };
 const FRASCO_MAP     = { insumoId: 'insumo_id', cavaloId: 'cavalo_id', emergenciaId: 'emergencia_id', abertoEm: 'aberto_em', validoAte: 'valido_ate', valorCobrado: 'valor_cobrado', registroId: 'registro_id' };
+const SUP_PROP_MAP   = { proprietarioId: 'proprietario_id', insumoId: 'insumo_id', cavaloIds: 'cavalo_ids', criadoEm: 'criado_em' };
 const PROG_PROG_MAP  = { cavaloId: 'cavalo_id', insumoId: 'insumo_id', doseQtd: 'dose_qtd', diaSemana: 'dia_semana', freqDias: 'freq_dias' };
 const PROG_APL_MAP   = { programaId: 'programa_id', cavaloId: 'cavalo_id', feitoEm: 'feito_em', feitoPor: 'feito_por', registroId: 'registro_id', descartaveisRegistros: 'descartaveis_registros' };
 
@@ -1088,7 +1114,7 @@ export function partialToDb(partial, keyMap) {
   return result;
 }
 
-export { CAVALO_MAP, PROPRIETARIO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, PROG_PROG_MAP, PROG_APL_MAP };
+export { CAVALO_MAP, PROPRIETARIO_MAP, INSUMO_MAP, SERVICO_MAP, PARTO_MAP, FUNCIONARIO_MAP, CUSTO_FIXO_MAP, EMERGENCIA_MAP, EMERG_MED_MAP, EMERG_AGE_MAP, FRASCO_MAP, SUP_PROP_MAP, PROG_PROG_MAP, PROG_APL_MAP };
 
 // ── Helpers genéricos ─────────────────────────────────────────
 
