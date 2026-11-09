@@ -138,6 +138,7 @@ function ReproHome({
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
   insumos = [], genealogicosRepro = [],
+  agendamentos = [], updateAgendamentoRepro = null,
 }) {
   const goPainelCalendario = () => { setTab('painel'); setScreen('repro-painel'); };
   const nome = (currentUser.nome || '').split(/\s+/)[0];
@@ -234,6 +235,8 @@ function ReproHome({
         onSelectVisitaClinica={onSelectVisitaClinica}
         insumos={insumos}
         genealogicosRepro={genealogicosRepro}
+        agendamentos={agendamentos}
+        updateAgendamentoRepro={updateAgendamentoRepro}
       />
 
       {/* Calendário mensal — mesmo componente do Painel, com legenda dos vets.
@@ -1082,7 +1085,7 @@ function ehRemarcavelEv(ev) {
   if (!ev) return false;
   if (ev.fonte === 'repro') {
     // 'inducao' saiu do kanban (virou aviso no mural). Resta retorno/coleta.
-    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta';
+    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta' || ev.tipoEv === 'visita_agendada';
   }
   if (ev.fonte === 'vet') {
     return ['anotacao_clinica', 'opg', 'medicao', 'vacinacao'].includes(ev.tipoEv);
@@ -1098,7 +1101,12 @@ function ehRemarcavelEv(ev) {
 // updateVisitaClinica }.
 async function remarcarEvento(ev, novaData, deps) {
   if (!ev || !novaData || !ehRemarcavelEv(ev)) return false;
-  const { updateRegistroReproducao, vetBundle, updateVisitaClinica } = deps;
+  const { updateRegistroReproducao, vetBundle, updateVisitaClinica, updateAgendamentoRepro } = deps;
+  if (ev.tipoEv === 'visita_agendada') {
+    if (!updateAgendamentoRepro || !ev.registro?.id) return false;
+    updateAgendamentoRepro(ev.registro.id, { data: novaData });
+    return true;
+  }
   if (ev.fonte === 'assessoria' && ev.tipoEv === 'visita_clinica' && updateVisitaClinica) {
     updateVisitaClinica(ev.visita.id, { data: novaData });
     return true;
@@ -1269,6 +1277,7 @@ function Planner({
   updateVisitaClinica = null, onSelectVisitaClinica = null,
   insumos = [],
   genealogicosRepro = [],
+  agendamentos = [], updateAgendamentoRepro = null,
 }) {
   // Pra achar nome da égua, usa lookup completo (não filtrado por local)
   // senão quando filtra haras os eventos de outras éguas ficam sem nome.
@@ -1297,7 +1306,8 @@ function Planner({
   // Se vetBundle fornecido, adiciona eventos vet SEM filtrar por
   // "cumprido" (não faz sentido). Filtra os que caem em [hoje-30d, +30d]
   // pra não poluir a agenda horizontal.
-  let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao];
+  const eventosAgenda = eventosVisitasAgendadas(agendamentos, registros, hoje);
+  let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao, ...eventosAgenda];
   if (vetBundle) {
     const eguasIds = new Set((eguasRepro || []).map(c => c.id));
     const janelaIni = addDias(hoje, -30);
@@ -1447,7 +1457,7 @@ function Planner({
   const planerHandlersRef = useRef({});
   planerHandlersRef.current = {
     draggingEv, dropTarget, hoje,
-    updateRegistroReproducao, vetBundle, updateVisitaClinica,
+    updateRegistroReproducao, vetBundle, updateVisitaClinica, updateAgendamentoRepro,
     setGhostPos, setDropTarget, setDraggingEv,
     dbg,
   };
@@ -1501,6 +1511,7 @@ function Planner({
             updateRegistroReproducao: h.updateRegistroReproducao,
             vetBundle: h.vetBundle,
             updateVisitaClinica: h.updateVisitaClinica,
+            updateAgendamentoRepro: h.updateAgendamentoRepro,
           });
         }
       }
@@ -2002,6 +2013,7 @@ function rotuloEvento(ev) {
   if (ev.tipoEv === 'receptora_inovulacao') return 'Inovulação';
   if (ev.tipoEv && ev.tipoEv.startsWith('receptora_dg')) return `DG${ev.dgPonto}`;
   if (ev.tipoEv === 'inspecao') return 'Inspeção';
+  if (ev.tipoEv === 'visita_agendada') return 'Visita';
   return (TIPO_META[ev.tipo]?.short) || '—';
 }
 
@@ -2011,6 +2023,10 @@ function rotuloEvento(ev) {
 // Retorna '' se não há info útil pro tipo.
 function sufixoEvento(ev) {
   const dados = ev?.registro?.dados || {};
+  if (ev.tipoEv === 'visita_agendada' && dados.observacao) {
+    const obs = dados.observacao.trim();
+    return ' · ' + (obs.length > 28 ? obs.slice(0, 27) + '…' : obs);
+  }
   if (ev.tipo === 'inseminacao_artificial' && dados.garanhao) {
     return ' · ' + dados.garanhao;
   }
@@ -2788,6 +2804,29 @@ function ReproEguas({
 // tipo `transferencia_embriao` guarda o dado; label mostra "Coleta de
 // Embrião" pra bater com o vocabulário do time (é a etapa em que o
 // embrião é coletado da doadora).
+// Visita agendada pelo caderno pra uma égua (mesmo sem histórico).
+// Só agenda: fica fora da lista de registros, cobranças e painel.
+export const TIPO_VISITA_AGENDADA = 'visita_agendada';
+
+// Eventos de kanban das visitas agendadas. Some quando a égua ganha
+// qualquer registro no caderno a partir do dia agendado (visita feita);
+// se não foi feita e a data passou, vai pra "Atrasado".
+function eventosVisitasAgendadas(agendamentos = [], registros = [], hoje) {
+  const out = [];
+  for (const a of (agendamentos || [])) {
+    if (!a?.data || !a.eguaId) continue;
+    const feita = (registros || []).some(r => r.eguaId === a.eguaId
+      && r.data && r.data >= a.data && r.data <= hoje);
+    if (feita) continue;
+    out.push({
+      id: `${a.id}:ag`, tipoEv: 'visita_agendada', tipo: TIPO_VISITA_AGENDADA,
+      dataEv: a.data, eguaId: a.eguaId, vetId: a.vetId || null,
+      fonte: 'repro', registro: a, cumprido: false,
+    });
+  }
+  return out;
+}
+
 const TIPO_META = {
   inseminacao_artificial: { label: 'Inseminação Artificial', short: 'IA', cor: '#7c2d8c', bg: '#f5e8ff' },
   transferencia_embriao:  { label: 'Coleta de Embrião', short: 'CE', cor: '#0e7490', bg: '#cffafe' },
@@ -2859,12 +2898,75 @@ const addDias = (iso, n) => {
   return d.toISOString().slice(0, 10);
 };
 
+// Modal "Agendar visita": égua (inclusive recém-cadastrada, sem
+// nenhum registro), data, vet e observação. Vira um card "Visita" no
+// kanban da home até a visita ser registrada.
+function AgendarVisitaModal({ eguasRepro = [], propRepro = [], vetsExternos = [], currentUser, onClose, onSave }) {
+  const amanha = addDias(new Date().toLocaleDateString('sv-SE'), 1);
+  const vetPadrao = vetsExternos.some(v => v.id === currentUser?.id) ? currentUser.id : '';
+  const [eguaId, setEguaId] = useState('');
+  const [data, setData] = useState(amanha);
+  const [vetId, setVetId] = useState(vetPadrao);
+  const [observacao, setObservacao] = useState('');
+  const inputStyle = {
+    width: '100%', boxSizing: 'border-box', padding: '11px 12px', borderRadius: 10,
+    border: '1px solid var(--line)', background: 'var(--card)',
+    fontSize: 14, color: 'var(--ink)', fontFamily: 'var(--sans)', outline: 'none',
+  };
+  const podeSalvar = !!eguaId && !!data;
+  const salvar = () => {
+    if (!podeSalvar) return;
+    const egua = eguasRepro.find(e => e.id === eguaId);
+    onSave({
+      eguaId, data, vetId: vetId || null, localId: egua?.localId || null,
+      observacao: observacao.trim(), autor: currentUser?.nome || '',
+    });
+  };
+  return (
+    <Modal onClose={onClose}>
+      <div style={{ fontFamily: 'var(--serif)', fontSize: 20, marginBottom: 4 }}>Agendar visita</div>
+      <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 14 }}>
+        Aparece no kanban da home no dia marcado. Some quando a visita for registrada no caderno.
+      </div>
+      <FormField label="Égua *">
+        <select value={eguaId} onChange={e => setEguaId(e.target.value)} style={inputStyle}>
+          <option value="">— Selecionar —</option>
+          {[...eguasRepro].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(e => {
+            const prop = propRepro.find(p => (e.proprietarioIds || [e.proprietarioId]).includes(p.id));
+            return <option key={e.id} value={e.id}>{e.nome}{prop ? ` · ${prop.nome}` : ''}</option>;
+          })}
+        </select>
+      </FormField>
+      <FormField label="Data *">
+        <input type="date" value={data} onChange={e => setData(e.target.value)} style={inputStyle} />
+      </FormField>
+      {vetsExternos.length > 0 && (
+        <FormField label="Veterinário">
+          <select value={vetId} onChange={e => setVetId(e.target.value)} style={inputStyle}>
+            <option value="">— Sem vet definido —</option>
+            {vetsExternos.map(v => <option key={v.id} value={v.id}>{v.nome}</option>)}
+          </select>
+        </FormField>
+      )}
+      <FormField label="Observação">
+        <input value={observacao} onChange={e => setObservacao(e.target.value)}
+          placeholder="Ex.: primeira avaliação, CF" style={inputStyle} />
+      </FormField>
+      <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+        <button onClick={onClose} style={{ flex: 1, padding: '11px', borderRadius: 10, border: '1px solid var(--line)', background: 'var(--card)', color: 'var(--ink-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', fontFamily: 'var(--sans)' }}>Fechar</button>
+        <button onClick={salvar} disabled={!podeSalvar} style={{ flex: 2, padding: '11px', borderRadius: 10, border: 'none', background: CORES_TAB_ATIVA, color: '#fff', fontSize: 13, fontWeight: 700, cursor: podeSalvar ? 'pointer' : 'default', fontFamily: 'var(--sans)', opacity: podeSalvar ? 1 : 0.5 }}>Agendar</button>
+      </div>
+    </Modal>
+  );
+}
+
 function ReproCaderno({
   registrosRepro, eguasRepro, eguasParaLookup, propRepro, propParaLookup, locaisRepro, vetsExternos, currentUser,
   centraisRepro = [],
   servicos = [], insumos = [],
   preFill = null, onConsumirPreFill,
   addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  agendamentos = [], addAgendamentoRepro = null, deleteAgendamentoRepro = null,
 }) {
   // Lookup usa dataset completo (todas as éguas/props do workspace,
   // sem filtro por local). Isso evita nome '—' quando o registro é
@@ -2876,6 +2978,12 @@ function ReproCaderno({
   const [editReg, setEditReg] = useState(null);
   const [detalheId, setDetalheId] = useState(null);
   const [novoBase, setNovoBase] = useState(null);
+  const [showAgendar, setShowAgendar] = useState(false);
+  const hojeIsoCad = new Date().toLocaleDateString('sv-SE');
+  // Visitas agendadas ainda não feitas (mesma regra do kanban)
+  const visitasPendentes = eventosVisitasAgendadas(agendamentos, registrosRepro, hojeIsoCad)
+    .map(ev => ev.registro)
+    .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
 
   // Se veio um preFill (via click em evento), abre o form auto.
   // preFill.editarRegistroId tem prioridade: abre o form em modo edição
@@ -2924,6 +3032,62 @@ function ReproCaderno({
       <div style={{ padding: '12px 20px 0' }}>
         <SearchBar value={busca} onChange={setBusca} placeholder="Buscar por égua ou tipo…" />
       </div>
+      {addAgendamentoRepro && eguasRepro.length > 0 && (
+        <div style={{ padding: '10px 20px 0' }}>
+          <button onClick={() => setShowAgendar(true)} style={{
+            width: '100%', padding: '11px 14px', borderRadius: 12,
+            border: `1px dashed ${CORES_TAB_ATIVA}`, background: 'transparent', color: CORES_TAB_ATIVA,
+            fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          }}>
+            <Icon name="calendar" size={15} color={CORES_TAB_ATIVA} />
+            Agendar visita
+          </button>
+          {visitasPendentes.length > 0 && (
+            <div style={{ marginTop: 10 }}>
+              <div style={{ fontSize: 10, color: 'var(--ink-3)', textTransform: 'uppercase', letterSpacing: '0.07em', fontWeight: 700, marginBottom: 6 }}>
+                Visitas agendadas
+              </div>
+              {visitasPendentes.map(a => {
+                const egua = eguasLookup.find(e => e.id === a.eguaId);
+                const vet = vetsExternos.find(v => v.id === a.vetId);
+                const atrasada = a.data < hojeIsoCad;
+                return (
+                  <div key={a.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', marginBottom: 6,
+                    background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 10,
+                    borderLeft: `3px solid ${vet?.cor || CORES_TAB_ATIVA}`,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>{egua?.nome || '—'}</div>
+                      <div style={{ fontSize: 11, color: atrasada ? '#dc2626' : 'var(--ink-3)' }}>
+                        {a.data === hojeIsoCad ? 'Hoje' : fmtDataBrCurto(a.data)}{atrasada ? ' · atrasada' : ''}
+                        {vet ? ` · ${vet.nome.split(' ')[0]}` : ''}
+                        {a.dados?.observacao ? ` · ${a.dados.observacao}` : ''}
+                      </div>
+                    </div>
+                    {deleteAgendamentoRepro && (
+                      <button title="Cancelar visita" onClick={() => {
+                        if (window.confirm(`Cancelar a visita de ${egua?.nome || 'égua'}?`)) deleteAgendamentoRepro(a.id);
+                      }} style={{
+                        width: 28, height: 28, borderRadius: 8, border: '1px solid var(--line)',
+                        background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer', fontSize: 14, lineHeight: 1,
+                      }}>×</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+      {showAgendar && (
+        <AgendarVisitaModal
+          eguasRepro={eguasRepro} propRepro={propLookup} vetsExternos={vetsExternos} currentUser={currentUser}
+          onClose={() => setShowAgendar(false)}
+          onSave={(a) => { addAgendamentoRepro(a); setShowAgendar(false); }}
+        />
+      )}
       <div style={{ padding: '12px 20px 0' }}>
         {eguasRepro.length === 0 && (
           <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--ink-3)', fontSize: 13 }}>
@@ -5256,8 +5420,15 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
         if (!registroId) return null;
         const label = tipoEv === 'coleta' ? 'Cancelar coleta agendada'
           : tipoEv === 'inducao' ? 'Cancelar indução agendada'
+          : tipoEv === 'visita_agendada' ? 'Cancelar visita agendada'
           : 'Cancelar retorno agendado';
         const confirmarEhCancelar = () => {
+          if (tipoEv === 'visita_agendada') {
+            if (!window.confirm('Cancelar visita agendada? Ela vai sumir da agenda.')) return;
+            novoBase.cancelarEventoDe.onCancelar?.();
+            onCancel();
+            return;
+          }
           if (!window.confirm(`${label}? Esse evento vai sumir da agenda, sem apagar o registro original.`)) return;
           const reg = registrosRepro.find(r => r.id === registroId);
           if (!reg) { onCancel(); return; }
@@ -8354,6 +8525,7 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 // ─────────────────────────────────────────────────────────────
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
+  agendamentosRepro = [], addAgendamentoRepro, updateAgendamentoRepro, deleteAgendamentoRepro,
   centraisRepro = [],
   orcamentosRepro = [], addOrcamentoRepro, updateOrcamentoRepro, deleteOrcamentoRepro,
   genealogicosRepro = [], addGenealogicoRepro, updateGenealogicoRepro, deleteGenealogicoRepro,
@@ -8472,6 +8644,16 @@ export function ReproApp({
     } else if (ev.tipoEv === 'inducao') {
       tipoSugerido = 'controle_folicular';
       cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
+    } else if (ev.tipoEv === 'visita_agendada') {
+      // Visita agendada → abre um CF da égua (o vet troca o tipo se for
+      // outro procedimento). Registrar qualquer coisa já tira a visita
+      // do kanban; o botão no form cancela a visita sem registrar.
+      tipoSugerido = 'controle_folicular';
+      const agId = ev.registro?.id;
+      cancelarEventoDe = {
+        tipoEv: 'visita_agendada', registroId: agId,
+        onCancelar: () => { if (agId && deleteAgendamentoRepro) deleteAgendamentoRepro(agId); },
+      };
     } else if (ev.tipoEv === 'procedimento') {
       tipoSugerido = ev.tipo || 'controle_folicular';
     }
@@ -8507,6 +8689,9 @@ export function ReproApp({
   const registrosRepro = useMemo(() => (
     localFiltroId ? registrosReproTodos.filter(r => r.localId === localFiltroId) : registrosReproTodos
   ), [registrosReproTodos, localFiltroId]);
+  const agendamentos = useMemo(() => (
+    localFiltroId ? (agendamentosRepro || []).filter(a => a.localId === localFiltroId) : (agendamentosRepro || [])
+  ), [agendamentosRepro, localFiltroId]);
   // Catálogo unificado (Fase 4): repro passa a ler TODOS os insumos
   // e serviços do banco, sem filtro de workspace. Novos itens criados
   // via repro salvam com workspace=haras — vet e admin operam sobre
@@ -8553,6 +8738,8 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
       updateRegistroReproducao={updateRegistroReproducao}
+      agendamentos={agendamentos}
+      updateAgendamentoRepro={updateAgendamentoRepro}
       onEditarRegistro={abrirCadernoEditarRegistro}
       visitasClinicas={visitasClinicas.filter(v => v.workspaceId === 'repro')}
       contratosAssessoria={contratosAssessoria.filter(c => c.workspaceId === 'repro')}
@@ -8656,6 +8843,9 @@ export function ReproApp({
       addRegistroReproducao={addRegistroReproducao}
       updateRegistroReproducao={updateRegistroReproducao}
       deleteRegistroReproducao={deleteRegistroReproducao}
+      agendamentos={agendamentos}
+      addAgendamentoRepro={addAgendamentoRepro}
+      deleteAgendamentoRepro={deleteAgendamentoRepro}
     />;
   } else if (screen === 'repro-vet-reproducao') {
     content = <ReproSubHomeReproducao
