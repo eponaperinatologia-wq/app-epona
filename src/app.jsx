@@ -35,7 +35,7 @@ import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
 import { TrocarSenhaScreen, CadastroCompletoScreen, AssinaturaContratoScreen } from './proprietario-onboarding';
 import { ProprietarioApp } from './proprietario-app';
-import { ReproApp, TrocarSenhaVetScreen } from './repro-app';
+import { ReproApp, TrocarSenhaVetScreen, TIPO_VISITA_AGENDADA } from './repro-app';
 import { VeterinariaScreen } from './veterinaria';
 import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
@@ -154,6 +154,10 @@ function AppEpona() {
   const [anotacoesClinicas, setAnotacoesClinicas] = useState([]);
   const [exames, setExames] = useState([]);
   const [registrosReproducao, setRegistrosReproducao] = useState([]);
+  // Visitas agendadas do Repro Team (só agenda/kanban). Ficam na mesma
+  // tabela (tipo 'visita_agendada'), mas em estado separado pra nunca
+  // entrarem em cobranças, estatísticas ou histórico de procedimentos.
+  const [agendamentosRepro, setAgendamentosRepro] = useState([]);
   const [custosFixos, setCustosFixos] = useState([]);
   const [emergencias, setEmergencias] = useState([]);
   const [emergMedicacoes, setEmergMedicacoes] = useState([]);
@@ -354,7 +358,8 @@ const loadAllData = async (user = currentUser) => {
     setMedicoes(medicoesData || []);
     setAnotacoesClinicas(anotacoesData || []);
     setExames(examesData || []);
-    setRegistrosReproducao(reprosData || []);
+    setRegistrosReproducao((reprosData || []).filter(r => r.tipo !== TIPO_VISITA_AGENDADA));
+    setAgendamentosRepro((reprosData || []).filter(r => r.tipo === TIPO_VISITA_AGENDADA));
     setCustosFixos(custosFixosData || []);
     setEmergencias(emergenciasData || []);
     setEmergMedicacoes(emergMedData || []);
@@ -1290,6 +1295,40 @@ const loadAllData = async (user = currentUser) => {
   };
   const deleteRegistroReproducao = (id) => {
     setRegistrosReproducao(prev => prev.filter(r => r.id !== id));
+    dbDelete('reproducao_registros', id);
+  };
+
+  // ── Visitas agendadas (Repro Team) ─────────────────────────
+  // a = { eguaId, data, vetId, localId, observacao, autor }
+  const addAgendamentoRepro = (a) => {
+    const novo = {
+      id: a.id || 'ag_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+      eguaId: a.eguaId, data: a.data, tipo: TIPO_VISITA_AGENDADA,
+      dados: { observacao: a.observacao || '' }, insumosUsados: [], dataRetorno: null,
+      autor: a.autor || '', mes: (a.data || '').slice(0, 7),
+      workspaceId: 'repro', vetId: a.vetId || null, localId: a.localId || null,
+    };
+    setAgendamentosRepro(prev => [novo, ...prev]);
+    dbInsert('reproducao_registros', {
+      id: novo.id, egua_id: novo.eguaId, data: novo.data, tipo: novo.tipo,
+      dados: novo.dados, insumos_usados: [], data_retorno: null,
+      autor: novo.autor, mes: novo.mes, workspace_id: 'repro',
+      vet_id: novo.vetId, local_id: novo.localId,
+    });
+    return novo;
+  };
+  const updateAgendamentoRepro = (id, patch) => {
+    setAgendamentosRepro(prev => prev.map(a => a.id === id ? { ...a, ...patch } : a));
+    const cols = {};
+    if ('data' in patch) { cols.data = patch.data; cols.mes = (patch.data || '').slice(0, 7); }
+    if ('dados' in patch) cols.dados = patch.dados || {};
+    if ('vetId' in patch) cols.vet_id = patch.vetId || null;
+    if ('eguaId' in patch) cols.egua_id = patch.eguaId;
+    if ('localId' in patch) cols.local_id = patch.localId || null;
+    dbUpdate('reproducao_registros', id, cols);
+  };
+  const deleteAgendamentoRepro = (id) => {
+    setAgendamentosRepro(prev => prev.filter(a => a.id !== id));
     dbDelete('reproducao_registros', id);
   };
 
@@ -2604,6 +2643,10 @@ const loadAllData = async (user = currentUser) => {
       proprietarios={proprietarios /* completo — ReproApp filtra internamente */}
       cavalos={cavalos /* completo — ReproApp filtra internamente */}
       registrosReproducao={registrosReproducao}
+      agendamentosRepro={agendamentosRepro}
+      addAgendamentoRepro={addAgendamentoRepro}
+      updateAgendamentoRepro={updateAgendamentoRepro}
+      deleteAgendamentoRepro={deleteAgendamentoRepro}
       insumos={insumos}
       servicos={servicos}
       addLocalRepro={addLocalRepro}

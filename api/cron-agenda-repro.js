@@ -75,6 +75,9 @@ module.exports = async function handler(req, res) {
         eventos.push({ title: `Controle folicular hoje: ${egua}${local}`, body: '' });
       } else if (r.tipo === 'diagnostico_gestacao') {
         eventos.push({ title: `Diagnóstico gestacional hoje: ${egua}${local}`, body: '' });
+      } else if (r.tipo === 'visita_agendada') {
+        const obs = (dados.observacao || '').trim();
+        eventos.push({ title: `Visita agendada hoje: ${egua}${local}`, body: obs });
       }
     }
 
