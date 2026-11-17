@@ -28,7 +28,7 @@ import { RegistrarHub, RegistrarPorCavalo, RegistrarPorInsumo, RegistrarPorSetor
 import { LoginScreen, ROLE_COLORS } from './auth';
 import { NutricionalScreen } from './nutricional';
 import { InsumosProprietarioScreen } from './insumos-proprietario';
-import { coberturaGeral } from './utils/insumosProp';
+import { coberturaGeral, anotarInsumosDoDono } from './utils/insumosProp';
 import { FuncionariosScreen, FuncionarioDetalheScreen, PlannerScreen, MinhaContaScreen } from './funcionarios';
 import { CadVetsExternosScreen } from './repro-admin';
 import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
@@ -177,6 +177,15 @@ function AppEpona() {
     if (!cob.size) return registros;
     return registros.map(r => cob.has(r.id) ? { ...r, qtdCobertaProp: cob.get(r.id) } : r);
   }, [registros, insumosProp, cavalos]);
+  // Mesma ideia para a nutrição: nos cavalos vinculados, anota quais
+  // insumos vêm do estoque do proprietário (insumosDoDono), para a fatura
+  // e o custo do haras não cobrarem o suplemento/periódico dele. Sai do
+  // estoque, então não depende da ordem em que dieta e estoque foram
+  // cadastrados. Só leitura: o campo não existe no banco.
+  const cavalosComInsumoProp = useMemo(
+    () => anotarInsumosDoDono(cavalos, insumosProp),
+    [cavalos, insumosProp],
+  );
   const [progProgramas, setProgProgramas] = useState([]);
   const [progAplicacoes, setProgAplicacoes] = useState([]);
   const [loadError, setLoadError] = useState(null);
@@ -950,9 +959,9 @@ const loadAllData = async (user = currentUser) => {
 
   // ── Suplementos entregues pelo proprietário ──────────────
   // Estoque do proprietário: ele compra, entrega, e o app organiza o
-  // consumo sem cobrar. O flag que a fatura lê fica no suplemento do
-  // cavalo (nutricao.suplementos[].fornecidoProp); a tela mantém os dois
-  // em sincronia.
+  // consumo sem cobrar. A fatura lê o vínculo do estoque com o cavalo
+  // (cavalosComInsumoProp, acima); a tela também grava o flag antigo
+  // fornecidoProp no suplemento/periódico do cavalo, como reserva.
   const addInsumoProp = async (data) => {
     const novo = { id: _rid('sup'), cavaloIds: [], entregas: [], ativo: true, ...data };
     setInsumosProp(prev => [...prev, novo]);
@@ -2335,7 +2344,7 @@ const loadAllData = async (user = currentUser) => {
     const mesAtual = hoje.getMonth() + 1;
     // Só haras (as éguas/proprietários do Repro Team têm fatura própria e
     // entravam no rateio do custo fixo, baixando a cota).
-    const cavalosH = cavalos.filter(c => (c.workspaceId || 'haras') === 'haras');
+    const cavalosH = cavalosComInsumoProp.filter(c => (c.workspaceId || 'haras') === 'haras');
     const proprietariosH = proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras');
 
     // 1º lança o que ficou sem cobrança (caderno de reprodução do haras e
@@ -2451,7 +2460,7 @@ const loadAllData = async (user = currentUser) => {
   // o shell do repro filtra 'repro' internamente. Garante isolamento das
   // duas contas paralelas mesmo que uma tela reutilizada esqueça de filtrar.
   const proprietariosHaras = useMemo(() => proprietarios.filter(p => (p.workspaceId || 'haras') === 'haras'), [proprietarios]);
-  const cavalosHaras       = useMemo(() => cavalos.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalos]);
+  const cavalosHaras       = useMemo(() => cavalosComInsumoProp.filter(c => (c.workspaceId || 'haras') === 'haras'), [cavalosComInsumoProp]);
   const insumosHaras       = useMemo(() => insumos.filter(i => (i.workspaceId || 'haras') === 'haras'), [insumos]);
   const servicosHaras      = useMemo(() => servicos.filter(s => (s.workspaceId || 'haras') === 'haras'), [servicos]);
   // Dados ligados a animais: o hub vet do Repro Team grava atividades, avisos,
@@ -2715,7 +2724,7 @@ const loadAllData = async (user = currentUser) => {
     content = <ProprietarioApp
       currentUser={currentUser}
       proprietarios={proprietarios /* completo — ProprietarioApp filtra internamente */}
-      cavalos={cavalos /* completo — ProprietarioApp filtra internamente */}
+      cavalos={cavalosComInsumoProp /* completo — ProprietarioApp filtra internamente */}
       registros={registrosComCobertura}
       procedimentos={procedimentos}
       servicos={servicos}

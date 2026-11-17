@@ -9,7 +9,8 @@
 //
 // Duas mecânicas sobre o mesmo saldo (ver utils/insumosProp.js):
 //  - por registro: cada uso baixa do saldo; passou do saldo, é cobrado
-//  - periódico (dieta): consumo projetado; ao acabar não cobra, só avisa
+//  - periódico (dieta e insumos periódicos da nutrição): consumo
+//    projetado; ao acabar não cobra, só avisa
 //
 // O estoque é do proprietário + insumo, e os cavalos que consomem dele
 // são escolhidos um por um: ele pode trazer para um cavalo só.
@@ -33,6 +34,24 @@ const fmtNum = (v) => {
   const n = Number(v) || 0;
   const s = n % 1 === 0 ? String(n) : n.toFixed(2).replace(/0$/, '');
   return s.replace('.', ',');
+};
+
+// Como o cavalo consome este insumo, pela nutrição dele: suplemento da
+// dieta, insumo periódico (ex.: medicação de rotina) ou uso avulso
+// (registros). `nutricao` decide a cor do aviso no formulário.
+const freqTexto = (freq) => {
+  if (freq === 'diario') return '/dia';
+  if (freq === 'semanal') return '/semana';
+  if (freq === 'quinzenal') return ' quinzenal';
+  if (typeof freq === 'string' && freq.startsWith('cada')) return ` a cada ${parseInt(freq.slice(4), 10) || 7} dias`;
+  return '';
+};
+const usoDoCavalo = (c, insumoId, unid) => {
+  const sup = (c.nutricao?.suplementos || []).find(s => s.insumoId === insumoId);
+  if (sup) return { texto: `${fmtNum(sup.qtdDia)} ${unid}/dia na dieta`, nutricao: true };
+  const per = (c.nutricao?.periodicos || []).find(p => p.insumoId === insumoId);
+  if (per) return { texto: `${fmtNum(per.qtd)} ${unid}${freqTexto(per.frequencia)} (periódico)`, nutricao: true };
+  return { texto: 'uso avulso', nutricao: false };
 };
 
 // ─────────────────────────────────────────────────────────────
@@ -113,17 +132,27 @@ export function InsumosProprietarioScreen({
     (a.categoria || '').localeCompare(b.categoria || '', 'pt')
     || (a.nome || '').localeCompare(b.nome || '', 'pt')), [insumos]);
 
-  // Marca/desmarca o flag que a fatura lê (screens.jsx: calcPerfilMes).
-  // Só mexe no suplemento daquele insumo; o resto da dieta fica intacto.
+  // Marca/desmarca o flag antigo no suplemento/periódico do cavalo. A
+  // fatura já segue o vínculo do estoque (app.jsx: anotarInsumosDoDono);
+  // o flag fica como reserva. Só mexe nos itens daquele insumo; o resto
+  // da nutrição fica intacto.
   const marcarFornecido = (cavaloId, insumoId, valor) => {
     const cav = cavalos.find(c => c.id === cavaloId);
     if (!cav || !updateCavalo) return;
-    const sups = cav.nutricao?.suplementos || [];
-    if (!sups.some(s => s.insumoId === insumoId)) return; // não está na dieta
-    const novos = sups.map(s => s.insumoId === insumoId
-      ? (valor ? { ...s, fornecidoProp: true } : { ...s, fornecidoProp: undefined })
-      : s);
-    updateCavalo(cavaloId, { nutricao: { ...(cav.nutricao || {}), suplementos: novos } });
+    const n = cav.nutricao || {};
+    const temSup = (n.suplementos || []).some(s => s.insumoId === insumoId);
+    const temPer = (n.periodicos || []).some(p => p.insumoId === insumoId);
+    if (!temSup && !temPer) return; // não está na nutrição
+    const marca = (lista) => lista.map(x => x.insumoId === insumoId
+      ? (valor ? { ...x, fornecidoProp: true } : { ...x, fornecidoProp: undefined })
+      : x);
+    updateCavalo(cavaloId, {
+      nutricao: {
+        ...n,
+        ...(temSup ? { suplementos: marca(n.suplementos) } : {}),
+        ...(temPer ? { periodicos: marca(n.periodicos) } : {}),
+      },
+    });
   };
 
   const linhas = useMemo(() => {
@@ -203,10 +232,11 @@ export function InsumosProprietarioScreen({
           <strong style={{ color: 'var(--ink)' }}>Uso avulso</strong> (medicamento, vacina): cada registro baixa do
           saldo; o que passar do saldo volta a ser cobrado.
           <br />
-          <strong style={{ color: 'var(--ink)' }}>Uso na dieta</strong> (suplemento, ração): o consumo diário é
-          descontado e o app avisa quando está acabando. Ao acabar não volta
-          a cobrar sozinho — se o haras seguir com insumo próprio, isso é
-          cadastrado na dieta normalmente e aí sim é cobrado.
+          <strong style={{ color: 'var(--ink)' }}>Uso na dieta ou periódico</strong> (suplemento, ração, medicação
+          de rotina): a dose cadastrada na nutrição do cavalo é descontada e
+          o app avisa quando está acabando. Ao acabar não volta a cobrar
+          sozinho — se o haras seguir com insumo próprio, desmarque o cavalo
+          neste estoque e aí sim volta a ser cobrado.
         </div>
 
         {alertas.length > 0 && (
@@ -266,7 +296,7 @@ export function InsumosProprietarioScreen({
                   <div style={{ fontSize: 12, color: 'var(--ink-3)' }}>Esse proprietário não tem cavalos cadastrados.</div>
                 )}
                 {cavalosDoProp(nPropId).map(c => {
-                  const sup = (c.nutricao?.suplementos || []).find(s => s.insumoId === nInsumoId);
+                  const uso = usoDoCavalo(c, nInsumoId, insumoUnid(nInsumoId));
                   return (
                     <label key={c.id} style={{
                       display: 'flex', alignItems: 'center', gap: 8, padding: '6px 0',
@@ -279,10 +309,8 @@ export function InsumosProprietarioScreen({
                           ? [...prev, c.id] : prev.filter(x => x !== c.id))}
                       />
                       <span style={{ flex: 1 }}>{c.nome}</span>
-                      <span style={{ fontSize: 11, color: sup ? 'var(--ink-3)' : '#b45309' }}>
-                        {nInsumoId
-                          ? (sup ? `${fmtNum(sup.qtdDia)} ${insumoUnid(nInsumoId)}/dia na dieta` : 'uso avulso')
-                          : ''}
+                      <span style={{ fontSize: 11, color: uso.nutricao ? 'var(--ink-3)' : '#b45309' }}>
+                        {nInsumoId ? uso.texto : ''}
                       </span>
                     </label>
                   );
@@ -347,7 +375,7 @@ export function InsumosProprietarioScreen({
                 <div>
                   <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>CONSUMO</div>
                   <div style={{ fontSize: 14, color: 'var(--ink)' }}>
-                    {calc.consumoDia > 0 ? `${fmtNum(calc.consumoDia)}${unid ? ` ${unid}` : ''}/dia` : '—'}
+                    {calc.consumoDia > 0 ? `${fmtNum(calc.consumoDia)}${unid ? ` ${unid}` : ''}/dia${calc.consumoDiaMedio ? ' (média)' : ''}` : '—'}
                   </div>
                   {calc.consumidoRegistros > 0 && (
                     <div style={{ fontSize: 10, color: 'var(--ink-3)' }}>
@@ -379,7 +407,7 @@ export function InsumosProprietarioScreen({
                 <>
                   <div style={{ ...rotulo, marginTop: 10 }}>Vincular cavalos deste proprietário</div>
                   {cavalosDoProp(stock.proprietarioId).map(c => {
-                    const sup = (c.nutricao?.suplementos || []).find(s => s.insumoId === stock.insumoId);
+                    const uso = usoDoCavalo(c, stock.insumoId, unid);
                     return (
                       <label key={c.id} style={{
                         display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0',
@@ -392,7 +420,7 @@ export function InsumosProprietarioScreen({
                         />
                         <span style={{ flex: 1 }}>{c.nome}</span>
                         <span style={{ fontSize: 11, color: 'var(--ink-3)' }}>
-                          {sup ? `${fmtNum(sup.qtdDia)} ${unid}/dia na dieta` : 'uso avulso'}
+                          {uso.texto}
                         </span>
                       </label>
                     );

@@ -224,6 +224,15 @@ const _labelFreq = (freq) => {
   return '';
 };
 
+// Suplemento ou insumo periódico que o proprietário comprou e trouxe
+// (Cadastros → Insumos de proprietários): o consumo segue organizado, mas
+// não entra na fatura dele nem no custo do haras. Não volta a cobrar
+// quando o estoque acaba — só alerta (regra do negócio).
+// `insumosDoDono` vem do estoque, anotado na origem (app.jsx:
+// anotarInsumosDoDono); `fornecidoProp` é o flag antigo gravado no item.
+const _trazidoPeloDono = (cav, item) => !!item?.fornecidoProp
+  || (Array.isArray(cav?.insumosDoDono) && cav.insumosDoDono.includes(item?.insumoId));
+
 const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   const { dias } = calcDias(cav, ref, movimentacoes);
   if (!cav.nutricao || dias === 0) return { linhas: [], total: 0, dias };
@@ -265,16 +274,16 @@ const calcPerfilMes = (cav, ref, movimentacoes, insumos) => {
   for (const s of (cav.nutricao.suplementos || [])) {
     const ins = findIns(s.insumoId);
     if (!ins || isIncluso(ins)) continue;
-    // Suplemento que o próprio proprietário comprou e entregou no haras:
-    // o consumo segue organizado, mas não entra na fatura dele. Não volta
-    // a cobrar quando o estoque acaba — só alerta (regra do negócio).
-    if (s.fornecidoProp) continue;
+    // Trazido pelo proprietário: não entra na fatura dele.
+    if (_trazidoPeloDono(cav, s)) continue;
     const diasEfetivos = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
     linhas.push({ insumoId: ins.id, nome: ins.nome, qtdDia: s.qtdDia, unidade: ins.unidade, valorUnit: ins.valorVenda, valorDia: ins.valorVenda * s.qtdDia, valorMes: ins.valorVenda * s.qtdDia * diasEfetivos, dias: diasEfetivos });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins || isIncluso(ins)) continue;
+    // Idem para o periódico (ex.: medicação de rotina que ele trouxe).
+    if (_trazidoPeloDono(cav, p)) continue;
     const doses = calcDosesPeriodico(p, ref, cav, movimentacoes);
     if (doses === 0) continue;
     const dosePorVez = Number(p.qtd) || 0;
@@ -641,13 +650,14 @@ const calcCustoCompraPerfilMes = (cav, ref, movimentacoes, insumos) => {
     if (!ins) continue;
     // Entregue pelo proprietário: o dinheiro foi dele, então não é gasto
     // do haras também.
-    if (s.fornecidoProp) continue;
+    if (_trazidoPeloDono(cav, s)) continue;
     const diasEf = calcDiasItem(cav, ref, movimentacoes, s.dataInicio, s.dataFim);
     linhas.push({ nome: ins.nome, valorMes: v(ins) * s.qtdDia * diasEf });
   }
   for (const p of (cav.nutricao.periodicos || [])) {
     const ins = findIns(p.insumoId);
     if (!ins) continue;
+    if (_trazidoPeloDono(cav, p)) continue;
     const freqDias = p.frequencia === 'quinzenal' ? 14 : p.frequencia === 'semanal' ? 7 : p.frequencia === 'diario' ? 1 : p.frequencia?.startsWith('cada') ? parseInt(p.frequencia.replace('cada', '')) || 7 : 7;
     const qtdDia = p.qtd / freqDias;
     const diasEf = calcDiasItem(cav, ref, movimentacoes, p.dataInicio, p.dataFim);
