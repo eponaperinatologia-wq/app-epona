@@ -260,10 +260,15 @@ function SecaoAccordion({ titulo, icone, cor, contador, defaultOpen = false, chi
 export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nada pendente.', destacaAtrasado = false, agruparAtrasados = false }) {
   const hoje = _fmtDataLocal(new Date());
   const tabAtivaRef = React.useRef(null);
+  const abasRef = React.useRef(null);
   React.useEffect(() => {
-    if (tabAtivaRef.current && tabAtivaRef.current.scrollIntoView) {
-      tabAtivaRef.current.scrollIntoView({ block: 'nearest', inline: 'center', behavior: 'auto' });
-    }
+    // Centraliza a aba ativa só na horizontal. O scrollIntoView de antes
+    // também rolava a página na vertical (com o cronograma na Home, a tela
+    // pulava para baixo ao abrir).
+    const tab = tabAtivaRef.current, box = abasRef.current;
+    if (!tab || !box) return;
+    const t = tab.getBoundingClientRect(), b = box.getBoundingClientRect();
+    box.scrollLeft += (t.left + t.width / 2) - (b.left + b.width / 2);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   // useMemo sempre chamado (hook condicional quebra o React quando
@@ -307,7 +312,7 @@ export function NavegacaoDias({ itens, itemsPorDia, renderItem, emptyText = 'Nad
   return (
     <div>
       {/* Abas horizontais de dias */}
-      <div style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 10, paddingBottom: 3, WebkitOverflowScrolling: 'touch' }}>
+      <div ref={abasRef} style={{ display: 'flex', overflowX: 'auto', gap: 6, marginBottom: 10, paddingBottom: 3, WebkitOverflowScrolling: 'touch' }}>
         {dias.map(([d, lista], i) => {
           const isAtrasado = d === 'atrasados';
           const eHoje = !isAtrasado && d === hoje;

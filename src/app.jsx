@@ -35,8 +35,9 @@ import { RegistrarPartoScreen, PartoDetalheScreen } from './partos';
 import { GestacaoPartosScreen, EguaGestanteDetalheScreen } from './gestacao';
 import { TrocarSenhaScreen, CadastroCompletoScreen, AssinaturaContratoScreen } from './proprietario-onboarding';
 import { ProprietarioApp } from './proprietario-app';
-import { ReproApp, TrocarSenhaVetScreen, TIPO_VISITA_AGENDADA } from './repro-app';
+import { ReproApp, TrocarSenhaVetScreen, TIPO_VISITA_AGENDADA, dadosEspelhoEponaStud, KanbanReproEponaStud, ReproEspelhoEponaStud } from './repro-app';
 import { VeterinariaScreen } from './veterinaria';
+import { CronogramaVetScreen } from './cronograma-vet';
 import { CadServicosScreen, RegistrarProcedimentoScreen } from './servicos';
 import { seedDatabase } from './utils/seedDatabase';
 import { supabase } from './utils/supabase';
@@ -199,6 +200,9 @@ function AppEpona() {
   // Mês de destino ao registrar insumo/procedimento a partir de uma fatura ('YYYY-MM' ou null = hoje)
   const [mesRegistroDestino, setMesRegistroDestino] = useState(null);
 
+  // Tela "Reprodução · Epona Stud" (espelho do Repro Team no Haras): para
+  // onde o Voltar leva e, se veio de um card do kanban, qual evento abrir.
+  const [espelhoAbrir, setEspelhoAbrir] = useState(null);
   const [novoCavaloPendente, setNovoCavaloPendente] = useState(null);
   const [pendingEntradaCavalo, setPendingEntradaCavalo] = useState(false);
   const [fluxo, setFluxo] = useState(null);
@@ -2486,6 +2490,11 @@ const loadAllData = async (user = currentUser) => {
   const progProgramasH     = useMemo(() => soHaras(progProgramas), [progProgramas, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
   const progAplicacoesH    = useMemo(() => soHaras(progAplicacoes), [progAplicacoes, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
   const frascosAbertosH    = useMemo(() => soHaras(frascosAbertos), [frascosAbertos, idsCavalosRepro]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Reprodução do Repro Team no local Epona Stud, para o Haras (mesmos
+  // registros, sem cópia; a cobrança continua só no Repro Team).
+  const espelhoEponaStud   = useMemo(() => dadosEspelhoEponaStud({
+    locaisRepro, cavalos, proprietarios, registrosReproducao, agendamentosRepro, avisosRepro, vetsExternos,
+  }), [locaisRepro, cavalos, proprietarios, registrosReproducao, agendamentosRepro, avisosRepro, vetsExternos]);
 
   // ── Tab → screen sync ─────────────────────────────────────────
   useEffect(() => {
@@ -2499,7 +2508,7 @@ const loadAllData = async (user = currentUser) => {
     if (tab === 'nutricional' && !['editarCavalo', 'cavaloDetalhe'].includes(screen)) setScreen('nutricional');
     if (tab === 'avisos')    setScreen('avisos');
     if (tab === 'equipe')    setScreen('planner');
-    if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe'].includes(screen)) setScreen('partos');
+    if (tab === 'partos' && !['registrarParto', 'partoDetalhe', 'eguaGestanteDetalhe', 'reproEpona'].includes(screen)) setScreen('partos');
     if (tab === 'compras') setScreen('compras');
   }, [tab, currentUser]);
 
@@ -2526,7 +2535,11 @@ const loadAllData = async (user = currentUser) => {
     // Funcionários (em Cadastros) e a ficha ficam na aba atual: a aba Equipe
     // sempre volta para a escala, que não mostra os administradores.
     if (s === 'planner') setTab('equipe');
-    if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe') setTab('partos');
+    if (s === 'partos' || s === 'registrarParto' || s === 'partoDetalhe' || s === 'eguaGestanteDetalhe' || s === 'reproEpona') setTab('partos');
+  };
+  const abrirEspelhoEponaStud = (voltar, evento = null) => {
+    setEspelhoAbrir({ voltar, evento });
+    goScreen('reproEpona');
   };
 
   // ── Render ────────────────────────────────────────────────────
@@ -2754,7 +2767,36 @@ const loadAllData = async (user = currentUser) => {
       onLogout={handleLogout}
     />;
   }
-  else if (screen === 'home') content = <HomeScreen registros={registrosH} setScreen={goScreen} density={tweaks.density} avisos={avisosH} cavalos={cavalosHaras} compras={compras} atividades={atividadesH} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos} />;
+  else if (screen === 'home') content = <HomeScreen registros={registrosH} setScreen={goScreen} density={tweaks.density} avisos={avisosH} cavalos={cavalosHaras} compras={compras} atividades={atividadesH} currentUser={currentUser} onSeed={handleSeed} removeAviso={removeAviso} removeAtividade={removeAtividade} insumos={insumos}
+    // Mesmo cronograma da tela Veterinária → Cronograma (mesmos dados do haras)
+    cronograma={<CronogramaVetScreen embutido
+      cavalos={cavalosHaras} insumos={insumos} servicos={servicos} currentUser={currentUser}
+      addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento}
+      deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento}
+      emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros}
+      updateEmergMedicacao={updateEmergMedicacao} addEmergParametro={addEmergParametro}
+      frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto}
+      protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} upsertVacinacaoAnimal={upsertVacinacaoAnimal}
+      protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} addVermifugacaoAnimal={addVermifugacaoAnimal}
+      progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} updateProgesteronaAplicacao={updateProgesteronaAplicacao}
+    />}
+    reproducao={<KanbanReproEponaStud
+      espelho={espelhoEponaStud} vetsExternos={vetsExternos} insumos={insumos}
+      updateRegistroReproducao={updateRegistroReproducao} updateAgendamentoRepro={updateAgendamentoRepro}
+      onAbrir={() => abrirEspelhoEponaStud('home')}
+      onSelectEvento={(ev) => abrirEspelhoEponaStud('home', ev)}
+    />}
+  />;
+  else if (screen === 'reproEpona') content = <ReproEspelhoEponaStud
+    espelho={espelhoEponaStud} currentUser={currentUser} vetsExternos={vetsExternos} centraisRepro={centraisRepro}
+    insumos={insumos} servicos={servicos}
+    addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao}
+    addAgendamentoRepro={addAgendamentoRepro} updateAgendamentoRepro={updateAgendamentoRepro} deleteAgendamentoRepro={deleteAgendamentoRepro}
+    resolverAvisoRepro={resolverAvisoRepro}
+    eventoInicial={espelhoAbrir?.evento || null}
+    onConsumirEvento={() => setEspelhoAbrir(a => (a ? { ...a, evento: null } : a))}
+    onBack={() => goScreen(espelhoAbrir?.voltar || 'home')}
+  />;
   else if (screen === 'avisos') content = <AvisosScreen setScreen={goScreen} avisos={avisosH} addAviso={addAviso} removeAviso={removeAviso} resolverAviso={resolverAviso} addResposta={addResposta} currentUser={currentUser} />;
   else if (screen === 'insumosProprietario') content = <InsumosProprietarioScreen setScreen={goScreen} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} registros={registrosH} insumosProp={insumosProp} addInsumoProp={addInsumoProp} updateInsumoProp={updateInsumoProp} deleteInsumoProp={deleteInsumoProp} updateCavalo={updateCavalo} currentUser={currentUser} />;
   else if (screen === 'nutricional') content = <NutricionalScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} insumos={insumos} currentUser={currentUser} updateCavalo={updateCavalo} addAviso={addAviso} removeAviso={removeAviso} nutricaoOrdem={nutricaoOrdem} updateNutricaoOrdem={updateNutricaoOrdem} />;
@@ -2785,7 +2827,7 @@ const loadAllData = async (user = currentUser) => {
   else if (screen === 'funcionarioDetalhe') content = <FuncionarioDetalheScreen id={selected} setScreen={goScreen} backTo={tab === 'equipe' ? 'planner' : 'funcionarios'} funcionarios={funcionarios} addFuncionario={addFuncionario} updateFuncionario={updateFuncionario} deleteFuncionario={deleteFuncionario} />;
   else if (screen === 'minhaConta') content = <MinhaContaScreen currentUser={currentUser} funcionarios={funcionarios} onSave={updateMinhaConta} onLogout={handleLogout} setScreen={goScreen} sessions={sessions} activeKey={activeKey} onSwitchSession={handleSwitchSession} onAddAccount={handleAddAccount} onRemoveSession={handleRemoveSessao} />;
   else if (screen === 'cronogramaVet') content = <VeterinariaScreen initialSecao="cronograma" setScreen={goScreen} setSelected={setSelected} partos={partosH} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoesH} insumos={insumos} servicos={servicos} registros={registrosH} procedimentos={procedimentosH} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} opgs={opgsH} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoesH} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicasH} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={examesH} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproH} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} updateParto={updateParto} deleteParto={deleteParto} />;
-  else if (screen === 'partos') content = <VeterinariaScreen setScreen={goScreen} setSelected={setSelected} partos={partosH} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoesH} insumos={insumos} servicos={servicos} registros={registrosH} procedimentos={procedimentosH} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} opgs={opgsH} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoesH} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicasH} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={examesH} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproH} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} updateParto={updateParto} deleteParto={deleteParto} />;
+  else if (screen === 'partos') content = <VeterinariaScreen onOpenReproducao={() => abrirEspelhoEponaStud('partos')} setScreen={goScreen} setSelected={setSelected} partos={partosH} cavalos={cavalosHaras} proprietarios={proprietariosHaras} movimentacoes={movimentacoesH} insumos={insumos} servicos={servicos} registros={registrosH} procedimentos={procedimentosH} empresaInfo={empresaInfo} currentUser={currentUser} addRegistro={addRegistro} addAtividade={addAtividade} addProcedimento={addProcedimento} addAviso={addAviso} deleteRegistro={deleteRegistro} deleteProcedimento={deleteProcedimento} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} addProtocoloVacinacao={addProtocoloVacinacao} updateProtocoloVacinacao={updateProtocoloVacinacao} deleteProtocoloVacinacao={deleteProtocoloVacinacao} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} opgs={opgsH} addProtocoloVermifugacao={addProtocoloVermifugacao} updateProtocoloVermifugacao={updateProtocoloVermifugacao} deleteProtocoloVermifugacao={deleteProtocoloVermifugacao} addVermifugacaoAnimal={addVermifugacaoAnimal} addOpg={addOpg} updateOpg={updateOpg} deleteOpg={deleteOpg} medicoes={medicoesH} addMedicao={addMedicao} updateMedicao={updateMedicao} deleteMedicao={deleteMedicao} anotacoesClinicas={anotacoesClinicasH} addAnotacaoClinica={addAnotacaoClinica} updateAnotacaoClinica={updateAnotacaoClinica} deleteAnotacaoClinica={deleteAnotacaoClinica} exames={examesH} uploadExame={uploadExame} deleteExame={deleteExame} registrosReproducao={registrosReproH} addRegistroReproducao={addRegistroReproducao} updateRegistroReproducao={updateRegistroReproducao} deleteRegistroReproducao={deleteRegistroReproducao} emergencias={emergenciasH} emergMedicacoes={emergMedicacoes} emergAgendas={emergAgendas} emergParametros={emergParametros} emergNotas={emergNotas} emergExames={emergExames} addEmergencia={addEmergencia} updateEmergencia={updateEmergencia} encerrarEmergencia={encerrarEmergencia} deleteEmergencia={deleteEmergencia} addEmergMedicacao={addEmergMedicacao} updateEmergMedicacao={updateEmergMedicacao} deleteEmergMedicacao={deleteEmergMedicacao} addEmergAgenda={addEmergAgenda} updateEmergAgenda={updateEmergAgenda} deleteEmergAgenda={deleteEmergAgenda} addEmergParametro={addEmergParametro} updateEmergParametro={updateEmergParametro} deleteEmergParametro={deleteEmergParametro} addEmergNota={addEmergNota} updateEmergNota={updateEmergNota} deleteEmergNota={deleteEmergNota} uploadEmergExame={uploadEmergExame} deleteEmergExame={deleteEmergExame} frascosAbertos={frascosAbertosH} addFrascoAberto={addFrascoAberto} updateFrascoAberto={updateFrascoAberto} progProgramas={progProgramasH} progAplicacoes={progAplicacoesH} addProgesteronaPrograma={addProgesteronaPrograma} encerrarProgesteronaPrograma={encerrarProgesteronaPrograma} deleteProgesteronaPrograma={deleteProgesteronaPrograma} updateProgesteronaAplicacao={updateProgesteronaAplicacao} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} updateParto={updateParto} deleteParto={deleteParto} />;
   else if (screen === 'registrarParto') content = <RegistrarPartoScreen setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} proprietarios={proprietariosHaras} insumos={insumos} addCavalo={addCavalo} addParto={addParto} updateCavalo={updateCavalo} partos={partosH} addRegistro={addRegistro} />;
   else if (screen === 'partoDetalhe') content = <PartoDetalheScreen id={selected} setScreen={goScreen} partos={partosH} updateParto={updateParto} deleteParto={deleteParto} cavalos={cavalosHaras} updateCavalo={updateCavalo} deleteCavalo={deleteCavalo} proprietarios={proprietariosHaras} insumos={insumos} addProcedimento={addProcedimento} addRegistro={addRegistro} deleteRegistro={deleteRegistro} />;
   else if (screen === 'eguaGestanteDetalhe') content = <EguaGestanteDetalheScreen id={selected} setScreen={goScreen} setSelected={setSelected} cavalos={cavalosHaras} updateCavalo={updateCavalo} proprietarios={proprietariosHaras} insumos={insumos} addAviso={addAviso} addAtividade={addAtividade} currentUser={currentUser} partos={partosH} protocolosVacinacao={protocolosVacinacao} vacinacoesAnimais={vacinacoesAnimaisH} upsertVacinacaoAnimal={upsertVacinacaoAnimal} protocolosVermifugacao={protocolosVermifugacao} vermifugacoesAnimais={vermifugacoesAnimaisH} addVermifugacaoAnimal={addVermifugacaoAnimal} addRegistro={addRegistro} servicos={servicos} addProcedimento={addProcedimento} />;
@@ -2803,7 +2845,7 @@ const loadAllData = async (user = currentUser) => {
   // Proprietário nunca vê a TabBar do admin — ele tem shell próprio
   // (ProprietarioApp) OU está num gate de onboarding (troca senha, cadastro,
   // contrato) que NÃO deve mostrar tab bar por cima do form.
-  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && !isRepro && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','cadVetsExternos','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet'].includes(screen);
+  const showMainTabs = !loading && currentUser && !isOperacional && !isProprietario && !isRepro && ['home','cavalos','cavaloDetalhe','editarCavalo','addCavalo','cadastros','cadProprietarios','cadCavalos','cadInsumos','cadMensalidades','cadServicos','cadEmpresa','addInsumo','editarInsumo','proprietarioDetalhe','faturas','faturaDetalhe','nutricional','compras','planner','funcionarios','funcionarioDetalhe','cadVetsExternos','minhaConta','partos','registrarParto','partoDetalhe','eguaGestanteDetalhe','registrarProcedimento','historico','consumo','veterinaria','cronogramaVet','reproEpona'].includes(screen);
   const showOperacionalTabs = !loading && isOperacional && ['avisos','nutricional','compras','planner','funcionarioDetalhe','minhaConta','historico'].includes(screen);
 
   return (

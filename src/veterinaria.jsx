@@ -7,7 +7,6 @@ import { GestacaoPartosScreen } from './gestacao';
 import { gerarPdfRelatorio, gerarResumoRelatorio, nomePdfRelatorio } from './utils/pdfRelatorioVet';
 import { supabase } from './utils/supabase';
 import { ReproducaoScreen, resumoReproducaoMes } from './reproducao';
-import { ReproHarasView } from './repro-app';
 import { addDescartaveis } from './data';
 import { CronogramaVetScreen } from './cronograma-vet';
 import { DesenvolvimentoScreen, CAMPOS_MEDICAO } from './desenvolvimento';
@@ -732,29 +731,6 @@ export function VeterinariaScreen({
         exames={exames || []}
         uploadExame={uploadExame}
         deleteExame={deleteExame}
-        onBack={() => setSecao(null)}
-      />
-    );
-  }
-  if (secao === 'reproducao') {
-    return (
-      <ReproHarasView
-        currentUser={currentUser}
-        cavalos={cavalos}
-        proprietarios={proprietarios}
-        registrosReproducao={registrosReproducao || []}
-        insumos={insumos || []}
-        servicos={servicos || []}
-        addRegistroReproducao={addRegistroReproducao}
-        updateRegistroReproducao={updateRegistroReproducao}
-        deleteRegistroReproducao={deleteRegistroReproducao}
-        registros={registros || []}
-        addRegistro={addRegistro}
-        deleteRegistro={deleteRegistro}
-        procedimentos={procedimentos || []}
-        addProcedimento={addProcedimento}
-        deleteProcedimento={deleteProcedimento}
-        addAviso={addAviso}
         onBack={() => setSecao(null)}
       />
     );

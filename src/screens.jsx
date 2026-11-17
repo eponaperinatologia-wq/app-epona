@@ -897,7 +897,48 @@ const getDataFmt = () => {
   return `${DIAS_SEMANA[d.getDay()]} · ${d.getDate()} de ${MESES_HOME[d.getMonth()]}`;
 };
 
-const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed, removeAviso, removeAtividade, insumos = [] }) => {
+// Acordeão discreto da Home: o próprio título da seção abre e fecha, e cada
+// aparelho lembra como a pessoa deixou (localStorage; sem ele, usa o padrão).
+const HomeAcordeao = ({ chave, titulo, padraoAberto = false, selo = null, acao = null, padding = '20px 20px 0', children }) => {
+  const storageKey = 'epona_home_aberto_' + chave;
+  const [aberto, setAberto] = useState(() => {
+    try {
+      const v = window.localStorage.getItem(storageKey);
+      return v === null ? padraoAberto : v === '1';
+    } catch { return padraoAberto; }
+  });
+  const alternar = () => {
+    const novo = !aberto;
+    setAberto(novo);
+    try { window.localStorage.setItem(storageKey, novo ? '1' : '0'); } catch {}
+  };
+  return (
+    <div style={{ padding }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: aberto ? 10 : 0 }}>
+        <button onClick={alternar} aria-expanded={aberto} style={{
+          flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
+          background: 'transparent', border: 'none', padding: '2px 0', margin: 0,
+          cursor: 'pointer', textAlign: 'left', color: 'var(--ink)', fontFamily: 'var(--sans)',
+        }}>
+          <span style={{ fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 400, color: 'var(--ink)', lineHeight: 1.2 }}>{titulo}</span>
+          {selo}
+        </button>
+        {aberto && acao}
+        <button onClick={alternar} aria-label={aberto ? 'Fechar' : 'Abrir'} style={{
+          background: 'transparent', border: 'none', padding: 2, cursor: 'pointer',
+          color: 'var(--ink-3)', display: 'grid', placeItems: 'center',
+        }}>
+          <span style={{ display: 'inline-flex', transform: aberto ? 'none' : 'rotate(-90deg)', transition: 'transform 0.15s' }}>
+            <Icon name="chevron-down" size={16} />
+          </span>
+        </button>
+      </div>
+      {aberto && children}
+    </div>
+  );
+};
+
+const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades = ATIVIDADES, cavalos = [], compras = [], currentUser, onSeed, removeAviso, removeAtividade, insumos = [], cronograma = null, reproducao = null }) => {
   const hojeStr = new Date().toLocaleDateString('sv-SE');
   const totalHoje = atividades.filter(a => a.data === hojeStr).length;
   const totalCavalos = cavalos.filter(c => c.presente).length;
@@ -1081,13 +1122,28 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
         </div>
       )}
 
-      {/* Avisos preview no Home */}
+      {/* Cronograma veterinário (acordeão, aberto por padrão) */}
+      {cronograma && (
+        <HomeAcordeao chave="cronograma" titulo="Cronograma veterinário" padraoAberto>
+          {cronograma}
+        </HomeAcordeao>
+      )}
+
+      {/* Kanban da reprodução do Epona Stud (espelho do Repro Team) */}
+      {reproducao}
+
+      {/* Avisos preview no Home (acordeão; o selo URGENTE aparece mesmo fechado) */}
       {ultimosAvisos.length > 0 && (
-        <div style={{ padding: '20px 20px 0' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
-            <h2 style={{ fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Mural de avisos</h2>
-            <button onClick={() => setScreen('avisos')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Ver tudo</button>
-          </div>
+        <HomeAcordeao
+          chave="mural"
+          titulo="Mural de avisos"
+          selo={avisosUrgentes > 0 && (
+            <span style={{ fontSize: 9, padding: '1px 6px', borderRadius: 4, background: '#fef2e8', color: '#c0392b', fontWeight: 700, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+              {avisosUrgentes > 1 ? `${avisosUrgentes} URGENTES` : 'URGENTE'}
+            </span>
+          )}
+          acao={<button onClick={() => setScreen('avisos')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Ver tudo</button>}
+        >
           <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
             {ultimosAvisos.map((a, i) => (
               <div key={a.id} style={{
@@ -1118,7 +1174,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
               </div>
             ))}
           </div>
-        </div>
+        </HomeAcordeao>
       )}
       {currentUser?.role === 'admin' && (
         <div style={{ padding: '20px 20px 0' }}>
@@ -1162,15 +1218,12 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
           )}
         </div>
       )}
-      <div style={{ padding: '24px 20px 0' }}>
-        <div style={{
-          display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10,
-        }}>
-          <h2 style={{
-            fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink)',
-          }}>Atividade recente</h2>
-          <button onClick={() => setScreen('historico')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Histórico</button>
-        </div>
+      <HomeAcordeao
+        chave="atividade"
+        titulo="Atividade recente"
+        padding="24px 20px 0"
+        acao={<button onClick={() => setScreen('historico')} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Histórico</button>}
+      >
         <div style={{ background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden' }}>
           {recentes.length === 0 && (
             <div style={{ padding: '20px', textAlign: 'center', color: 'var(--ink-3)', fontSize: 13 }}>
@@ -1179,7 +1232,7 @@ const HomeScreen = ({ registros, setScreen, density, avisos = AVISOS, atividades
           )}
           {recentes.map((a, i) => <ActivityRow key={a.id} a={a} first={i === 0} currentUser={currentUser} removeAtividade={removeAtividade} insumos={insumos} cavalos={cavalos} />)}
         </div>
-      </div>
+      </HomeAcordeao>
     </div>
   );
 };

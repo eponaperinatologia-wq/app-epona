@@ -182,6 +182,8 @@ export function CronogramaVetScreen({
   // Progesterona
   progProgramas, progAplicacoes, updateProgesteronaAplicacao,
   onBack, onAbrirEmergencia,
+  // Dentro do acordeão da Home: sem cabeçalho/voltar e sem rolagem própria.
+  embutido = false,
 }) {
   const [itemAbertoId, setItemAbertoId] = useState(null);
   const [confirmandoId, setConfirmandoId] = useState(null);
@@ -401,38 +403,32 @@ export function CronogramaVetScreen({
     ['parto-previsto', 'Partos', '#c2410c'],
   ];
 
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <div style={{ padding: '14px 20px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
-          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>Cronograma Veterinário</div>
-        </div>
-        <div style={{ display: 'flex', overflowX: 'auto', gap: 6, paddingBottom: 10, WebkitOverflowScrolling: 'touch' }}>
-          {TIPOS.map(([id, label, cor]) => {
-            const ativo = filtroTipo === id;
-            return (
-              <button
-                key={id}
-                onClick={() => setFiltroTipo(id)}
-                style={{
-                  flexShrink: 0,
-                  background: ativo ? cor : 'var(--card)',
-                  color: ativo ? '#fff' : 'var(--ink)',
-                  border: `1px solid ${ativo ? cor : 'var(--line)'}`,
-                  borderRadius: 10, padding: '6px 12px',
-                  fontSize: 12, fontWeight: 600, cursor: 'pointer',
-                  fontFamily: 'var(--sans)',
-                }}
-              >
-                {label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+  const filtros = (
+    <div style={{ display: 'flex', overflowX: 'auto', gap: 6, paddingBottom: 10, WebkitOverflowScrolling: 'touch' }}>
+      {TIPOS.map(([id, label, cor]) => {
+        const ativo = filtroTipo === id;
+        return (
+          <button
+            key={id}
+            onClick={() => setFiltroTipo(id)}
+            style={{
+              flexShrink: 0,
+              background: ativo ? cor : 'var(--card)',
+              color: ativo ? '#fff' : 'var(--ink)',
+              border: `1px solid ${ativo ? cor : 'var(--line)'}`,
+              borderRadius: 10, padding: '6px 12px',
+              fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              fontFamily: 'var(--sans)',
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 90px' }}>
+  const lista = (
         <NavegacaoDias
           itens={itensFiltrados}
           destacaAtrasado
@@ -519,6 +515,29 @@ export function CronogramaVetScreen({
             );
           }}
         />
+  );
+
+  if (embutido) {
+    return (
+      <div>
+        {filtros}
+        <div style={{ paddingTop: 2 }}>{lista}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <div style={{ padding: '14px 20px 0', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+          <button onClick={onBack} style={{ background: 'none', border: 'none', color: 'var(--accent)', fontSize: 22, padding: 0, cursor: 'pointer', lineHeight: 1 }}>‹</button>
+          <div style={{ fontFamily: 'var(--serif)', fontSize: 20, color: 'var(--ink)' }}>Cronograma Veterinário</div>
+        </div>
+        {filtros}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '12px 16px 90px' }}>
+        {lista}
       </div>
     </div>
   );

@@ -8,7 +8,6 @@ import { TopBar } from './screens';
 import { trocarSenhaVetExterno } from './auth-vet-externo';
 import { calcFaturaRepro, calcFaturasExternas, dividirFatura, servicosPadrao, servicoTeParaResultado, INICIO_INSUMOS_DO_VET, INICIO_PROCEDIMENTOS_70_30, comEguasNaFatura, textoComEgua } from './utils/faturaRepro';
 import { gerarPdfFaturaRepro, nomePdfFaturaRepro } from './utils/pdfFaturaRepro';
-import { montarCobrancasRepro, prefixoInsumosRepro, prefixoProcRepro } from './utils/cobrancasRepro';
 import { sendPush } from './utils/push';
 import { SwitcherContas } from './multiSessionUi';
 import { VeterinariaScreen } from './veterinaria';
@@ -8523,6 +8522,45 @@ function ReproCobCatalogo({ tipo, itens, todosInsumos = [], addItem, updateItem,
 // ─────────────────────────────────────────────────────────────
 // Shell principal — decide qual tela renderizar
 // ─────────────────────────────────────────────────────────────
+// Do card do kanban para o rascunho de um NOVO registro do caderno que
+// continua aquele fluxo. Retorno/coleta/indução/visita agendada guardam o
+// registro de origem (botão "Cancelar …" no formulário). Usado pelo Repro
+// Team e pelo espelho do Epona Stud no Haras.
+function preFillDoEvento(ev, { deleteAgendamentoRepro = null, localPadraoId = null } = {}) {
+  let tipoSugerido = 'controle_folicular';
+  let dadosSugeridos = {};
+  let cancelarEventoDe = null;
+  if (ev.tipoEv === 'coleta') {
+    // coleta agendada → próximo passo é registrar a TE (coleta) do embrião
+    tipoSugerido = 'transferencia_embriao';
+    dadosSugeridos = { iaOrigemId: ev.registro?.id };
+    cancelarEventoDe = { tipoEv: 'coleta', registroId: ev.registro?.id };
+  } else if (ev.tipoEv === 'retorno') {
+    cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
+  } else if (ev.tipoEv === 'inducao') {
+    cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
+  } else if (ev.tipoEv === 'visita_agendada') {
+    // Visita agendada → abre um CF da égua (o vet troca o tipo se for
+    // outro procedimento). Registrar qualquer coisa já tira a visita
+    // do kanban; o botão no form cancela a visita sem registrar.
+    const agId = ev.registro?.id;
+    cancelarEventoDe = {
+      tipoEv: 'visita_agendada', registroId: agId,
+      onCancelar: () => { if (agId && deleteAgendamentoRepro) deleteAgendamentoRepro(agId); },
+    };
+  } else if (ev.tipoEv === 'procedimento') {
+    tipoSugerido = ev.tipo || 'controle_folicular';
+  }
+  return {
+    eguaId: ev.eguaId,
+    localId: ev.registro?.localId || localPadraoId || null,
+    data: new Date().toLocaleDateString('sv-SE'),
+    tipo: tipoSugerido,
+    dados: dadosSugeridos,
+    cancelarEventoDe,
+  };
+}
+
 export function ReproApp({
   currentUser, vetsExternos, locaisRepro, proprietarios, cavalos, registrosReproducao = [],
   agendamentosRepro = [], addAgendamentoRepro, updateAgendamentoRepro, deleteAgendamentoRepro,
@@ -8629,42 +8667,7 @@ export function ReproApp({
       setGenealogicoInspecaoId(ev.genealogico.id);
       return;
     }
-    const hojeIso = new Date().toLocaleDateString('sv-SE');
-    let tipoSugerido = 'controle_folicular';
-    let dadosSugeridos = {};
-    let cancelarEventoDe = null;
-    if (ev.tipoEv === 'coleta') {
-      // coleta agendada → próximo passo é registrar a TE (coleta) do embrião
-      tipoSugerido = 'transferencia_embriao';
-      dadosSugeridos = { iaOrigemId: ev.registro?.id };
-      cancelarEventoDe = { tipoEv: 'coleta', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'retorno') {
-      tipoSugerido = 'controle_folicular';
-      cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'inducao') {
-      tipoSugerido = 'controle_folicular';
-      cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'visita_agendada') {
-      // Visita agendada → abre um CF da égua (o vet troca o tipo se for
-      // outro procedimento). Registrar qualquer coisa já tira a visita
-      // do kanban; o botão no form cancela a visita sem registrar.
-      tipoSugerido = 'controle_folicular';
-      const agId = ev.registro?.id;
-      cancelarEventoDe = {
-        tipoEv: 'visita_agendada', registroId: agId,
-        onCancelar: () => { if (agId && deleteAgendamentoRepro) deleteAgendamentoRepro(agId); },
-      };
-    } else if (ev.tipoEv === 'procedimento') {
-      tipoSugerido = ev.tipo || 'controle_folicular';
-    }
-    setPreFillCaderno({
-      eguaId: ev.eguaId,
-      localId: ev.registro?.localId || null,
-      data: hojeIso,
-      tipo: tipoSugerido,
-      dados: dadosSugeridos,
-      cancelarEventoDe,
-    });
+    setPreFillCaderno(preFillDoEvento(ev, { deleteAgendamentoRepro }));
     setTab('caderno');
     setScreen('repro-caderno');
   };
@@ -9216,252 +9219,262 @@ function Modal({ onClose, children }) {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ReproHarasView — Reprodução do haras (admin) usando o mesmo
-// layout do Epona Repro Team. Não tem aba Cadastros (animais e
-// proprietários vêm do haras). Local sempre "Epona Stud". Registros
-// salvos com workspaceId='haras'.
+// Espelho do Epona Stud no Haras (pedido da usuária, 17/11/2026).
+// O Haras mostra a reprodução do Repro Team filtrada pelo local
+// "Epona Stud": são os MESMOS registros (workspace 'repro'), sem cópia,
+// então registrar de um lado aparece do outro. Cobranças, faturas, km e
+// orçamentos ficam só no Repro Team. Registro novo feito pelo Haras sai
+// em nome do Alexandre: as vets do haras são assalariadas e não entram
+// na divisão da fatura do Repro.
 // ─────────────────────────────────────────────────────────────
-export function ReproHarasView({
-  currentUser, cavalos, proprietarios, registrosReproducao = [],
-  insumos = [], servicos = [],
-  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
-  registros = [], addRegistro, deleteRegistro,
-  procedimentos = [], addProcedimento, deleteProcedimento, addAviso,
-  onBack,
+export const ehLocalEponaStud = (l) => norm(l?.nome || '').replace(/\s+/g, ' ').trim() === 'epona stud';
+
+export function dadosEspelhoEponaStud({
+  locaisRepro = [], cavalos = [], proprietarios = [], registrosReproducao = [],
+  agendamentosRepro = [], avisosRepro = [], vetsExternos = [],
 }) {
-  const [screen, setScreen] = useState('rh-home');
-  const [tab, setTab] = useState('home');
-  const [preFillCaderno, setPreFillCaderno] = useState(null);
-  const [historicoEguaId, setHistoricoEguaId] = useState(null);
+  const locais = (locaisRepro || []).filter(ehLocalEponaStud);
+  const idsLocal = new Set(locais.map(l => l.id));
+  const eguasTodas = (cavalos || []).filter(c => c.workspaceId === 'repro');
+  // Mesmo critério do filtro "Local" do Repro Team: égua pelo local
+  // padrão; registro e visita agendada pelo local onde foram feitos.
+  const eguas = eguasTodas.filter(c => idsLocal.has(c.localId));
+  const registros = (registrosReproducao || []).filter(r => r.workspaceId === 'repro' && idsLocal.has(r.localId));
+  const agendamentos = (agendamentosRepro || []).filter(a => idsLocal.has(a.localId));
+  const idsEguas = new Set(eguas.map(e => e.id));
+  const idsRegistros = new Set(registros.map(r => r.id));
+  const avisos = (avisosRepro || []).filter(a =>
+    (a.eguaId && idsEguas.has(a.eguaId)) || (a.referenciaId && idsRegistros.has(a.referenciaId)));
+  const vets = vetsExternos || [];
+  const vetAlexandre = vets.find(v => v.ativo !== false && /alexandre/i.test(v.nome || ''))
+    || vets.find(v => /alexandre/i.test(v.nome || '')) || null;
+  return {
+    locais, localId: locais[0]?.id || null,
+    eguas, eguasTodas, registros, agendamentos, avisos,
+    propTodos: (proprietarios || []).filter(p => p.workspaceId === 'repro'),
+    vetAlexandre,
+  };
+}
 
-  // Filtra por workspace haras (padrão). Se um registro não tiver
-  // workspace, também conta como haras (backward-compat).
-  // Aceita workspaceId ausente, null, '', 'haras' — tudo que NÃO é
-  // 'repro' pertence ao haras.
-  const registrosHaras = useMemo(
-    () => (registrosReproducao || []).filter(r => r.workspaceId !== 'repro'),
-    [registrosReproducao],
+// Gravações feitas pelo Haras: sempre no Repro Team, no local Epona Stud,
+// e registro novo em nome do Alexandre. Editar não troca o vet de quem
+// registrou (mesma regra do caderno).
+function gravacoesDoEspelho(espelho, vetsExternos, { addRegistroReproducao, updateRegistroReproducao, addAgendamentoRepro }) {
+  const alexandre = espelho.vetAlexandre;
+  const ehVet = (id) => !!id && (vetsExternos || []).some(v => v.id === id);
+  return {
+    add: (reg) => addRegistroReproducao({
+      ...reg,
+      workspaceId: 'repro',
+      localId: reg.localId || espelho.localId,
+      vetId: alexandre?.id || (ehVet(reg.vetId) ? reg.vetId : null),
+      autor: alexandre?.nome || reg.autor,
+    }),
+    update: (id, patch = {}) => {
+      const p = { ...patch };
+      if ('localId' in p && !p.localId) p.localId = espelho.localId;
+      if ('vetId' in p && !ehVet(p.vetId)) p.vetId = alexandre?.id || null;
+      return updateRegistroReproducao(id, p);
+    },
+    addAgendamento: (a) => addAgendamentoRepro({ ...a, localId: a.localId || espelho.localId }),
+  };
+}
+
+function SemLocalEponaStud() {
+  return (
+    <div style={{
+      background: 'var(--card)', border: '1px solid var(--line)', borderRadius: 14,
+      padding: '14px 16px', fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5,
+    }}>
+      Não encontrei o local "Epona Stud" no Repro Team. Confira o nome em Repro Team → Cadastros → Locais.
+    </div>
   );
-  // Igual ao módulo Reprodução original: pega todos os cavalos
-  // presentes do haras (o vet decide qual é égua no combobox).
-  // Aceita workspaceId ausente/null como haras.
-  const eguasHaras = useMemo(
-    () => cavalos.filter(c => c.workspaceId !== 'repro' && c.presente !== false),
-    [cavalos],
+}
+
+// Kanban da reprodução do Epona Stud na Home do Haras.
+export function KanbanReproEponaStud({
+  espelho, vetsExternos = [], insumos = [],
+  updateRegistroReproducao, updateAgendamentoRepro,
+  onSelectEvento, onAbrir,
+}) {
+  return (
+    <div style={{ padding: '20px 20px 0' }}>
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 10 }}>
+        <h2 style={{ fontFamily: 'var(--serif)', fontSize: 18, fontWeight: 400, margin: 0, color: 'var(--ink)' }}>Reprodução · Epona Stud</h2>
+        <button onClick={onAbrir} style={{ background: 'transparent', border: 'none', fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Abrir</button>
+      </div>
+      {espelho.localId ? (
+        <Planner
+          registros={espelho.registros}
+          eguasRepro={espelho.eguas}
+          eguasReproLookup={espelho.eguasTodas}
+          vetsExternos={vetsExternos}
+          insumos={insumos}
+          agendamentos={espelho.agendamentos}
+          onSelectEvento={onSelectEvento}
+          updateRegistroReproducao={updateRegistroReproducao}
+          updateAgendamentoRepro={updateAgendamentoRepro}
+        />
+      ) : <SemLocalEponaStud />}
+    </div>
   );
-  const propHaras = useMemo(() => proprietarios.filter(p => p.workspaceId !== 'repro'), [proprietarios]);
+}
 
-  // Local "Epona Stud" virtual — sempre presente.
-  const localVirtual = { id: 'local_epona_stud', nome: 'Epona Stud', endereco: '', cidade: '', estado: '' };
-  const locaisHaras = [localVirtual];
-  // Vets externos: só o próprio admin como "operador" da UI
-  // "Vets" do haras: o usuário atual + quem já registrou no caderno (antes
-  // registros de outro usuário apareciam sem vet).
-  const vetsHaras = useMemo(() => {
-    const m = new Map([[currentUser?.id || 'admin', { id: currentUser?.id || 'admin', nome: currentUser?.nome || 'Epona Stud', cor: CORES_TAB_ATIVA }]]);
-    registrosHaras.forEach(r => { if (r.vetId && !m.has(r.vetId)) m.set(r.vetId, { id: r.vetId, nome: r.autor || 'Veterinário', cor: CORES_TAB_ATIVA }); });
-    return [...m.values()];
-  }, [registrosHaras, currentUser?.id, currentUser?.nome]);
+// Tela "Reprodução · Epona Stud" do Haras: avisos, caderno, kanban,
+// embriões em acompanhamento e histórico da égua — tudo do Repro Team,
+// só do local Epona Stud.
+export function ReproEspelhoEponaStud({
+  espelho, currentUser, vetsExternos = [], centraisRepro = [], insumos = [], servicos = [],
+  addRegistroReproducao, updateRegistroReproducao, deleteRegistroReproducao,
+  addAgendamentoRepro, updateAgendamentoRepro, deleteAgendamentoRepro,
+  resolverAvisoRepro,
+  eventoInicial = null, onConsumirEvento, onBack,
+}) {
+  const [sub, setSub] = useState('inicio'); // 'inicio' | 'caderno' | 'historico'
+  const [preFill, setPreFill] = useState(null);
+  const [historicoEguaId, setHistoricoEguaId] = useState('');
+  const grava = gravacoesDoEspelho(espelho, vetsExternos, { addRegistroReproducao, updateRegistroReproducao, addAgendamentoRepro });
 
-  // Ao criar registro, injetamos workspace=haras e localId virtual
-  // Cobrança: cada registro do caderno gera os insumos (registros da égua,
-  // que a fatura do haras lê) + taxa do haras para IA e Coleta de Embrião
-  // (utils/cobrancasRepro). Desde a troca para esta UI (10/08) nada era
-  // lançado. Editar/excluir remove as cobranças anteriores e recria.
-  const removerCobrancas = (regId) => {
-    if (!regId) return;
-    const pi = prefixoInsumosRepro(regId), pp = prefixoProcRepro(regId);
-    if (deleteRegistro) (registros || []).filter(r => String(r.id).startsWith(pi)).forEach(r => deleteRegistro(r.id));
-    if (deleteProcedimento) (procedimentos || []).filter(p => String(p.id).startsWith(pp)).forEach(p => deleteProcedimento(p.id));
-  };
-  const lancarCobrancas = (reg) => {
-    const { registros: rs, procedimentos: ps } = montarCobrancasRepro(reg, Date.now().toString(36), currentUser?.nome || '');
-    if (addRegistro) rs.forEach(r => addRegistro(r));
-    if (addProcedimento) ps.forEach(p => addProcedimento(p));
-  };
-  const wrapAdd = (payload) => {
-    const reg = { ...payload, workspaceId: 'haras', localId: localVirtual.id };
-    const r = addRegistroReproducao(reg);
-    lancarCobrancas(reg);
-    // Mesmo aviso do Repro Team: IA com destino transferência → reservar receptora
-    if (addAviso && reg.tipo === 'inseminacao_artificial' && reg.dados?.destino === 'transferencia') {
-      const eg = eguasHaras.find(c => c.id === reg.eguaId);
-      addAviso({
-        autor: 'Sistema', avatar: '🐴', urgente: true, resolvido: false, resolvidoPor: '', respostas: [],
-        tempo: new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
-        texto: `RESERVAR RECEPTORA NA CENTRAL PARA ${(eg?.nome || 'ÉGUA').toUpperCase()}`,
-        tipo: 'reservar_receptora', cavaloId: reg.eguaId, data_entrada: reg.data,
-      });
-    }
-    return r;
-  };
-  const wrapUpdate = (id, patch) => {
-    const atual = registrosHaras.find(r => r.id === id) || {};
-    const merged = { ...atual, ...patch, id, workspaceId: 'haras', localId: patch?.localId || localVirtual.id };
-    const r = updateRegistroReproducao(id, { ...patch, workspaceId: 'haras', localId: patch?.localId || localVirtual.id });
-    removerCobrancas(id);
-    lancarCobrancas(merged);
-    return r;
-  };
-  const wrapDelete = (id) => {
-    removerCobrancas(id);
-    return deleteRegistroReproducao(id);
-  };
-
-  const abrirCadernoDoEvento = (ev) => {
+  const abrirEvento = (ev) => {
     if (!ev) return;
-    const hojeIso = new Date().toLocaleDateString('sv-SE');
-    let tipoSugerido = 'controle_folicular';
-    let dadosSugeridos = {};
-    let cancelarEventoDe = null;
-    if (ev.tipoEv === 'coleta') {
-      tipoSugerido = 'transferencia_embriao';
-      dadosSugeridos = { iaOrigemId: ev.registro?.id };
-      cancelarEventoDe = { tipoEv: 'coleta', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'retorno') {
-      tipoSugerido = 'controle_folicular';
-      cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'inducao') {
-      tipoSugerido = 'controle_folicular';
-      cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
-    } else if (ev.tipoEv === 'procedimento') {
-      tipoSugerido = ev.tipo || 'controle_folicular';
-    }
-    setPreFillCaderno({
-      eguaId: ev.eguaId,
-      localId: localVirtual.id,
-      data: hojeIso,
-      tipo: tipoSugerido,
-      dados: dadosSugeridos,
-      cancelarEventoDe,
-    });
-    setTab('caderno');
-    setScreen('rh-caderno');
+    setPreFill(preFillDoEvento(ev, { deleteAgendamentoRepro, localPadraoId: espelho.localId }));
+    setSub('caderno');
   };
+  // Card tocado no kanban da Home: já chega com o caderno aberto.
+  useEffect(() => {
+    if (!eventoInicial) return;
+    abrirEvento(eventoInicial);
+    if (onConsumirEvento) onConsumirEvento();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [eventoInicial]);
+
+  const voltarParaInicio = () => { setSub('inicio'); setHistoricoEguaId(''); };
+  const voltar = () => { if (sub !== 'inicio') voltarParaInicio(); else if (onBack) onBack(); };
+  const nomeAlexandre = (espelho.vetAlexandre?.nome || 'Alexandre').split(' ')[0];
+  const egHistorico = sub === 'historico' ? espelho.eguasTodas.find(e => e.id === historicoEguaId) : null;
 
   let content;
-  if (screen === 'rh-home') {
-    content = <ReproHome
-      currentUser={{ ...currentUser, cor: CORES_TAB_ATIVA }}
-      locaisRepro={locaisHaras}
-      propRepro={propHaras}
-      eguasRepro={eguasHaras}
-      vetsExternos={vetsHaras}
-      registrosRepro={registrosHaras}
-      avisosRepro={[]}
-      resolverAvisoRepro={() => {}}
-      setScreen={setScreen}
-      setTab={setTab}
-      goCadastros={null}
-      onSelectEvento={abrirCadernoDoEvento}
-    />;
-  } else if (screen === 'rh-caderno') {
+  if (!espelho.localId) {
+    content = <div style={{ padding: '14px 20px 0' }}><SemLocalEponaStud /></div>;
+  } else if (sub === 'caderno') {
     content = <ReproCaderno
-      registrosRepro={registrosHaras}
-      eguasRepro={eguasHaras}
-      propRepro={propHaras}
-      locaisRepro={locaisHaras}
-      vetsExternos={vetsHaras}
+      registrosRepro={espelho.registros}
+      eguasRepro={espelho.eguas}
+      eguasParaLookup={espelho.eguasTodas}
+      propRepro={espelho.propTodos}
+      propParaLookup={espelho.propTodos}
+      locaisRepro={espelho.locais}
+      centraisRepro={centraisRepro}
+      vetsExternos={vetsExternos}
       currentUser={currentUser}
       servicos={servicos}
       insumos={insumos}
-      preFill={preFillCaderno}
-      onConsumirPreFill={() => setPreFillCaderno(null)}
-      addRegistroReproducao={wrapAdd}
-      updateRegistroReproducao={wrapUpdate}
-      deleteRegistroReproducao={wrapDelete}
+      preFill={preFill}
+      onConsumirPreFill={() => setPreFill(null)}
+      addRegistroReproducao={grava.add}
+      updateRegistroReproducao={grava.update}
+      deleteRegistroReproducao={deleteRegistroReproducao}
+      agendamentos={espelho.agendamentos}
+      addAgendamentoRepro={grava.addAgendamento}
+      deleteAgendamentoRepro={deleteAgendamentoRepro}
     />;
-  } else if (screen === 'rh-painel') {
-    content = <ReproPainel
-      registrosRepro={registrosHaras}
-      eguasRepro={eguasHaras}
-      locaisRepro={locaisHaras}
-      vetsExternos={vetsHaras}
-      servicos={servicos}
-      currentUser={currentUser}
-      onSelectEvento={abrirCadernoDoEvento}
-      apenasReproducao={true}
+  } else if (egHistorico) {
+    content = <HistoricoEgua
+      egua={egHistorico}
+      registrosRepro={espelho.registros}
+      vetsExternos={vetsExternos}
+      locaisRepro={espelho.locais}
+      propRepro={espelho.propTodos}
+      onBack={voltarParaInicio}
+      onOpenRegistro={(r) => { setPreFill({ editarRegistroId: r.id }); setSub('caderno'); }}
     />;
-  } else if (screen === 'rh-historico') {
-    const eg = eguasHaras.find(x => x.id === historicoEguaId);
-    if (!eg) { setScreen('rh-home'); content = null; }
-    else {
-      content = <HistoricoEgua
-        egua={eg}
-        registrosRepro={registrosHaras}
-        vetsExternos={vetsHaras}
-        locaisRepro={locaisHaras}
-        propRepro={propHaras}
-        onBack={() => setScreen('rh-home')}
-        onOpenRegistro={(r) => {
-          setPreFillCaderno({
-            eguaId: r.eguaId, localId: r.localId, data: r.data, tipo: r.tipo, dados: r.dados || {},
-          });
-          setTab('caderno'); setScreen('rh-caderno');
-        }}
-      />;
-    }
+  } else {
+    const avisosPend = filtrarAvisosParaMural(espelho.avisos, { currentUser, genealogicosRepro: [] });
+    content = (
+      <div style={{ padding: '14px 20px 0' }}>
+        <div style={{ fontSize: 12, color: 'var(--ink-3)', lineHeight: 1.5, marginBottom: 12 }}>
+          Mesmos registros do Epona Repro Team (local Epona Stud). Registros novos feitos aqui saem em nome de {nomeAlexandre}.
+        </div>
+        {avisosPend.length > 0 && (
+          <MuralAvisos
+            avisos={avisosPend}
+            onResolver={(id) => resolverAvisoRepro && resolverAvisoRepro(id, currentUser?.id)}
+            montarMensagemReserva={(aviso) => montarMensagemReservaReceptora(aviso, {
+              registros: espelho.registros, cavalos: espelho.eguasTodas, proprietarios: espelho.propTodos,
+            })}
+          />
+        )}
+        <button onClick={() => { setPreFill(null); setSub('caderno'); }} style={{
+          width: '100%', background: `linear-gradient(135deg, ${CORES_TAB_ATIVA}, #591e6a)`, color: '#fff',
+          border: 'none', borderRadius: 16, padding: '18px 18px', cursor: 'pointer',
+          display: 'flex', alignItems: 'center', gap: 14, textAlign: 'left',
+          marginBottom: 12, boxShadow: '0 8px 20px rgba(124,45,140,0.22)',
+        }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 12, background: 'rgba(255,255,255,0.18)',
+            display: 'grid', placeItems: 'center', flexShrink: 0,
+          }}>
+            <Icon name="edit" size={22} color="#fff" />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 18 }}>Caderno de reprodução</div>
+            <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>Nova IA / CE / CF / DG · agendar visita</div>
+          </div>
+          <span style={{ fontSize: 20, opacity: 0.85 }}>›</span>
+        </button>
+        <Planner
+          registros={espelho.registros}
+          eguasRepro={espelho.eguas}
+          eguasReproLookup={espelho.eguasTodas}
+          vetsExternos={vetsExternos}
+          insumos={insumos}
+          agendamentos={espelho.agendamentos}
+          onSelectEvento={abrirEvento}
+          updateRegistroReproducao={grava.update}
+          updateAgendamentoRepro={updateAgendamentoRepro}
+        />
+        <PainelEmbrioesAcompanhamento
+          registrosRepro={espelho.registros}
+          eguasLookup={espelho.eguasTodas}
+          centraisRepro={centraisRepro}
+          updateRegistroReproducao={grava.update}
+          onEditarRegistro={(id) => { setPreFill({ editarRegistroId: id }); setSub('caderno'); }}
+        />
+      </div>
+    );
   }
 
-  // TabBar simplificada: Início | Caderno | Painel + botão voltar
-  const abas = [
-    { id: 'home', label: 'Início', icon: 'home', screen: 'rh-home' },
-    { id: 'caderno', label: 'Caderno', icon: 'edit', screen: 'rh-caderno' },
-    { id: 'painel', label: 'Painel', icon: 'sparkle', screen: 'rh-painel' },
-  ];
-
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header com voltar pra tela de Veterinária */}
+    <div style={{ paddingBottom: 90 }}>
       <div style={{
         padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 10,
         background: 'var(--bg)', borderBottom: '1px solid var(--line)',
       }}>
-        <button onClick={onBack} style={{
+        <button onClick={voltar} style={{
           background: 'none', border: 'none', color: 'var(--ink-3)', cursor: 'pointer',
           padding: '6px 8px 6px 0', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4, fontFamily: 'var(--sans)',
         }}>
           <Icon name="arrow-left" size={14} /> Voltar
         </button>
-        <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-2)', flex: 1 }}>
+        <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink-2)', flex: 1, minWidth: 0 }}>
           Reprodução · Epona Stud
         </div>
-        {/* Atalho pro histórico de uma égua */}
-        <select value={historicoEguaId || ''} onChange={e => {
-          const v = e.target.value;
-          if (v) { setHistoricoEguaId(v); setScreen('rh-historico'); }
-        }} style={{
-          padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)',
-          background: 'var(--card)', fontSize: 11, color: 'var(--ink-2)', maxWidth: 140,
-        }}>
-          <option value="">Histórico da égua…</option>
-          {[...eguasHaras].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(e => (
-            <option key={e.id} value={e.id}>{e.nome}</option>
-          ))}
-        </select>
-      </div>
-
-      <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden' }}>
-        {content}
-      </div>
-
-      <div style={{
-        background: 'var(--bg)', borderTop: '1px solid var(--line)',
-        paddingTop: 8, paddingBottom: 12,
-        display: 'grid', gridTemplateColumns: `repeat(${abas.length}, 1fr)`, gap: 0, flexShrink: 0,
-      }}>
-        {abas.map(t => (
-          <button key={t.id} onClick={() => { setTab(t.id); setScreen(t.screen); }} style={{
-            background: 'none', border: 'none', display: 'flex', flexDirection: 'column',
-            alignItems: 'center', gap: 2, padding: '6px 0',
-            color: tab === t.id ? CORES_TAB_ATIVA : 'var(--ink-3)',
-            fontFamily: 'var(--sans)', fontSize: 10, fontWeight: 500, cursor: 'pointer',
+        {espelho.eguas.length > 0 && (
+          <select value={sub === 'historico' ? historicoEguaId : ''} onChange={e => {
+            const v = e.target.value;
+            if (v) { setHistoricoEguaId(v); setSub('historico'); }
+          }} style={{
+            padding: '6px 8px', borderRadius: 8, border: '1px solid var(--line)',
+            background: 'var(--card)', fontSize: 11, color: 'var(--ink-2)', maxWidth: 140,
           }}>
-            <Icon name={t.icon} size={20} />
-            <span>{t.label}</span>
-          </button>
-        ))}
+            <option value="">Histórico da égua…</option>
+            {[...espelho.eguas].sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt')).map(e => (
+              <option key={e.id} value={e.id}>{e.nome}</option>
+            ))}
+          </select>
+        )}
       </div>
+      {content}
     </div>
   );
 }
