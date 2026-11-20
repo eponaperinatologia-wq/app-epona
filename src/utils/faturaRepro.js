@@ -174,8 +174,39 @@ export function dg30PositivosDoMes(registros, ref) {
 //   - dgsEmbrioes array (múltiplos embriões na mesma coleta)
 export function dg45PositivosDoMes(registros, ref) {
   const out = [];
+  // Inovulação de embrião coletado por nós (ceOrigemId): o DG45 é marcado
+  // na inovulação (a lista de embriões da home mostra a inovulação no
+  // lugar da CE), mas o resultado é do embrião da DOADORA. Antes a linha
+  // ia pra égua da inovulação (a receptora) e o dono da doadora nunca era
+  // cobrado. Conta quantos DG45+ cada CE já tem por inovulação, pra não
+  // cobrar de novo um DG45 marcado também na própria CE.
+  const dg45ViaInovPorCe = new Map();
   for (const r of registros) {
     if ((r.workspaceId || 'haras') !== 'repro') continue;
+    if (r.tipo !== 'inovulacao_embriao' || !r.dados?.ceOrigemId) continue;
+    if (r.dados?.dg45 !== 'positivo') continue;
+    const ceId = r.dados.ceOrigemId;
+    dg45ViaInovPorCe.set(ceId, (dg45ViaInovPorCe.get(ceId) || 0) + 1);
+  }
+  for (const r of registros) {
+    if ((r.workspaceId || 'haras') !== 'repro') continue;
+    // Inovulação ligada a uma CE nossa → cobra na doadora da CE
+    if (r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId) {
+      const ce = registros.find(x => x.id === r.dados.ceOrigemId);
+      if (ce?.eguaId) {
+        const d45 = r.dados?.dg45 === 'positivo' && r.dados?.dg45_data;
+        if (d45 && isMes(r.dados.dg45_data, ref)) {
+          out.push({
+            registroOrigem: r, data: r.dados.dg45_data, eguaId: ce.eguaId, embIdx: 0,
+            receptoraEguaId: r.eguaId, viaInovulacao: true,
+            ia: rastrearIaDoDg({ eguaId: ce.eguaId, data: r.dados.dg45_data, dados: ce.dados }, registros),
+          });
+        }
+        continue;
+      }
+    }
+    // DG45+ desta CE que já foram cobrados pela inovulação vinculada
+    let jaViaInov = r.tipo === 'transferencia_embriao' ? (dg45ViaInovPorCe.get(r.id) || 0) : 0;
     // 1) Registro dedicado tipo diagnostico_gestacao com tipoDg='dg45'
     if (r.tipo === 'diagnostico_gestacao' && r.dados?.resultado === 'positivo'
         && r.dados?.tipoDg === 'dg45' && isMes(r.data, ref)) {
@@ -190,7 +221,9 @@ export function dg45PositivosDoMes(registros, ref) {
     const arrEmb = Array.isArray(r.dados?.dgsEmbrioes) ? r.dados.dgsEmbrioes : [];
     const usaPorEmbriao = qtdEmb > 1 && arrEmb.length > 0;
     // 2) DG45 marcado no detalhe (legacy — 1 embrião)
-    if (!usaPorEmbriao && r.dados?.dg45 === 'positivo' && r.dados?.dg45_data && isMes(r.dados.dg45_data, ref)) {
+    if (!usaPorEmbriao && r.dados?.dg45 === 'positivo' && jaViaInov > 0) {
+      jaViaInov--;
+    } else if (!usaPorEmbriao && r.dados?.dg45 === 'positivo' && r.dados?.dg45_data && isMes(r.dados.dg45_data, ref)) {
       out.push({
         registroOrigem: r, data: r.dados.dg45_data, eguaId: r.eguaId, embIdx: 0,
         ia: rastrearIaDoDg({ eguaId: r.eguaId, data: r.dados.dg45_data, dados: r.dados }, registros),
@@ -200,6 +233,7 @@ export function dg45PositivosDoMes(registros, ref) {
     const arr = usaPorEmbriao ? arrEmb : [];
     for (let i = 0; i < Math.min(arr.length, qtdEmb); i++) {
       const e = arr[i];
+      if (e?.dg45 === 'positivo' && jaViaInov > 0) { jaViaInov--; continue; }
       if (e?.dg45 === 'positivo' && e?.dg45_data && isMes(e.dg45_data, ref)) {
         out.push({
           registroOrigem: r, data: e.dg45_data, eguaId: r.eguaId, embIdx: i,
@@ -444,12 +478,13 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     const valor = Number(prop?.valorResultadoRepro) || 0;
     if (valor <= 0) continue;
     const qtdEmb = Math.max(1, Number(dg.registroOrigem?.dados?.qtdEmbrioes) || 1);
+    const receptoraInov = dg.receptoraEguaId ? cavalos.find(c => c.id === dg.receptoraEguaId) : null;
     resultadosLinhas.push({
       data: dg.data, eguaId: dg.eguaId, eguaNome: cav?.nome || 'égua',
       iaId: dg.ia?.iaId || null, vetIdInsem: dg.ia?.vetId || null,
       embrioIdx: dg.embIdx,
       totalEmbrioes: qtdEmb,
-      receptora: dg.receptora || null,
+      receptora: dg.receptora || receptoraInov?.nome || null,
       valor,
     });
   }
