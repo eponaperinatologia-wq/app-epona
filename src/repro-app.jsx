@@ -7331,7 +7331,7 @@ function ReproFaturas({
         : calcFaturaRepro(p.id, mesRef, deps, { agruparDescartaveis: true });
       return { prop: p, fat, persist };
     })
-    .filter(x => x.fat.total > 0 || x.persist);
+    .filter(x => x.fat.total > 0 || x.persist || (x.fat.resultadosSemValor || []).length > 0);
 
   if (propAberto) {
     const item = lista.find(x => x.prop.id === propAberto);
@@ -7427,6 +7427,11 @@ function ReproFaturas({
                   (fat.assessoriasLinhas || []).length ? `${fat.assessoriasLinhas.length} assess.` : null,
                 ].filter(Boolean).join(' · ')}
               </div>
+              {(fat.resultadosSemValor || []).length > 0 && (
+                <div style={{ fontSize: 11, color: '#c2410c', marginTop: 2 }}>
+                  {fat.resultadosSemValor.length} DG45+ sem valor de resultado no cadastro do proprietário
+                </div>
+              )}
               {(() => {
                 const semKm = (fat.visitasLinhas || []).filter(v => v.semKm).length;
                 return semKm > 0 ? (
@@ -7910,6 +7915,15 @@ function ReproFaturaDetalhe({
             onEditar: updateRegistroReproducao ? () => editarRegistro(l.registroId) : null,
             onExcluir: deleteRegistroReproducao ? () => excluirRegistro(l.registroId, `Excluir serviço "${l.descricao}" de ${fmtDataBr(l.data)}?`) : null,
           }))} />
+        )}
+        {(fatura.resultadosSemValor || []).length > 0 && (
+          <div style={{
+            margin: '0 0 12px', padding: '10px 12px', borderRadius: 10,
+            background: '#fff7ed', border: '1px solid #fdba74', fontSize: 12, color: '#9a3412',
+          }}>
+            <strong>DG45+ sem cobrança:</strong> {fatura.resultadosSemValor.map(l => `${l.eguaNome} (${fmtDataBr(l.data)})`).join(', ')}.
+            {' '}Cadastre o "valor do resultado reprodutivo" deste proprietário em Cadastros → Proprietários pra entrar na fatura.
+          </div>
         )}
         {fatura.resultadosLinhas.length > 0 && (
           <SecaoFat titulo={`Resultado repro · ${formatBRL(fatura.resultadosTotal)}`} linhas={fatura.resultadosLinhas.map(l => ({

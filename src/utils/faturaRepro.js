@@ -471,12 +471,28 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
   // Cobra 1× por embrião confirmado no DG45. Coletas com múltiplos
   // embriões geram múltiplas linhas.
   const resultadosLinhas = [];
-  const dg45Mes = dg45PositivosDoMes(regsRepro, ref);
+  // DG45+ de égua deste proprietário sem valor de resultado no cadastro:
+  // não entra no total, mas aparece como aviso na fatura (antes sumia
+  // calado e parecia que o DG45 não tinha sido cobrado).
+  const resultadosSemValor = [];
+  const normNome = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+  const dg45Mes = dg45PositivosDoMes(regsRepro, ref).map(dg => {
+    // Inovulação sem CE vinculada, mas com a doadora digitada pelo nome:
+    // se a doadora é égua cadastrada no Repro, o resultado é dela.
+    const r = dg.registroOrigem;
+    if (r?.tipo !== 'inovulacao_embriao' || r.dados?.ceOrigemId || !r.dados?.eguaDoadoraNome) return dg;
+    const alvo = normNome(r.dados.eguaDoadoraNome);
+    const doadora = cavalos.find(c => (c.workspaceId || 'haras') === 'repro' && c.id !== r.eguaId && normNome(c.nome) === alvo);
+    return doadora ? { ...dg, eguaId: doadora.id, receptoraEguaId: r.eguaId } : dg;
+  });
   for (const dg of dg45Mes) {
     if (!cavalosIds.has(dg.eguaId)) continue;
     const cav = cavalos.find(c => c.id === dg.eguaId);
     const valor = Number(prop?.valorResultadoRepro) || 0;
-    if (valor <= 0) continue;
+    if (valor <= 0) {
+      resultadosSemValor.push({ data: dg.data, eguaId: dg.eguaId, eguaNome: cav?.nome || 'égua' });
+      continue;
+    }
     const qtdEmb = Math.max(1, Number(dg.registroOrigem?.dados?.qtdEmbrioes) || 1);
     const receptoraInov = dg.receptoraEguaId ? cavalos.find(c => c.id === dg.receptoraEguaId) : null;
     resultadosLinhas.push({
@@ -608,7 +624,7 @@ export function calcFaturaRepro(propId, ref, deps, opts = {}) {
     insumosLinhas: insumosLinhasFinais, insumosTotal,
     procedimentosLinhas, procedimentosTotal,
     avulsosLinhas, avulsosTotal,
-    resultadosLinhas, resultadosTotal,
+    resultadosLinhas, resultadosTotal, resultadosSemValor,
     alugueisLinhas, alugueisTotal,
     assessoriasLinhas, assessoriasTotal,
     inspecoesLinhas, inspecoesTotal,
