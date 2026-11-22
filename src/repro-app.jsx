@@ -481,13 +481,17 @@ function iaOrigemDaCeEm(registros, ce) {
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''))[0] || null;
 }
 
-// Data da cobrição (IA da doadora) que originou uma inovulação, via a CE
-// vinculada em dados.ceOrigemId. null quando o vínculo não existe.
-function dataCobricaoDaInovulacao(registros, inov) {
-  const ceId = inov?.dados?.ceOrigemId;
-  if (!ceId) return null;
-  const ce = (registros || []).find(x => x.id === ceId);
-  return iaOrigemDaCeEm(registros, ce)?.data || null;
+// Datas de marcação (dgXX_data) e remarcações do kanban (dgXX_agendado)
+// guardadas junto do resultado de cada DG.
+function metaDg(obj = {}, pontos = []) {
+  const datas = {};
+  const agenda = {};
+  for (const p of pontos) {
+    const k = `dg${p}`;
+    if (obj?.[`${k}_data`]) datas[k] = obj[`${k}_data`];
+    if (obj?.[`${k}_agendado`]) agenda[k] = obj[`${k}_agendado`];
+  }
+  return { dgDatas: datas, dgAgenda: agenda };
 }
 
 function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
@@ -525,9 +529,11 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       (d.receptora ? [{ tipo: 'egua', eguaNome: d.receptora }] : []));
     const dgsArr = Array.isArray(d.dgsEmbrioes) ? d.dgsEmbrioes : [];
     for (let i = 0; i < qtd; i++) {
-      const dgs = qtd === 1 && dgsArr.length === 0
+      const usaRaiz = qtd === 1 && dgsArr.length === 0;
+      const dgs = usaRaiz
         ? { dg15: d.dg15 || null, dg30: d.dg30 || null, dg45: d.dg45 || null, dg60: d.dg60 || null, receptora: d.receptora || null }
         : (dgsArr[i] || {});
+      const meta = metaDg(usaRaiz ? d : (dgsArr[i] || {}), [15, 45, 60]);
       const destino = destinosArr[i] || { tipo: 'egua', eguaNome: '' };
       const receptora = destino.tipo === 'egua'
         ? (destino.eguaNome || '')
@@ -546,7 +552,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
         dataBaseDg: dataIa,
         eguaDoadora: egua?.nome || '—',
         destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
-        pontosDg: [15, 45, 60],
+        pontosDg: [15, 45, 60], ...meta,
       });
     }
   }
@@ -601,7 +607,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       destino: { tipo: 'egua', eguaNome: receptoraEgua?.nome || '', receptoraCadastradaId: r.eguaId },
       dgs, receptora: receptoraEgua?.nome || '',
       status, concluido, qtdTotalEmbrioes: 1,
-      pontosDg: [12, 15, 25, 45, 60],
+      pontosDg: [12, 15, 25, 45, 60], ...metaDg(d, [12, 15, 25, 45, 60]),
     });
   }
 
@@ -651,6 +657,9 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
         .filter(x => x.tipo === 'diagnostico_gestacao'
           && x.eguaId === r.eguaId
           && x.data && x.data >= r.data
+          // DG aberto pelo card do kanban já gravou o resultado no ponto
+          // certo (dgAlvo); classificar por dias de novo duplicaria.
+          && !x.dados?.dgAlvo
           && (x.dados?.resultado === 'positivo' || x.dados?.resultado === 'negativo'))
         .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
       for (let i = 0; i < dgsSeparados.length; i++) {
@@ -700,6 +709,8 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       // Botões de acompanhamento no painel: DG15/DG45/DG60. DG inicial
       // já aconteceu (deu positivo pra entrar); não precisa de botão.
       pontosDg: [15, 45, 60],
+      dgDatas: Object.fromEntries(['dg15', 'dg45', 'dg60'].filter(k => dgDataByKey[k]).map(k => [k, dgDataByKey[k]])),
+      dgAgenda: metaDg(d, [15, 45, 60]).dgAgenda,
     });
   }
 
@@ -719,30 +730,47 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
 // de fora pra não duplicar. Regra igual à da receptora: entra o primeiro
 // ponto pendente mesmo atrasado (até 15 dias, pra lista antiga não lotar
 // o "Atrasado") e os pontos futuros ainda não marcados.
-function eventosDgEmbrioes(registros = [], cavalos = [], hoje, idsJaAgendados = new Set()) {
+function eventosDgEmbrioes(registros = [], cavalos = [], hoje) {
   const out = [];
   const limiteAtraso = somarDiasIso(hoje, -15);
   for (const item of embrioesEmAcompanhamento(registros, cavalos)) {
-    if (item.concluido || !item.dataBaseDg) continue;
-    if (item.fonte === 'inovulacao' && idsJaAgendados.has(item.regId)) continue;
+    if (!item.dataBaseDg) continue;
     const reg = registros.find(r => r.id === item.regId);
     if (!reg) continue;
     let primeiroPendente = true;
     for (const p of item.pontosDg) {
-      const val = item.dgs?.[`dg${p}`];
-      if (val === 'positivo' || val === 'negativo') continue;
-      const dataDg = somarDiasIso(item.dataBaseDg, p);
+      const campo = `dg${p}`;
+      const val = item.dgs?.[campo];
+      // Data do evento: a remarcada no kanban (arrastar) ou a calculada.
+      // O rótulo continua "DG45" mesmo feito no D46 — é o evento do DG45.
+      const dataDg = item.dgAgenda?.[campo] || somarDiasIso(item.dataBaseDg, p);
       if (!dataDg) continue;
+      const base = {
+        id: `${item.regId}:${item.embIdx}:${campo}`,
+        tipoEv: 'embriao_dg', dgPonto: p, campoDg: campo,
+        eguaId: reg.eguaId, vetId: reg.vetId || null,
+        tipo: reg.tipo, fonte: 'repro', registro: reg,
+        embriao: item,
+      };
+      if (val === 'positivo' || val === 'negativo') {
+        // Marcado na lista (ou pelo DG do card): fica riscado no kanban no
+        // dia em que foi marcado, ou no dia agendado se ainda não chegou.
+        const marcadoEm = item.dgDatas?.[campo] || null;
+        const diaRiscado = marcadoEm === hoje ? hoje : (dataDg >= hoje ? dataDg : null);
+        if (!diaRiscado) continue;
+        // Se o DG foi registrado hoje pelo card, o próprio registro já
+        // aparece riscado em Hoje — não duplica.
+        const dgRegistradoHoje = diaRiscado === hoje && registros.some(r => r.tipo === 'diagnostico_gestacao'
+          && r.data === hoje && r.dados?.dgAlvo?.regId === item.regId && r.dados?.dgAlvo?.campo === campo);
+        if (dgRegistradoHoje) continue;
+        out.push({ ...base, dataEv: diaRiscado, cumprido: true, resultadoDg: val });
+        continue;
+      }
+      if (item.concluido) continue;
       const atrasado = dataDg < hoje;
       if (atrasado && (!primeiroPendente || dataDg < limiteAtraso)) { primeiroPendente = false; continue; }
       primeiroPendente = false;
-      out.push({
-        id: `${item.regId}:${item.embIdx}:dg${p}`,
-        tipoEv: 'embriao_dg', dgPonto: p,
-        dataEv: dataDg, eguaId: reg.eguaId, vetId: reg.vetId || null,
-        tipo: reg.tipo, fonte: 'repro', registro: reg, cumprido: false,
-        embriao: item,
-      });
+      out.push({ ...base, dataEv: dataDg, cumprido: false });
     }
   }
   return out;
@@ -981,7 +1009,7 @@ function PainelEmbrioesAcompanhamento({
                   const campo = `dg${p}`;
                   const lbl = `D${p}`;
                   const val = item.dgs?.[campo] || null;
-                  const dataPrevista = somarDiasIso(item.dataBaseDg, p);
+                  const dataPrevista = item.dgAgenda?.[campo] || somarDiasIso(item.dataBaseDg, p);
                   return (
                     <div key={campo} style={{
                       padding: 6, borderRadius: 8, border: '1px solid var(--line)',
@@ -1121,7 +1149,8 @@ function ehRemarcavelEv(ev) {
   if (!ev) return false;
   if (ev.fonte === 'repro') {
     // 'inducao' saiu do kanban (virou aviso no mural). Resta retorno/coleta.
-    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta' || ev.tipoEv === 'visita_agendada';
+    return ev.tipoEv === 'retorno' || ev.tipoEv === 'coleta' || ev.tipoEv === 'visita_agendada'
+      || (ev.tipoEv === 'embriao_dg' && !ev.cumprido);
   }
   if (ev.fonte === 'vet') {
     return ['anotacao_clinica', 'opg', 'medicao', 'vacinacao'].includes(ev.tipoEv);
@@ -1138,6 +1167,14 @@ function ehRemarcavelEv(ev) {
 async function remarcarEvento(ev, novaData, deps) {
   if (!ev || !novaData || !ehRemarcavelEv(ev)) return false;
   const { updateRegistroReproducao, vetBundle, updateVisitaClinica, updateAgendamentoRepro } = deps;
+  if (ev.tipoEv === 'embriao_dg') {
+    // Guarda a nova data junto do DG do embrião (dgXX_agendado). O ponto
+    // continua o mesmo: DG45 feito no dia 46 é o evento do DG45.
+    if (!updateRegistroReproducao || !ev.registro?.id || !ev.campoDg) return false;
+    const atualizado = patchDgEmbriao(ev.registro, ev.embriao?.embIdx || 0, { [`${ev.campoDg}_agendado`]: novaData });
+    updateRegistroReproducao(ev.registro.id, { dados: atualizado.dados });
+    return true;
+  }
   if (ev.tipoEv === 'visita_agendada') {
     if (!updateAgendamentoRepro || !ev.registro?.id) return false;
     updateAgendamentoRepro(ev.registro.id, { data: novaData });
@@ -1345,10 +1382,7 @@ function Planner({
   const eventosAgenda = eventosVisitasAgendadas(agendamentos, registros, hoje);
   // DGs dos embriões (CE / prenhez na matriz / inovulação fora do fluxo
   // da receptora), com as datas da lista "Embriões" da home.
-  const inovsAgendadas = new Set(eventosReceptora
-    .filter(ev => ev.tipoEv?.startsWith('receptora_dg') || ev.tipoEv === 'receptora_inovulacao')
-    .map(ev => ev.registro?.id).filter(Boolean));
-  const eventosDg = eventosDgEmbrioes(registros, eguasLookup, hoje, inovsAgendadas);
+  const eventosDg = eventosDgEmbrioes(registros, eguasLookup, hoje);
   let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao, ...eventosAgenda, ...eventosDg];
   if (vetBundle) {
     const eguasIds = new Set((eguasRepro || []).map(c => c.id));
@@ -1929,40 +1963,8 @@ function eventosReceptorasAtivas(registros, hoje, cavalos = [], insumos = []) {
     let limiteFim = null;
     if (inov) limiteFim = inov.data; // último dia visível = dia da inovulação (depois some)
     if (cfCiosin && (!limiteFim || cfCiosin.data < limiteFim)) limiteFim = addDiasLocal(cfCiosin.data, -1); // ciosin encerra imediatamente
-    // Se existe inovulação, gera eventos DG pós-inov (D12/D15/D25/D45/D60
-    // contados da ovulação). O primeiro DG não resolvido vira card.
-    if (inov) {
-      const PONTOS_DG = [12, 15, 25, 45, 60];
-      const chaveDg = { 12: 'dg12', 15: 'dg15', 25: 'dg25', 45: 'dg45', 60: 'dg60' };
-      // Data-base igual à da lista de embriões da home: cobrição da doadora
-      // quando conhecida, senão a ovulação da receptora. Enquanto o kanban
-      // contava sempre da ovulação, o mesmo DG caía em dias diferentes nas
-      // duas telas (a diferença entre cobrição e ovulação da receptora).
-      const baseDg = dataCobricaoDaInovulacao(registros, inov) || dataOv;
-      // O primeiro ponto ainda não resolvido entra mesmo se a data já
-      // passou — vai pro bucket "Atrasado". Antes um DG vencido e não
-      // feito simplesmente desaparecia da agenda, que é justamente o
-      // caso em que ele mais precisa aparecer.
-      let primeiroPendente = true;
-      for (const p of PONTOS_DG) {
-        // Se já marcado positivo/negativo no inov.dados, pula
-        const chave = chaveDg[p];
-        const val = inov.dados?.[chave];
-        if (val === 'positivo' || val === 'negativo') continue;
-        const dataDg = addDiasLocal(baseDg, p);
-        const atrasado = dataDg < hoje;
-        if (atrasado && !primeiroPendente) continue;
-        primeiroPendente = false;
-        out.push({
-          id: `${inov.id}:dg${p}`,
-          tipoEv: `receptora_dg${p}`,
-          dataEv: dataDg, eguaId, vetId: inov.vetId,
-          tipo: 'inovulacao_embriao', fonte: 'repro',
-          registro: inov, cumprido: false,
-          dgPonto: p,
-        });
-      }
-    }
+    // DGs pós-inovulação (D12/D15/D25/D45/D60) saem de eventosDgEmbrioes,
+    // a partir da lista "Embriões" da home — mesma data, mesmo estado.
     // D0 a D9 (contados da ovulação) — enquanto não houver inov/ciosin
     for (let d = 0; d <= 9; d++) {
       const dataD = addDiasLocal(dataOv, d);
@@ -4786,6 +4788,20 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
       vetId: registro?.vetId || currentUser?.id || null,
       localId: localId || null,
     };
+    // DG aberto pelo card do kanban (dgAlvo): grava o resultado no ponto
+    // do embrião — a lista "Embriões" da home e o kanban leem dali. Vale
+    // também ao editar o DG depois (troca de resultado).
+    const alvo = tipo === 'diagnostico_gestacao' ? dados.dgAlvo : null;
+    if (alvo?.regId && alvo?.campo && updateRegistroReproducao
+      && (dados.resultado === 'positivo' || dados.resultado === 'negativo')) {
+      const regAlvo = (registrosRepro || []).find(r => r.id === alvo.regId);
+      if (regAlvo) {
+        const atualizado = patchDgEmbriao(regAlvo, alvo.embIdx || 0, {
+          [alvo.campo]: dados.resultado, [`${alvo.campo}_data`]: data,
+        });
+        updateRegistroReproducao(regAlvo.id, { dados: atualizado.dados });
+      }
+    }
     // CE positiva com destino "égua nossa": cria a inovulação vinculada
     // junto. Sem esse registro o kanban não agenda DG nenhum e a receptora
     // fica presa nos cards D0–D9 — era o que obrigava a registrar a
@@ -5355,6 +5371,15 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
 
       {tipo === 'diagnostico_gestacao' && (
         <>
+          {dados.dgAlvo?.campo && (
+            <div style={{
+              padding: '8px 12px', borderRadius: 8, marginBottom: 10,
+              background: '#ecfeff', border: '1px solid #67e8f9', fontSize: 12, color: '#155e75',
+            }}>
+              DG{dados.dgAlvo.ponto || String(dados.dgAlvo.campo).replace('dg', '')} do embrião — o resultado
+              {' '}é marcado direto na lista "Embriões" da home.
+            </div>
+          )}
           <FormField label="Resultado *">
             <div style={{ display: 'flex', gap: 6 }}>
               {[
@@ -8604,6 +8629,14 @@ function preFillDoEvento(ev, { deleteAgendamentoRepro = null, localPadraoId = nu
     cancelarEventoDe = { tipoEv: 'retorno', registroId: ev.registro?.id };
   } else if (ev.tipoEv === 'inducao') {
     cancelarEventoDe = { tipoEv: 'inducao', registroId: ev.registro?.id };
+  } else if (ev.tipoEv === 'embriao_dg') {
+    // DG do embrião → abre um Diagnóstico de Gestação já apontando pro
+    // ponto (dgAlvo). Ao salvar com resultado, o form marca esse DG na
+    // lista "Embriões" da home.
+    tipoSugerido = 'diagnostico_gestacao';
+    dadosSugeridos = {
+      dgAlvo: { regId: ev.registro?.id, embIdx: ev.embriao?.embIdx || 0, campo: ev.campoDg, ponto: ev.dgPonto },
+    };
   } else if (ev.tipoEv === 'visita_agendada') {
     // Visita agendada → abre um CF da égua (o vet troca o tipo se for
     // outro procedimento). Registrar qualquer coisa já tira a visita
