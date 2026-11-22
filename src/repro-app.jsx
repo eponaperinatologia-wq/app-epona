@@ -711,6 +711,43 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
     dataOrdem(b).localeCompare(dataOrdem(a)) || (a.embIdx - b.embIdx));
 }
 
+// Eventos de kanban dos DGs dos embriões da lista "Embriões" da home,
+// com as mesmas datas mostradas nela (data-base + N dias). Cobre coleta
+// (CE) e prenhez na própria matriz — antes só as inovulações em receptora
+// tinham DG no kanban, e um DG45 de CE/prenhez nunca era agendado.
+// Inovulações já agendadas pelo fluxo da receptora (idsJaAgendados) ficam
+// de fora pra não duplicar. Regra igual à da receptora: entra o primeiro
+// ponto pendente mesmo atrasado (até 15 dias, pra lista antiga não lotar
+// o "Atrasado") e os pontos futuros ainda não marcados.
+function eventosDgEmbrioes(registros = [], cavalos = [], hoje, idsJaAgendados = new Set()) {
+  const out = [];
+  const limiteAtraso = somarDiasIso(hoje, -15);
+  for (const item of embrioesEmAcompanhamento(registros, cavalos)) {
+    if (item.concluido || !item.dataBaseDg) continue;
+    if (item.fonte === 'inovulacao' && idsJaAgendados.has(item.regId)) continue;
+    const reg = registros.find(r => r.id === item.regId);
+    if (!reg) continue;
+    let primeiroPendente = true;
+    for (const p of item.pontosDg) {
+      const val = item.dgs?.[`dg${p}`];
+      if (val === 'positivo' || val === 'negativo') continue;
+      const dataDg = somarDiasIso(item.dataBaseDg, p);
+      if (!dataDg) continue;
+      const atrasado = dataDg < hoje;
+      if (atrasado && (!primeiroPendente || dataDg < limiteAtraso)) { primeiroPendente = false; continue; }
+      primeiroPendente = false;
+      out.push({
+        id: `${item.regId}:${item.embIdx}:dg${p}`,
+        tipoEv: 'embriao_dg', dgPonto: p,
+        dataEv: dataDg, eguaId: reg.eguaId, vetId: reg.vetId || null,
+        tipo: reg.tipo, fonte: 'repro', registro: reg, cumprido: false,
+        embriao: item,
+      });
+    }
+  }
+  return out;
+}
+
 const STATUS_META = {
   coletado:    { label: 'Coletado · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
   inicial_pos: { label: 'DG inicial+ · aguarda D15', bg: '#dbeafe', ink: '#1e40af' },
@@ -1306,7 +1343,13 @@ function Planner({
   // "cumprido" (não faz sentido). Filtra os que caem em [hoje-30d, +30d]
   // pra não poluir a agenda horizontal.
   const eventosAgenda = eventosVisitasAgendadas(agendamentos, registros, hoje);
-  let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao, ...eventosAgenda];
+  // DGs dos embriões (CE / prenhez na matriz / inovulação fora do fluxo
+  // da receptora), com as datas da lista "Embriões" da home.
+  const inovsAgendadas = new Set(eventosReceptora
+    .filter(ev => ev.tipoEv?.startsWith('receptora_dg') || ev.tipoEv === 'receptora_inovulacao')
+    .map(ev => ev.registro?.id).filter(Boolean));
+  const eventosDg = eventosDgEmbrioes(registros, eguasLookup, hoje, inovsAgendadas);
+  let eventos = [...eventosBase, ...eventosReceptora, ...eventosInspecao, ...eventosAgenda, ...eventosDg];
   if (vetBundle) {
     const eguasIds = new Set((eguasRepro || []).map(c => c.id));
     const janelaIni = addDias(hoje, -30);
@@ -2011,6 +2054,7 @@ function rotuloEvento(ev) {
   if (ev.tipoEv === 'receptora_d') return ev.dLabel || 'D';
   if (ev.tipoEv === 'receptora_inovulacao') return 'Inovulação';
   if (ev.tipoEv && ev.tipoEv.startsWith('receptora_dg')) return `DG${ev.dgPonto}`;
+  if (ev.tipoEv === 'embriao_dg') return `DG${ev.dgPonto}`;
   if (ev.tipoEv === 'inspecao') return 'Inspeção';
   if (ev.tipoEv === 'visita_agendada') return 'Visita';
   return (TIPO_META[ev.tipo]?.short) || '—';
@@ -2022,6 +2066,13 @@ function rotuloEvento(ev) {
 // Retorna '' se não há info útil pro tipo.
 function sufixoEvento(ev) {
   const dados = ev?.registro?.dados || {};
+  if (ev.tipoEv === 'embriao_dg' && ev.embriao) {
+    const e = ev.embriao;
+    const emb = e.qtdTotalEmbrioes > 1 ? ` (emb. ${e.embIdx + 1}/${e.qtdTotalEmbrioes})` : '';
+    if (e.fonte === 'ce') return `${emb}${e.receptora ? ' · rec. ' + e.receptora : ''}`;
+    if (e.fonte === 'inovulacao') return ` · emb. ${e.eguaDoadora}`;
+    return e.garanhao ? ' · ' + e.garanhao : '';
+  }
   if (ev.tipoEv === 'visita_agendada' && dados.observacao) {
     const obs = dados.observacao.trim();
     return ' · ' + (obs.length > 28 ? obs.slice(0, 27) + '…' : obs);
