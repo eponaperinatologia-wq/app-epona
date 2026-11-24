@@ -133,7 +133,7 @@ function ReproHome({
   centraisRepro = [],
   registrosRepro, avisosRepro = [], resolverAvisoRepro,
   setScreen, setTab, goCadastros, onSelectEvento, vetBundle = null,
-  updateRegistroReproducao = null, onEditarRegistro = null,
+  updateRegistroReproducao = null, onEditarRegistro = null, deleteRegistroReproducao = null,
   visitasClinicas = [], contratosAssessoria = [], proprietarios = [],
   updateVisitaClinica = null, onSelectVisitaClinica = null,
   insumos = [], genealogicosRepro = [],
@@ -304,6 +304,7 @@ function ReproHome({
         eguasLookup={eguasReproLookup || eguasRepro}
         centraisRepro={centraisRepro}
         updateRegistroReproducao={updateRegistroReproducao}
+        deleteRegistroReproducao={deleteRegistroReproducao}
         onEditarRegistro={onEditarRegistro}
       />
     </div>
@@ -553,6 +554,8 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
         eguaDoadora: egua?.nome || '—',
         destino, dgs, receptora, status, concluido, qtdTotalEmbrioes: qtd,
         pontosDg: [15, 45, 60], ...meta,
+        // patchDgEmbriao grava na raiz quando qtd=1, senão em dgsEmbrioes[i]
+        oculto: !!(qtd === 1 ? d.ocultoListaEmbrioes : dgsArr[i]?.ocultoListaEmbrioes),
       });
     }
   }
@@ -608,6 +611,8 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       dgs, receptora: receptoraEgua?.nome || '',
       status, concluido, qtdTotalEmbrioes: 1,
       pontosDg: [12, 15, 25, 45, 60], ...metaDg(d, [12, 15, 25, 45, 60]),
+      ceOrigemId: d.ceOrigemId || null,
+      oculto: !!d.ocultoListaEmbrioes,
     });
   }
 
@@ -711,6 +716,7 @@ function embrioesEmAcompanhamento(registrosRepro = [], cavalosLookup = []) {
       pontosDg: [15, 45, 60],
       dgDatas: Object.fromEntries(['dg15', 'dg45', 'dg60'].filter(k => dgDataByKey[k]).map(k => [k, dgDataByKey[k]])),
       dgAgenda: metaDg(d, [15, 45, 60]).dgAgenda,
+      oculto: !!d.ocultoListaEmbrioes,
     });
   }
 
@@ -734,7 +740,7 @@ function eventosDgEmbrioes(registros = [], cavalos = [], hoje) {
   const out = [];
   const limiteAtraso = somarDiasIso(hoje, -15);
   for (const item of embrioesEmAcompanhamento(registros, cavalos)) {
-    if (!item.dataBaseDg) continue;
+    if (!item.dataBaseDg || item.oculto) continue;
     const reg = registros.find(r => r.id === item.regId);
     if (!reg) continue;
     let primeiroPendente = true;
@@ -815,17 +821,31 @@ function patchDgEmbriao(registro, embIdx, patch) {
 
 function PainelEmbrioesAcompanhamento({
   registrosRepro = [], eguasLookup = [], centraisRepro = [],
-  updateRegistroReproducao, onEditarRegistro = null,
+  updateRegistroReproducao, onEditarRegistro = null, deleteRegistroReproducao = null,
 }) {
   // Acordeão fechado por padrão: fica no final da página pra consulta,
   // não atrapalha o dia a dia.
   const [aberto, setAberto] = useState(false);
   const [editReceptoraId, setEditReceptoraId] = useState(null); // `${regId}:${embIdx}`
   const [receptoraDraft, setReceptoraDraft] = useState('');
-  const todos = useMemo(
+  const [mostrarOcultos, setMostrarOcultos] = useState(false);
+  const [removendo, setRemovendo] = useState(null); // item em remoção (modal)
+  const todosComOcultos = useMemo(
     () => embrioesEmAcompanhamento(registrosRepro, eguasLookup),
     [registrosRepro, eguasLookup],
   );
+  // Removidos da lista (ocultoListaEmbrioes) saem da contagem e do kanban;
+  // o registro continua no caderno e na fatura.
+  const todos = todosComOcultos.filter(e => !e.oculto);
+  const ocultos = todosComOcultos.filter(e => e.oculto);
+  // Possível duplicado: mesmo embrião aparecendo 2× (ex.: duas inovulações
+  // da mesma coleta, ou mesmo garanhão × égua × data × receptora).
+  const chaveDup = (e) => e.ceOrigemId
+    ? `ce:${e.ceOrigemId}`
+    : `${e.fonte}|${e.garanhao}|${e.eguaDoadora}|${e.dataColeta || e.dataInovulacao || e.dataIa || ''}|${e.receptora}|${e.embIdx}`;
+  const contDup = new Map();
+  for (const e of todos) contDup.set(chaveDup(e), (contDup.get(chaveDup(e)) || 0) + 1);
+  const ehDuplicado = (e) => (contDup.get(chaveDup(e)) || 0) > 1;
   // Embriões ficam na lista até o fim da estação (regra do negócio;
   // "arquivar" ao fim da estação virá em fluxo futuro). Mostra todos,
   // ordenados por data de cobrição (mais recente em cima). Ativos e concluídos convivem — o badge
@@ -839,9 +859,17 @@ function PainelEmbrioesAcompanhamento({
   const confirmados = todos.filter(e => ehPositivo(e)).length;
   const negativados = todos.filter(e => ehNegativo(e)).length;
   const prenhezes45 = todos.filter(e => e.status === 'd45_pos' || e.status === 'd60_pos').length;
-  const lista = todos;
+  const lista = mostrarOcultos ? todosComOcultos : todos;
 
-  if (todos.length === 0) return null;
+  if (todosComOcultos.length === 0) return null;
+
+  const setOculto = (item, oculto) => {
+    if (!updateRegistroReproducao) return;
+    const reg = registrosRepro.find(r => r.id === item.regId);
+    if (!reg) return;
+    const regAtualizado = patchDgEmbriao(reg, item.embIdx, { ocultoListaEmbrioes: oculto || null });
+    updateRegistroReproducao(reg.id, { dados: regAtualizado.dados });
+  };
 
   const centralNome = (id) => centraisRepro.find(c => c.id === id)?.nome || '—';
 
@@ -894,6 +922,7 @@ function PainelEmbrioesAcompanhamento({
             {` · ${confirmados} confirmado${confirmados === 1 ? '' : 's'}`}
             {` · ${negativados} negativado${negativados === 1 ? '' : 's'}`}
             {` · ${prenhezes45} ${prenhezes45 === 1 ? 'prenhez' : 'prenhezes'} 45+`}
+            {ocultos.length > 0 && ` · ${ocultos.length} removido${ocultos.length === 1 ? '' : 's'}`}
           </div>
         </div>
         <span style={{
@@ -918,7 +947,7 @@ function PainelEmbrioesAcompanhamento({
         return (
           <div key={key} style={{
             borderTop: '1px solid var(--line)', paddingTop: 10, marginTop: 10,
-            opacity: item.concluido ? 0.75 : 1,
+            opacity: item.oculto ? 0.45 : item.concluido ? 0.75 : 1,
           }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
               <div style={{ fontFamily: 'var(--serif)', fontSize: 14, color: 'var(--ink)' }}>
@@ -928,12 +957,33 @@ function PainelEmbrioesAcompanhamento({
                     (embrião {item.embIdx + 1}/{item.qtdTotalEmbrioes})
                   </span>
                 )}
+                {!item.oculto && ehDuplicado(item) && (
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, padding: '1px 6px', borderRadius: 4, marginLeft: 6,
+                    background: '#ffedd5', color: '#c2410c', fontFamily: 'var(--sans)', verticalAlign: 'middle',
+                  }}>POSSÍVEL DUPLICADO</span>
+                )}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{
                   fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 4,
                   background: meta.bg, color: meta.ink, textTransform: 'uppercase', letterSpacing: '0.04em',
                 }}>{meta.label}</span>
+                {updateRegistroReproducao && (
+                  item.oculto ? (
+                    <button onClick={() => setOculto(item, false)} title="Voltar pra lista" style={{
+                      height: 26, padding: '0 8px', borderRadius: 6, border: '1px solid var(--line)',
+                      background: 'transparent', color: 'var(--ink-2)', cursor: 'pointer', fontSize: 10, fontWeight: 700,
+                      fontFamily: 'var(--sans)',
+                    }}>Reexibir</button>
+                  ) : (
+                    <button onClick={() => setRemovendo(item)} title="Remover da lista" style={{
+                      width: 26, height: 26, borderRadius: 6, border: '1px solid var(--line)',
+                      background: 'transparent', color: 'var(--ink-3)', cursor: 'pointer',
+                      display: 'grid', placeItems: 'center', fontSize: 15, lineHeight: 1,
+                    }}>×</button>
+                  )
+                )}
                 {onEditarRegistro && (
                   <button
                     onClick={() => onEditarRegistro(item.regId)}
@@ -1040,9 +1090,59 @@ function PainelEmbrioesAcompanhamento({
           </div>
         );
       })}
+
+      {aberto && ocultos.length > 0 && (
+        <button onClick={() => setMostrarOcultos(v => !v)} style={{
+          marginTop: 10, width: '100%', padding: '8px', borderRadius: 8, border: '1px dashed var(--line)',
+          background: 'transparent', color: 'var(--ink-3)', fontSize: 11, cursor: 'pointer', fontFamily: 'var(--sans)',
+        }}>
+          {mostrarOcultos ? 'Esconder removidos' : `Mostrar ${ocultos.length} removido${ocultos.length === 1 ? '' : 's'}`}
+        </button>
+      )}
+
+      {removendo && (() => {
+        const item = removendo;
+        const reg = registrosRepro.find(r => r.id === item.regId);
+        // Excluir o registro só vale pra inovulação (1 embrião = 1 registro).
+        // Coleta/IA guardam o procedimento (e a cobrança) — nesses só oculta.
+        const podeExcluir = !!deleteRegistroReproducao && item.fonte === 'inovulacao' && !!reg;
+        const fechar = () => setRemovendo(null);
+        const btn = (bg, cor, borda) => ({
+          width: '100%', padding: '11px', borderRadius: 10, border: borda || 'none', background: bg, color: cor,
+          fontSize: 13, fontWeight: 700, cursor: 'pointer', fontFamily: 'var(--sans)', marginTop: 8, textAlign: 'center',
+        });
+        return (
+          <Modal onClose={fechar}>
+            <div style={{ fontFamily: 'var(--serif)', fontSize: 19, marginBottom: 4 }}>Remover da lista</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 6 }}>
+              {item.garanhao || '—'} × {item.eguaDoadora}
+              {item.qtdTotalEmbrioes > 1 ? ` (embrião ${item.embIdx + 1}/${item.qtdTotalEmbrioes})` : ''}
+              {item.receptora ? ` · rec. ${item.receptora}` : ''}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink-3)', marginBottom: 6, lineHeight: 1.5 }}>
+              <strong>Ocultar</strong> tira o embrião da lista e dos DGs do kanban. O registro continua no caderno e na fatura; dá pra reexibir depois.
+              {podeExcluir && <> <strong>Excluir a inovulação</strong> apaga o registro do caderno — use quando ela foi lançada em dobro (a inovulação também entra na fatura).</>}
+            </div>
+            <button onClick={() => { setOculto(item, true); fechar(); }} style={btn(CORES_TAB_ATIVA, '#fff')}>
+              Ocultar da lista
+            </button>
+            {podeExcluir && (
+              <button onClick={() => {
+                if (!window.confirm('Excluir esta inovulação do caderno? Não dá pra desfazer.')) return;
+                deleteRegistroReproducao(reg.id);
+                fechar();
+              }} style={btn('#fef2f2', '#991b1b', '1px solid #fecaca')}>
+                Excluir a inovulação do caderno
+              </button>
+            )}
+            <button onClick={fechar} style={btn('var(--card)', 'var(--ink-2)', '1px solid var(--line)')}>Cancelar</button>
+          </Modal>
+        );
+      })()}
     </div>
   );
 }
+
 
 // Monta a mensagem de WhatsApp pra reservar receptora na central.
 // Lê quantidade de receptoras do campo ovulacoes do registro IA
@@ -4809,15 +4909,27 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
     const extras = [];
     if (tipo === 'transferencia_embriao' && dados.resultado === 'positivo') {
       const destinosArr = Array.isArray(dados.destinos) ? dados.destinos : [];
+      // Inovulações já ligadas a esta coleta. Antes, editar a coleta e
+      // trocar a receptora criava uma 2ª inovulação (a antiga ficava) —
+      // embrião duplicado na lista e inovulação cobrada em dobro.
+      const linkadas = (registrosRepro || []).filter(r =>
+        r.tipo === 'inovulacao_embriao' && r.dados?.ceOrigemId === payload.id);
+      const qtdCadastradas = destinosArr.filter(dd => dd?.tipo === 'egua' && dd.receptoraCadastradaId).length;
       destinosArr.forEach((dest, i) => {
         // Receptora de terceiros (texto livre) não tem cadastro, logo não
         // tem como virar registro de inovulação — segue só como destino.
         if (!dest || dest.tipo !== 'egua' || !dest.receptoraCadastradaId) return;
-        const jaExiste = (registrosRepro || []).some(r =>
-          r.tipo === 'inovulacao_embriao'
-          && r.dados?.ceOrigemId === payload.id
-          && r.eguaId === dest.receptoraCadastradaId);
-        if (jaExiste) return;
+        if (linkadas.some(r => r.eguaId === dest.receptoraCadastradaId)) return;
+        // Mesma posição de embrião já tem inovulação automática: troca a
+        // receptora nela em vez de criar outra.
+        const mesmaPosicao = linkadas.find(r => r.dados?.criadaDaCe && r.dados?.destIdx === i);
+        if (mesmaPosicao) {
+          if (updateRegistroReproducao) updateRegistroReproducao(mesmaPosicao.id, { eguaId: dest.receptoraCadastradaId });
+          return;
+        }
+        // Registros antigos (sem destIdx): se já há tantas inovulações
+        // quanto receptoras cadastradas, não cria mais.
+        if (linkadas.length >= qtdCadastradas) return;
         // Retorno no D12 contado da ovulação da receptora (mesma regra que o
         // formulário de inovulação já usava).
         const ultOv = [...(registrosRepro || [])]
@@ -4831,7 +4943,7 @@ function FormRegistroRepro({ registro, novoBase = null, eguasRepro, propRepro, l
           eguaId: dest.receptoraCadastradaId,
           data,
           tipo: 'inovulacao_embriao',
-          dados: { ceOrigemId: payload.id, criadaDaCe: true },
+          dados: { ceOrigemId: payload.id, criadaDaCe: true, destIdx: i },
           dataRetorno: addDias(ultOv?.dados?.dataOvulacao || data, 12),
           insumosUsados: [],
           autor: payload.autor,
@@ -8839,6 +8951,7 @@ export function ReproApp({
       onSelectEvento={abrirCadernoDoEvento}
       vetBundle={vetBundle}
       updateRegistroReproducao={updateRegistroReproducao}
+      deleteRegistroReproducao={deleteRegistroReproducao}
       agendamentos={agendamentos}
       updateAgendamentoRepro={updateAgendamentoRepro}
       onEditarRegistro={abrirCadernoEditarRegistro}
